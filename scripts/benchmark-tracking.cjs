@@ -2,7 +2,7 @@
 // Real ONNX inference; never copies the input footage into public site assets.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),cp=require('node:child_process'),ts=require('typescript');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pitchiq-bench-'));
-for(const name of ['detection-core','track-vision','persistent-tracker'])fs.writeFileSync(path.join(dir,name+'.js'),ts.transpileModule(fs.readFileSync('lib/'+name+'.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText);
+for(const name of ['detection-core','track-vision','player-reid','persistent-tracker'])fs.writeFileSync(path.join(dir,name+'.js'),ts.transpileModule(fs.readFileSync('lib/'+name+'.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText);
 const core=require(path.join(dir,'detection-core.js')),vision=require(path.join(dir,'track-vision.js')),tracking=require(path.join(dir,'persistent-tracker.js')),ort=require('onnxruntime-web/wasm');
 const [video,output,seconds='5',start='2']=process.argv.slice(2);if(!video||!output)throw Error('Pass video and output path');
 const w=1920,h=1080,frameBytes=w*h*4;

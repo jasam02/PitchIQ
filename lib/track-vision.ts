@@ -43,10 +43,10 @@ export function pitchMask(frame:Frame){
 function grey(f:Frame){const a=new Float32Array(f.width*f.height);for(let i=0;i<a.length;i++)a[i]=f.data[i*4]*.299+f.data[i*4+1]*.587+f.data[i*4+2]*.114;return a;}
 // Track textured background patches and robustly fit scale + translation.
 // Conservative fallback when matches do not agree; not a projective homography.
-export function estimateCamera(previous:Frame,current:Frame):CameraMotion{
+export function estimateCamera(previous:Frame,current:Frame,people:Box[]=[]):CameraMotion{
  if(previous.width!==current.width||previous.height!==current.height)return stillCamera;
  const w=current.width,h=current.height,a=grey(previous),b=grey(current);const pairs:{x:number;y:number;u:number;v:number}[]=[];let change=0;for(let i=0;i<a.length;i++)change+=Math.abs(a[i]-b[i]);change/=a.length;
- for(let y=16;y<h-16;y+=20)for(let x=16;x<w-16;x+=24){let mean=0,variance=0;for(let j=-3;j<=3;j++)for(let i=-3;i<=3;i++)mean+=a[(y+j)*w+x+i];mean/=49;for(let j=-3;j<=3;j++)for(let i=-3;i<=3;i++)variance+=(a[(y+j)*w+x+i]-mean)**2;if(variance/49<100)continue;
+ for(let y=16;y<h-16;y+=20)for(let x=16;x<w-16;x+=24){if(people.some(p=>x/w>=p.x-.02&&x/w<=p.x+p.w+.02&&y/h>=p.y-.02&&y/h<=p.y+p.h+.02))continue;let mean=0,variance=0;for(let j=-3;j<=3;j++)for(let i=-3;i<=3;i++)mean+=a[(y+j)*w+x+i];mean/=49;for(let j=-3;j<=3;j++)for(let i=-3;i<=3;i++)variance+=(a[(y+j)*w+x+i]-mean)**2;if(variance/49<100)continue;
   const costs:{dx:number;dy:number;cost:number}[]=[];for(let dy=-12;dy<=12;dy++)for(let dx=-12;dx<=12;dx++){let cost=0;for(let j=-3;j<=3;j+=2)for(let i=-3;i<=3;i+=2)cost+=Math.abs(a[(y+j)*w+x+i]-b[(y+j+dy)*w+x+i+dx]);costs.push({dx,dy,cost:cost/16});}costs.sort((c,d)=>c.cost-d.cost);const best=costs[0],second=costs.find(c=>Math.hypot(c.dx-best.dx,c.dy-best.dy)>3);if(best.cost<18&&second&&second.cost-best.cost>1.5)pairs.push({x:x/w,y:y/h,u:(x+best.dx)/w,v:(y+best.dy)/h});
  }
  let best=stillCamera,bestInliers=0;

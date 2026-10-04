@@ -16,7 +16,9 @@
     "test:upload": "node --test tests/upload.test.cjs",
     "typecheck": "tsc --noEmit",
     "db:local": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc",
-    "test:norfair": "node scripts/prepare-norfair.mjs && node tests/norfair-browser.mjs"
+    "test:norfair": "node scripts/prepare-norfair.mjs && node tests/norfair-browser.mjs",
+    "test:soccer": "node --test tests/soccer.test.cjs",
+    "evaluate:soccer": "node scripts/evaluate-soccer.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

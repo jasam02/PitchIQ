@@ -21,3 +21,16 @@
 .field-lines {position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}
 .tracking-corner {pointer-events:none;font-size:12px}
 .field-mark-row {display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.soccer-debug-box{position:absolute;pointer-events:none;border:2px solid #8bd8fa;z-index:6}
+.soccer-debug-box.referee{border-color:#ff9b68;border-style:dashed}
+.soccer-debug-box.goalkeeper{border-color:#f7d65a;border-width:3px}
+.soccer-debug-box.unknown{border-color:#c7a6fa;border-style:dotted}
+.soccer-debug-box>span{position:absolute;bottom:100%;left:0;background:#121a20e8;color:#fff;padding:3px 5px;white-space:nowrap;font:10px/1.4 monospace}
+.soccer-debug-panel{max-height:380px;overflow:auto;font-size:12px;line-height:1.65}
+.soccer-local-box{position:absolute;pointer-events:none;border:2px dotted #c7a6fa;z-index:2}
+.soccer-local-box.referee{border-color:#ff9b68;border-style:dashed}
+.soccer-local-box>span{position:absolute;bottom:100%;left:0;background:#121a20e8;color:#fff;padding:2px 4px;white-space:nowrap;font:11px/1.4 sans-serif;opacity:0}
+.show-names .soccer-local-box>span{opacity:1}
+.jersey-filter-controls{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:8px}
+.jersey-color-choices{display:flex;gap:12px;flex-wrap:wrap;border:0;padding:0;margin:0;min-width:0}
+.jersey-color-choices>button{min-width:160px}

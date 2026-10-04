@@ -22,10 +22,8 @@ try {
     if(statement.trim())await db.prepare(statement.trim()).run();
   }
   const origin = await mf.ready;
-  // These are synthetic identity headers ONLY for this local isolated Worker.
-  // Production identity remains supplied and validated by Sites dispatch.
-  const auth = {'oai-authenticated-user-id':'built-upload-test','oai-authenticated-user-email':'qa@example.test'};
-  const call = (path,init={})=>fetch(new URL(path,origin),{...init,headers:{...auth,...init.headers},signal:AbortSignal.timeout(120000)});
+  // The temporary shared workspace must work without auth headers or cookies.
+  const call = (path,init={})=>fetch(new URL(path,origin),{...init,signal:AbortSignal.timeout(120000)});
   const json = body=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const decoded = async response=>{const text=await response.text();assert.equal(response.ok,true,`${response.status}: ${text.slice(0,500)}`);return JSON.parse(text);};
   const home = await call('/');assert.equal(home.status,200);
@@ -38,8 +36,6 @@ try {
     const actual=Buffer.from(await response.arrayBuffer()),expected=readFileSync('public/norfair/'+name);
     assert.equal(createHash('sha256').update(actual).digest('hex'),createHash('sha256').update(expected).digest('hex'),name+' must serve the engine asset, not an HTML fallback');
   }
-  const anonymous = await fetch(new URL('/api/videos?action=init',origin),json({filename:'qa.mp4',size:bytes.length}));
-  assert.equal(anonymous.status,401);
   const session = await decoded(await call('/api/videos?action=init',json({filename:'upload-qa.mp4',size:bytes.length,metadata:{opponent:'Upload QA',consent:true}})));
   id=session.id;
   let chunks=0;
@@ -69,5 +65,5 @@ try {
   for(const match of trackingHtml.matchAll(/(?:src|href)="([^" ]+\.js)"/g))assert.equal((await call(match[1])).status,200);
   const repeated = await decoded(await call('/api/videos?action=complete',json({id})));
   assert.equal(repeated.id,id);
-  console.log(JSON.stringify({passed:true,bytes:bytes.length,chunks,sha256:hash(bytes),checks:['built Worker HTTP upload','completion','identical download','range seeking','out-of-range 416','anonymous 401','tracking API roster','tracking page','homepage CSS','idempotent completion','all Norfair browser assets byte-identical']}));
+  console.log(JSON.stringify({passed:true,bytes:bytes.length,chunks,sha256:hash(bytes),checks:['built Worker HTTP upload','completion','identical download','range seeking','out-of-range 416','upload without sign-in','tracking API roster','tracking page','homepage CSS','idempotent completion','all Norfair browser assets byte-identical']}));
 } finally {await mf.dispose();}

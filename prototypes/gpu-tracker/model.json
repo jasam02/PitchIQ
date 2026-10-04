@@ -1,0 +1,10 @@
+{
+  "repository": "gianpaj/football-players-detection-1",
+  "revision": "19ff0a8196ba3839d67acead4d7983692e8b79ff",
+  "file": "weights/best.pt",
+  "bytes": 136707514,
+  "sha256": "a35ca40ea9e728288b86b37f728afbe601dfd7ec58f30d4661900c2d9b308932",
+  "license": "AGPL-3.0",
+  "classes": ["ball", "goalkeeper", "player", "referee"],
+  "source": "https://huggingface.co/gianpaj/football-players-detection-1"
+}

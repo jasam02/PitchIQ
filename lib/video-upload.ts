@@ -1,7 +1,7 @@
 // Browser requests stay below the gateway limit. R2 multipart parts must be
 // at least 5 MiB (except the last), so assemble THREE 2 MiB chunks per part.
 export const CHUNK_SIZE = 2 * 1024 * 1024;
-export const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+export const MAX_VIDEO_SIZE = 150 * 1024 * 1024;
 const CHUNKS_PER_PART = 3;
 const SESSION_TTL = 24 * 60 * 60 * 1000;
 
@@ -36,7 +36,7 @@ async function cleanChunks(bucket: R2Bucket, owner: string, s: Session) {
 export async function beginUpload({bucket}: Dependencies, owner: string, body: any) {
   if (!Number.isInteger(body.size) || body.size < 1 || body.size > MAX_VIDEO_SIZE ||
       typeof body.filename !== 'string' || body.filename.length > 255 || !body.filename.toLowerCase().endsWith('.mp4')) {
-    throw new UploadError('Choose a non-empty MP4 up to 100 MB.');
+    throw new UploadError('Choose a non-empty MP4 up to 150 MB.');
   }
   const metadata = body.metadata ?? {};
   if (!metadata || Array.isArray(metadata) || typeof metadata !== 'object' || JSON.stringify(metadata).length > 20000) throw new UploadError('Invalid match details.');

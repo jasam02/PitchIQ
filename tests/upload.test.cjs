@@ -45,7 +45,7 @@ test('video upload: real R2/D1 emulation, browser client, completion, ownership 
     });
     let realId;
     const fixture = process.env.PITCHIQ_TEST_VIDEO;
-    const cases = [1,2*1024*1024,6*1024*1024,8*1024*1024,16*1024*1024,100*1024*1024];
+    const cases = [1,2*1024*1024,6*1024*1024,8*1024*1024,16*1024*1024,150*1024*1024];
     if (fixture) cases.push(fixture);
     for(const size of cases) await t.test(`round trip ${typeof size==='string'?'actual soccer MP4':size+' bytes'}`,async()=>{
       const bytes = typeof size === 'string' ? fs.readFileSync(size) : Buffer.alloc(size,123);
@@ -67,7 +67,7 @@ test('video upload: real R2/D1 emulation, browser client, completion, ownership 
       if(typeof size==='string')realId=result.id;
     });
     await t.test('rejects bad sizes and isolates upload sessions and saved videos by owner',async()=>{
-      for(const size of [0,-1,100*1024*1024+1,1.5]) await assert.rejects(upload.beginUpload(deps,owner,{filename:'bad.mp4',size}),/MP4/);
+      for(const size of [0,-1,150*1024*1024+1,1.5]) await assert.rejects(upload.beginUpload(deps,owner,{filename:'bad.mp4',size}),/MP4/);
       const s = await upload.beginUpload(deps,owner,{filename:'test.mp4',size:8*1024*1024});
       const request = ()=>new Request('https://test',{method:'PUT',body:new Uint8Array(2*1024*1024)});
       await assert.rejects(upload.putChunk(deps,'other-coach',s.id,1,request()),/not found/);

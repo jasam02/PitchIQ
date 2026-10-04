@@ -1,8 +1,9 @@
 import {iou,type Detection} from './detection-core';
 import {appearanceDistance,stillCamera,type CameraMotion} from './track-vision';
 import type {Box} from './tracking';
-export type TrackDetection=Detection&{appearance?:number[]};
-export type PersistentTrack={team?:string;id:string;kind:'person'|'ball';box:Box;appearance:number[];vx:number;vy:number;time:number;lastSeen:number;misses:number;};
+import {cosine} from './player-reid';
+export type TrackDetection=Detection&{appearance?:number[];embedding?:number[];quality?:number;kit?:number[];fieldScore?:number;fieldReliable?:boolean};
+export type PersistentTrack={team?:string;id:string;kind:'person'|'ball';box:Box;appearance:number[];embedding?:number[];vx:number;vy:number;time:number;lastSeen:number;misses:number;};
 export type TrackSample={id:string;box:Box;score:number;evidence:'detection'|'predicted';recovered:boolean};
 export function startTrack(id:string,kind:'person'|'ball',box:Box,time:number,appearance:number[]=[]):PersistentTrack{return {id,kind,box,appearance,vx:0,vy:0,time,lastSeen:time,misses:0};}
 // Rectangular Hungarian assignment with private unmatched columns.
@@ -22,7 +23,9 @@ export function stepTracks(tracks:PersistentTrack[],detections:TrackDetection[],
  const predicted=tracks.map(t=>{const b=warp(t.box,cam),dt=Math.max(.001,time-t.time);return {...b,x:b.x+t.vx*dt,y:b.y+t.vy*dt};});
  const cost=(i:number,d:TrackDetection,low:boolean)=>{const t=tracks[i],b=predicted[i];if(t.kind!==d.kind)return 1e3;const a=center(b),q=center(d.box),gap=time-t.lastSeen,gate=t.kind==='ball'?.1:Math.min(.075,Math.max(.02,b.h*.9)+gap*.015),distance=Math.hypot(q.x-a.x,q.y-a.y),ratio=d.box.w*d.box.h/(b.w*b.h),appearance=t.kind==='ball'?0:appearanceDistance(t.appearance,d.appearance||[]);
   if(distance>gate||ratio<.35||ratio>2.9||appearance>.35||(low&&(gap>.5||distance>gate*.65||appearance>.25)))return 1e3;
-  return .5*distance/gate+.2*(1-iou(b,d.box))+.3*appearance;
+  const learned=t.embedding&&d.embedding?cosine(t.embedding,d.embedding):undefined;
+  if(learned!==undefined&&learned<.6)return 1e3;
+  return learned===undefined?.5*distance/gate+.2*(1-iou(b,d.box))+.3*appearance:.35*distance/gate+.15*(1-iou(b,d.box))+.1*appearance+.4*(1-learned);
  };
  const matched=new Map<number,number>(),used=new Set<number>();
  for(const low of [false,true]){const rows=tracks.map((_,i)=>i).filter(i=>!matched.has(i)),cols=detections.map((_,i)=>i).filter(j=>!used.has(j)&&(low?detections[j].score<.25&&detections[j].score>=.08:detections[j].score>=.25));const costs=rows.map(i=>cols.map(j=>cost(i,detections[j],low))),assignment=assignMinimum(costs,low?.58:.78);
@@ -33,7 +36,7 @@ export function stepTracks(tracks:PersistentTrack[],detections:TrackDetection[],
   });
  }
  tracks.forEach((t,i)=>{const j=matched.get(i),dt=Math.max(.001,time-t.time),gap=time-t.lastSeen;
-  if(j!==undefined){const d=detections[j],old=center(warp(t.box,cam)),q=center(d.box);const vx=t.misses?t.vx:.55*t.vx+.45*(q.x-old.x)/dt,vy=t.misses?t.vy:.55*t.vy+.45*(q.y-old.y)/dt;next.push({...t,box:d.box,time,lastSeen:time,misses:0,vx,vy});samples.push({id:t.id,box:d.box,score:d.score,evidence:'detection',recovered:t.misses>0});}
+  if(j!==undefined){const d=detections[j],old=center(warp(t.box,cam)),q=center(d.box);const vx=t.misses?t.vx:.55*t.vx+.45*(q.x-old.x)/dt,vy=t.misses?t.vy:.55*t.vy+.45*(q.y-old.y)/dt;next.push({...t,box:d.box,time,lastSeen:time,misses:0,vx,vy,embedding:d.quality&&d.quality>.55&&d.embedding?d.embedding:t.embedding});samples.push({id:t.id,box:d.box,score:d.score,evidence:'detection',recovered:t.misses>0});}
   else if(gap<=(t.kind==='ball'?.6:1.4)){const b=predicted[i];next.push({...t,box:b,time,misses:t.misses+1,vx:t.vx*.95,vy:t.vy*.95});if(gap<=(t.kind==='ball'?.2:.4)&&within(b))samples.push({id:t.id,box:b,score:Math.max(.05,.4-gap*.6),evidence:'predicted',recovered:false});}
   else issues.push({playerId:t.id,time:t.lastSeen,reason:'No confident match after the recovery window. Check identity here.'});
  });

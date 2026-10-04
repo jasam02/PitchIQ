@@ -10,7 +10,7 @@ export async function uploadRequest(url: string, init: RequestInit, retry = fals
       try { data = JSON.parse(text); } catch { /* Gateways can return plain text or HTML. */ }
       if (!response.ok) {
         const message = response.status === 413 ? 'The server rejected this video chunk. Refresh the page and try again; no compression is needed.'
-          : response.status === 401 ? 'Please sign in with ChatGPT, then retry your upload.'
+          : response.status === 401 ? 'The upload service denied access. Refresh the page and retry.'
           : data?.error || `Upload failed (HTTP ${response.status}). Please retry.`;
         throw new RequestError(message, response.status);
       }
