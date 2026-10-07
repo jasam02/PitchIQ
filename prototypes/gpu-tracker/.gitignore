@@ -4,3 +4,4 @@ runs/
 settings/
 __pycache__/
 *.pyc
+uploads/

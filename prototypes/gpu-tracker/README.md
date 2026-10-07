@@ -25,12 +25,20 @@ repository root:
 
 ```bat
 cd /d C:\Users\some1\Documents\PitchIQ\PitchIQ
-prototypes\gpu-tracker\start.cmd "C:\Users\some1\Downloads\Video Project 1.mp4"
+prototypes\gpu-tracker\start.cmd
 ```
 
-Open http://127.0.0.1:8765 and click **Process on GPU**. Previous results for the
-same video load automatically. Add `--run` to the command to start processing
-immediately, or `--port 8766` to use another port. Ctrl+C stops the server.
+Open http://127.0.0.1:8765, click **Upload video** and choose a match video
+(.mp4, .mov, .mkv, .avi, .m4v or .webm). The file is copied into
+`prototypes\gpu-tracker\uploads\` on this computer (ignored by Git) and never
+leaves it; uploading the same file again reuses the copy. Videos uploaded earlier
+can be reopened from **Earlier uploads**. Then click **Process on GPU**. Previous
+results for the same video load automatically.
+
+You can still pass a video on the command line instead:
+`start.cmd "C:\Users\some1\Downloads\Video Project 1.mp4"`. With a video
+given, add `--run` to start processing immediately. Use `start.cmd --port 8766`
+(or add `--port 8766` after the video) for another port. Ctrl+C stops the server.
 Accepted re-identifications, crossing corrections and sanity warnings are also
 printed in the console.
 
@@ -316,7 +324,7 @@ No global Python packages are changed.
   is provisional.
 
 The server binds only to loopback. Environments, downloaded weights, settings,
-and generated runs are ignored by Git.
+uploaded videos and generated runs are ignored by Git.
 
 ## Model provenance and licensing
 
