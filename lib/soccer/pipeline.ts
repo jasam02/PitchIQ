@@ -3,7 +3,7 @@
 // (temporal) -> appearance gallery & re-ID -> pitch coordinates -> GLOBAL IDENTITY MANAGER -> observations.
 import {iou} from '../detection-core';
 import {shirtFeature,stillCamera} from '../track-vision';
-import {describe} from './appearance';
+import {bhattacharyya,describe} from './appearance';
 import {emptyTeamModel,fitTeamModel,kitVote} from './classify';
 import {toPitch} from './homography';
 import {IdentityManager,type Stab,type StepSample,type TeamSample} from './identity';
@@ -40,22 +40,41 @@ export function composeCamera(first:CameraMotion,second:CameraMotion):CameraMoti
  const s=second.scale;
  return {scale:first.scale*s,dx:first.dx*s+second.dx,dy:first.dy*s+second.dy,reliable:true,cut:false};
 }
+const kitDist=(a:number[],b:number[])=>bhattacharyya(a,b)??1;
+// The refit mapped the previous A kit to B (and B to A).
+function swappedKits(p:TeamModel,n:TeamModel){return !!(p.a&&p.b&&n.a&&n.b)&&kitDist(n.a,p.b)+kitDist(n.b,p.a)+.2<kitDist(n.a,p.a)+kitDist(n.b,p.b);}
+// Local track holding a user label: overlap (IoU > .2) or the label's centre inside the track box (a click-sized
+// or loose label), best overlap first. dt > 0: the label is that old, so tracks are moved back by their velocity.
+export function anchorTrack<T extends {box:Box;vx:number;vy:number}>(tracks:T[],label:Box,dt=0):T|undefined{
+ const c={x:label.x+label.w/2,y:label.y+label.h/2};let best:T|undefined,score=0;
+ for(const t of tracks){
+  const b={...t.box,x:t.box.x-t.vx*dt,y:t.box.y-t.vy*dt},v=iou(b,label),inside=c.x>=b.x&&c.x<=b.x+b.w&&c.y>=b.y&&c.y<=b.y+b.h;
+  if(v<=.2&&!inside)continue;
+  const m=v+(inside?.5-Math.hypot(c.x-b.x-b.w/2,c.y-b.y-b.h/2)/Math.max(b.h,1e-3)*.2:0);if(m>score){score=m;best=t;}
+ }
+ return best;
+}
 const overlapsAny=(box:Box,others:Box[],aspect:number)=>others.some(o=>o!==box&&(iou(o,box)>.02||Math.hypot((o.x+o.w/2-box.x-box.w/2)*aspect,o.y+o.h/2-box.y-box.h/2)<.6*(o.w+box.w)/2*aspect));
 
 // Kit clusters come from every on-pitch sample; user labels only orient them (which cluster is A) and a labelled
 // player matching neither kit (typically the goalkeeper in slot 1) becomes a keeper prototype of that team.
-// Labels alone define the prototypes only while too few people are visible to find two kits.
-export function fitKits(samples:TeamSample[],previous?:TeamModel):TeamModel{
+// Without a deciding label, existing identities (restored or automatic, `prior` samples) orient them, so a new
+// session or refit never renames everyone. Labels (else identities) define the prototypes only while too few people
+// are visible to find two kits.
+export function fitKits(all:TeamSample[],previous?:TeamModel):TeamModel{
+ const prior=all.filter(s=>s.prior&&s.team).map(s=>({jersey:s.jersey,team:s.team,...(s.weight!==undefined?{weight:s.weight}:{})})),samples=all.filter(s=>!s.prior);
  const free=samples.map(s=>s.role?s:{jersey:s.jersey,...(s.weight!==undefined?{weight:s.weight}:{})}); // keeper hints keep their team
  const labelled=samples.filter(s=>s.team&&!s.role);
  let m=fitTeamModel(free,previous);
- if(!m.a||!m.b)return labelled.length?fitTeamModel(samples,previous):m;
- if(!labelled.length)return m;
+ if(!m.a||!m.b)return labelled.length?fitTeamModel(samples,previous):prior.length?{...fitTeamModel([...samples,...prior],previous),anchored:false}:m;
+ if(!labelled.length&&!prior.length)return m;
  const probe=(jersey:number[]):Descriptor=>({jersey,shorts:[],socks:[],layout:[],quality:1});
  let keep=0,swap=0;const keepers:TeamSample[]=[];
  for(const s of labelled){const v=kitVote(m,probe(s.jersey));if(v.team){if(v.team===s.team)keep++;else swap++;}else if(v.outlier&&!v.refLike)keepers.push(s);}
+ const user=keep+swap>0;
+ if(!user)for(const s of prior){const v=kitVote(m,probe(s.jersey));if(v.team===s.team)keep++;else if(v.team)swap++;}
  if(swap>keep){const flip=(t?:Team):Team|undefined=>t==='A'?'B':t==='B'?'A':undefined;m={...m,a:m.b,b:m.a,keepers:m.keepers.map(k=>k.team?{...k,team:flip(k.team)}:k)};}
- if(keep||swap)m={...m,anchored:true};
+ if(user)m={...m,anchored:true};
  if(keepers.length){
   const rest=free.filter((_,i)=>!keepers.includes(samples[i]));
   const r=fitTeamModel([...rest,...keepers.map(s=>({jersey:s.jersey,team:s.team,role:'goalkeeper' as const,weight:s.weight}))],m);
@@ -80,6 +99,8 @@ export class SoccerTracker{
  private segment=0;private S=1;private D={x:0,y:0};private drift=0;
  constructor(options:Partial<SoccerOptions>={},saved:SavedIdentity[]=[]){this.options=soccerOptions(options);this.ids=new IdentityManager(this.options,saved);}
  get teamModel():TeamModel{return this.model;}
+ // Time of the last processed step (undefined before the first one).
+ get time():number|undefined{return this.lastTime;}
  // Seed appearance for a roster identity from a user-confirmed label on an earlier frame.
  rememberLabel(playerId:string,team:'A'|'B'|'ref',frame:Frame,box:Box,time:number):void{
   if(!validBox(box)||!frame?.width||!frame?.height)return;
@@ -96,6 +117,9 @@ export class SoccerTracker{
   const S=this.S,D=this.D,stabilize=(b:Box):Stab=>{const f=footPoint(b);return {x:(f.x-D.x)/S,y:(f.y-D.y)/S,h:b.h/S};};
   const t0=now(),pitch=analyzePitch(frame,time,this.pitch,camera),tPitch=now()-t0;this.pitch=pitch;
   const persons=(input.detections||[]).filter(d=>d&&d.kind==='person'&&validBox(d.box)&&Number.isFinite(d.score)).map(d=>d.appearance?.length?d:{...d,appearance:shirtFeature(frame,d.box)});
+  // The size model belongs to one camera view: dropped on a cut or an unknown camera move, scaled with zooms.
+  if(this.size&&(camera.cut||this.lastTime!==undefined&&!(camera.reliable&&camera.scale>0)))this.size=undefined;
+  else if(this.size&&this.lastTime!==undefined)this.size={...this.size,a:this.size.a*camera.scale-this.size.b*camera.dy};
   const assessed=assessDetections(persons,pitch,o.field,this.size);this.size=assessed.size;
   // People just beyond a touchline (not audience) may continue an existing track, never start one.
   const rejected:RejectedDetection[]=assessed.rejected.map(r=>({...r})),byBox=new Map(persons.map(p=>[p.box,p])),continuation:ScoredDetection[]=[],held=new Map<Box,RejectedDetection>();
@@ -104,20 +128,28 @@ export class SoccerTracker{
   for(const s of loc.samples){const r=s.detection&&held.get(s.detection.box);if(r)r.track=s.id;}
   const t1=now(),boxes=persons.map(p=>p.box),current=new Map<number,Descriptor>();
   for(const s of loc.samples)if(s.evidence==='detection')current.set(s.id,describe(frame,s.box,boxes));
-  // User anchors: bind to the local track overlapping the label (IoU > .5) or start one from the label box.
-  const slots=new Map(roster.map(s=>[s.id,s])),latest=new Map<string,Box>(),anchors:{playerId:string;track:number;box:Box;descriptor?:Descriptor}[]=[],taken=new Set<number>(),spawned=new Set<number>();
-  for(const a of input.anchors||[])if(a&&validBox(a.box)&&slots.get(a.playerId)?.active)latest.set(a.playerId,a.box);
-  for(const [playerId,box] of latest){
-   let best=-1,score=.5;
-   for(const t of this.local.tracks){const id=localId(t.id),v=iou(t.box,box);if(!taken.has(id)&&v>score){score=v;best=id;}}
-   if(best<0){best=this.local.spawn(box,time,shirtFeature(frame,box));spawned.add(best);loc.samples.push({id:best,box,score:1,evidence:'detection',spawned:true,recovered:false});}
-   taken.add(best);const d=describe(frame,box,boxes);if(!current.has(best)||spawned.has(best))current.set(best,d);
+  // User anchors: bind to the local track holding the labelled person, or start one from the label box. A label
+  // drawn on an earlier frame (time) is compared with where each track was then; it (like a weak one) never starts a track.
+  const slots=new Map(roster.map(s=>[s.id,s])),latest=new Map<string,{box:Box;time?:number;weak?:boolean}>(),anchors:{playerId:string;track:number;box:Box;descriptor?:Descriptor}[]=[],taken=new Set<number>(),spawned=new Set<number>();
+  for(const a of input.anchors||[])if(a&&validBox(a.box)&&slots.get(a.playerId)?.active){const at=Number.isFinite(a.time)?a.time:undefined,prev=latest.get(a.playerId);if(!prev||(at??time)>=(prev.time??time))latest.set(a.playerId,{box:a.box,...(at!==undefined?{time:at}:{}),...(a.weak?{weak:true}:{})});}
+  for(const [playerId,label] of latest){
+   const {box}=label,dt=label.time!==undefined?Math.max(0,time-label.time):0,stale=dt>.04,best=anchorTrack(this.local.tracks.filter(t=>!taken.has(localId(t.id))),box,dt);
+   let id=best?localId(best.id):-1;
+   if(id<0&&(stale||label.weak))continue;
+   if(id<0){id=this.local.spawn(box,time,shirtFeature(frame,box));spawned.add(id);loc.samples.push({id,box,score:1,evidence:'detection',spawned:true,recovered:false});}
+   taken.add(id);
+   // The crop of the person (the detection), not of a loose or click-sized label box.
+   const own=best?best.box:box,d=!spawned.has(id)&&current.get(id)||describe(frame,stale||box.h<.6*own.h?own:box,boxes);if(!current.has(id)||spawned.has(id))current.set(id,d);
    const slot=slots.get(playerId)!;this.ids.bankSample(playerId,slot.team,slot.team==='ref'?'referee':slot.role??'player',d,time);
-   anchors.push({playerId,track:best,box,descriptor:d});
+   anchors.push({playerId,track:id,box:own,descriptor:d});
   }
   const tDescribe=now()-t1;
   // Team model: refit about once a second (every step until two kits are known, and right after labels).
-  if(time-this.fitAt>=(this.model.a&&this.model.b&&!anchors.length?1:.15)||time<this.fitAt){this.model=fitKits(this.ids.teamSamples(current),this.model);this.fitAt=time;}
+  const flipped:ReidEvent[]=[];
+  if(time-this.fitAt>=(this.model.a&&this.model.b&&!anchors.length?1:.15)||time<this.fitAt){
+   const before=this.model;this.model=fitKits(this.ids.teamSamples(current,time),before);this.fitAt=time;
+   if(swappedKits(before,this.model))flipped.push(...this.ids.flipTeams(time));
+  }
   const samples:StepSample[]=loc.samples.map(s=>{
    const det=s.detection,observed=s.evidence==='detection',descriptor=observed?current.get(s.id):undefined;
    const pitchPt=input.homography?toPitch(input.homography,s.box):undefined;
@@ -130,7 +162,7 @@ export class SoccerTracker{
   const debug:DebugFrame={time,pitch,tracks:res.tracks,rejected:[...rejected,...res.dropped]};
   this.lastTime=time;
   this.lastTiming={total:r3(now()-clock),pitch:r3(tPitch),describe:r3(tDescribe)};
-  return {observations:res.observations,debug,events:res.events,issues:res.issues};
+  return {observations:res.observations,debug,events:[...flipped,...res.events],issues:res.issues};
  }
  snapshot():SavedIdentity[]{return this.ids.snapshot();}
  // Sanity diagnostics (duplicate-looking identities, too many identities per team, etc.).
@@ -148,7 +180,8 @@ export function explainFrame(frame:Frame,detections:TrackDetection[],time:number
  const tracks:DebugTrack[]=accepted.map(d=>{
   const v=kitVote(model,describe(frame,d.box,boxes));
   const kit=!model.a||!model.b?'no team model yet':v.team?`kit vote ${v.team} (A ${v.distA.toFixed(2)}, B ${v.distB.toFixed(2)})`:v.outlier?`no team kit (A ${v.distA.toFixed(2)}, B ${v.distB.toFixed(2)}, referee ${v.distRef.toFixed(2)})`:`kit undecided (A ${v.distA.toFixed(2)}, B ${v.distB.toFixed(2)})`;
-  const known=tracker?.explainTrack(d.box);
+  // Live tracks describe the tracker's last step only, not another frame.
+  const known=tracker?.time!==undefined&&Math.abs(tracker.time-time)<=.1?tracker.explainTrack(d.box):undefined;
   if(known&&(!known.playerId||active.has(known.playerId)))return {...known,box:d.box,zone:d.zone,reason:[known.reason,kit].filter(Boolean).join('; ')};
   return {track:0,box:d.box,label:v.team?`${v.team}?`:'CAND',...(v.team?{team:v.team}:{}),roleLabel:'CANDIDATE',state:'candidate',identity:0,zone:d.zone,reason:`${kit}; score ${d.score.toFixed(2)}${d.sizeRatio!==1?`, size ${d.sizeRatio.toFixed(2)}x`:''}`};
  });

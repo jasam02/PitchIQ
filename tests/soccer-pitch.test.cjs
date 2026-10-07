@@ -281,6 +281,80 @@ test('analyzePitch scales to full HD within budget and agrees with the low-res r
  assert.ok(Math.abs(m.coverage-base.coverage)<.03);
 });
 
+// ---------- boundary edge cases (640x360 scenes) ----------
+const G2=x=>Math.floor(x/40)%2?[40,140,50]:[52,162,62];
+const foot640=(x,y,h,w=.02)=>({x:x/640-w/2,y:y/360-h,w,h});
+const zones=(m,boxes)=>boxes.map(b=>zoneOf(m,b).zone);
+
+test('green seats behind advertising boards never join the pitch',()=>{
+ for(const boards of [6,10,16]){
+  const m=analyzePitch(makeFrame(640,360,(x,y)=>y<70?(((x*7+y*13)%23<3)?[200,200,200]:[30,110,60]):y<70+boards?[40,60,200]:y>=330?[80,60,40]:Math.abs(y-96)<1.2||Math.abs(y-300)<1.2?LINE:G2(x)),0);
+  assert.ok(Math.min(...m.grassPolygon.map(p=>p.y))>.18,`boards ${boards}: grass hull reaches the stands`);
+  assert.ok(Math.abs(lineY(side(m,'far'),.5)-96/360)<.01,`boards ${boards}: far touchline ${JSON.stringify(m.lines)}`);
+  const fans=[[300,40],[300,60]].map(([x,y])=>person(foot640(x,y,.06,.015)));
+  assert.deepEqual(assessDetections(fans,m,defaultFieldFilter).accepted,[],`boards ${boards}`);
+ }
+});
+
+test('a short marking or an oblique goal line outside a touchline never hides the touchline',()=>{
+ // Technical-area marking 1 m beyond the near touchline along the dugout (30% of the width).
+ const tech=analyzePitch(makeFrame(640,360,(x,y)=>{if(y<70)return [95,95,105];if(y<85)return [40,60,200];if(y>=330)return [80,60,40];
+  if(Math.abs(y-96)<1.2||Math.abs(y-280)<1.2)return LINE;if(Math.abs(y-292)<1.2&&x>=200&&x<390)return LINE;if(y>280&&y<292&&(Math.abs(x-200)<1.2||Math.abs(x-390)<1.2))return LINE;return G2(x);}),0);
+ assert.ok(Math.abs(lineY(side(tech,'near'),.5)-280/360)<.01,JSON.stringify(tech.lines));
+ assert.deepEqual(zones(tech,[[300,318],[350,322],[100,320]].map(([x,y])=>foot640(x,y,.2,.03))),['outside','outside','outside']);
+ // Camera on the left corner: the goal line runs down-left at a shallow angle, farther from the centre than the far touchline.
+ const farY=x=>100-.02*(x-320),goalY=x=>farY(260)+.33*(260-x);
+ const corner=analyzePitch(makeFrame(640,360,(x,y)=>{if(y<60)return [95,95,105];if(y<86)return [40,60,200];if(y>=335)return [80,60,40];
+  if(y>farY(x)-2&&x<260&&Math.abs(y-goalY(x))<1.3)return LINE;if(Math.abs(y-farY(x))<1.3&&x>=258)return LINE;if(Math.abs(y-310)<1.3&&y>goalY(x))return LINE;return G2(x);}),0);
+ assert.ok(side(corner,'far')&&Math.abs(lineY(side(corner,'far'),.7)-farY(448)/360)<.01,JSON.stringify(corner.lines));
+ const runoff=[[380,88],[460,87.5],[540,87]].map(([x,y])=>person({x:x/640-.006,y:y/360-.07,w:.012,h:.07}));
+ assert.deepEqual(assessDetections(runoff,corner,defaultFieldFilter).rejected.map(r=>r.reason),['audience','audience','audience']);
+});
+
+test('deep grass beyond the far touchline (park ground) keeps the touchline; a painted line at the grass edge makes it interior',()=>{
+ for(const trees of [70,60,40]){
+  const m=analyzePitch(makeFrame(640,360,(x,y)=>y<trees?[70,70,60]:y>=330?[80,60,40]:Math.abs(y-96)<1.2||Math.abs(y-300)<1.2?LINE:G2(x)),0);
+  assert.ok(side(m,'far')&&Math.abs(lineY(side(m,'far'),.5)-96/360)<.01,`trees at ${trees}: ${JSON.stringify(m.lines)}`);
+  const beyond=[[200,80],[300,70]].filter(([,y])=>y>trees).map(([x,y])=>foot640(x,y,.07,.015));
+  assert.ok(zones(m,beyond).every(z=>z==='outside'),`trees at ${trees}`);
+ }
+});
+
+test('interior goal-side lines: pillarbox bars are the frame edge, a goal line at the grass edge makes the 18-yard line interior',()=>{
+ // 4:3 footage in a 16:9 frame: the halfway line near the right bar is not a goal line.
+ const bars=analyzePitch(makeFrame(640,360,(x,y)=>{if(x<80||x>=560)return [0,0,0];if(y<70)return [95,95,105];if(y<85)return [40,60,200];if(y>=330)return [80,60,40];
+  if(Math.abs(y-96)<1.2||Math.abs(y-300)<1.2)return LINE;if(y>96&&y<300&&Math.abs(x-(470+.12*(y-200)))<1.2)return LINE;return G2(x);}),0);
+ assert.ok(!bars.lines.some(l=>l.side==='left'||l.side==='right'),JSON.stringify(bars.lines));
+ assert.deepEqual(zones(bars,[[500,200],[500,280],[510,150]].map(([x,y])=>foot640(x,y,.1))),['inside','inside','inside']);
+ // Artificial pitch with terracotta run-off: the goal line has no grass beyond it, the 18-yard line in front of it does.
+ const goalX=y=>70-.25*(y-200),boxX=y=>170-.12*(y-200),RUN=[150,70,55];
+ const turf=analyzePitch(makeFrame(640,360,(x,y)=>{if(y<60)return [95,95,105];if(y<92||y>=306||x<goalX(y)-1.5)return RUN;
+  if(Math.abs(y-93)<1.5||Math.abs(y-305)<1.5||Math.abs(x-goalX(y))<1.5)return LINE;if(y>=125&&y<=275&&Math.abs(x-boxX(y))<1.2)return LINE;
+  if((Math.abs(y-125)<1.2||Math.abs(y-275)<1.2)&&x<boxX(y))return LINE;return G2(x);}),0);
+ assert.ok(!turf.lines.some(l=>l.side==='left'),JSON.stringify(turf.lines));
+ assert.deepEqual(zones(turf,[[110,200],[140,160]].map(([x,y])=>foot640(x,y,.1))),['inside','inside'],'goalkeeper and defender in the box');
+});
+
+test('size plausibility measures a lying or diving player along the body',()=>{
+ const people=[.32,.38,.44,.5,.56,.62,.68,.74].map((y,i)=>person(footBox(20+35*i,y*180,.02+.1*y),.8,'p'+i));
+ const e=y=>.02+.1*y,lying=person({x:.4,y:.62-.025,w:e(.62)/base.aspect,h:.025},.8,'lying'),diving=person({x:.2,y:.5-.035,w:e(.5)*1.1/base.aspect,h:.035},.8,'dive');
+ const r=assessDetections([...people,lying,diving],base,defaultFieldFilter);
+ assert.equal(r.size.reliable,true);
+ assert.deepEqual(r.rejected,[]);
+ assert.ok(r.accepted.find(d=>d.id==='lying').sizeRatio>.8);
+});
+
+test('marginFilter: the touchline tolerance slider scales floor and ceiling',()=>{
+ const {marginFilter}=pitch;
+ assert.deepEqual(marginFilter(defaultFieldFilter.boundaryMargin),defaultFieldFilter);
+ const line=nearY(160)+.5,tall=footBox(160,line+6,.12),small=footBox(160,line+6,.05);
+ assert.equal(zoneOf(base,tall).zone,'outside');
+ assert.equal(zoneOf(base,tall,marginFilter(.6)).zone,'boundary');
+ assert.equal(zoneOf(base,small,marginFilter(.6)).zone,'outside');
+ assert.equal(zoneOf(base,small,marginFilter(1)).zone,'boundary');
+ assert.equal(zoneOf(base,footBox(160,line+1,.12),marginFilter(0)).zone,'outside','0% means no tolerance');
+});
+
 // ---------- homography ----------
 const H0=[1.2,.1,-.1,.05,1.5,-.2,.1,.3,1];
 const apply0=p=>applyHomography(H0,p);

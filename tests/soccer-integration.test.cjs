@@ -27,13 +27,14 @@ function people(k){
 }
 const SUB_TIME=4; // B4 is substituted off; the incoming B12 is not on the pitch yet
 
-function session(doc,steps,tracker){
+// suggestions: the start frame also takes roster suggestions as weak labels (as the workspace does).
+function session(doc,steps,tracker,suggestions=false){
  const base=tracking.ensureOfficials(doc),keys=new Set(),additions=[],issues=[],ids=new Set(base.players.map(p=>p.id)),byKey=[];
  let log=[],last=-1;
  for(let k=0;k<steps;k++){
   const t=T(k),scenePeople=people(k).filter(p=>p.x+.02<1.04),detections=scenePeople.map(scene.detect);
   detections.push({id:'ball',kind:'ball',score:.7,box:{x:.5,y:.6,w:.008,h:.014}});
-  const anchors=k?tracking.confirmedAnchors(base,last,t):tracking.confirmedAnchors(base,t-.125,t+.001);last=t;
+  const anchors=k?tracking.confirmedAnchors(base,last,t):tracking.confirmedAnchors(base,t-.125,t+.001,suggestions);last=t;
   const r=tracker.step({time:t,frame:scene.paint(scenePeople),detections,camera:still,anchors,roster:tracking.soccerRoster(base,t)});
   log=tracking.appendTrackingLog(log,r.events);
   for(const i of r.issues)if(ids.has(i.playerId))issues.push({playerId:i.playerId,time:i.time,reason:i.reason.slice(0,160)});
@@ -119,4 +120,15 @@ test('a soccer session produces a document the server accepts, and its identitie
  assert.deepEqual(again.snapshot().map(i=>i.playerId).sort(),ids);
  assert.ok(again.snapshot().every(i=>i.status!=='active'),'restored identities wait for re-identification');
  assert.ok(tracking.trackingSchema.safeParse({...parsed.data,identities:tracking.cleanIdentities(parsed.data,again.snapshot())}).success);
+});
+
+test('kit-colour roster suggestions on the start frame seed the pass; a reviewed one is never doubled by an automatic identity',()=>{
+ for(const reviewed of [false,true]){
+  let doc=tracking.initialTracking('Reds','Blues');
+  doc.points.push({playerId:'A7',time:0,box:scene.boxOf(RED[1]),score:.8,source:'experimental',reviewed,evidence:'reidentified'});
+  doc=tracking.trackingSchema.parse(doc);
+  const {document,byKey}=session(doc,20,new SoccerTracker(),true),who=owners(document,byKey);
+  assert.deepEqual([...who.get('r2')],['A7'],`reviewed ${reviewed}`);
+  for(const [key,set] of who)if(key!=='r2')assert.ok(!set.has('A7'),key);
+ }
 });

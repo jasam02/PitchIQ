@@ -81,7 +81,9 @@ export type SoccerFrameInput={
  frame:Frame; // RGBA frame used for detection (<=1920 wide)
  detections:TrackDetection[]; // UNFILTERED person + ball detections for this frame
  camera:CameraMotion; // motion since the previous step (estimateCamera)
- anchors:{playerId:string;box:Box}[]; // user-confirmed labels at this time; they override automatic identities
+ // User-confirmed labels; they override automatic identities. time: when drawn, if not on this frame. weak: a box you
+ // reviewed or a roster suggestion; it binds the person under it but never starts a track of its own.
+ anchors:{playerId:string;box:Box;time?:number;weak?:boolean}[];
  roster:RosterSlot[]; // active flags already resolved for this time (substitutions)
  homography?:number[]; // image(normalized) -> pitch(normalized) 3x3 row-major, when available
 };

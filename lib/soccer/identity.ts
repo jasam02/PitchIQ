@@ -5,7 +5,7 @@
 // one identity has at most one live track (exclusive assignment); identities are never swapped on proximity alone.
 import {iou} from '../detection-core';
 import {edgeOf} from '../player-recovery';
-import {addToGallery,decodeDescriptor,encodeDescriptor,galleryDistance,MIN_GALLERY_QUALITY} from './appearance';
+import {addToGallery,bhattacharyya,decodeDescriptor,encodeDescriptor,galleryDistance,MIN_GALLERY_QUALITY} from './appearance';
 import {accumulateRole,decideRole,emptyRoleEvidence} from './classify';
 import {PITCH_LENGTH,PITCH_WIDTH} from './homography';
 import {globalLabel,roleLabel} from './types';
@@ -18,6 +18,11 @@ const BUFFER=50,DESCS=6,HIST=10,WINDOW=10,VOTES=15,MAX_EVENTS=60,MAX_SAVED=40,MA
 const DEFER_EVERY=2,SANITY_EVERY=5,SANITY_REPEAT=30,SWAP_CAP=2,CLEAN=.4,KIT_MISMATCH=.6,KIT_MISSES=3;
 // An identity whose track has had no detection for this long (only coasting) may be re-identified on a new track.
 const LOST=.35;
+// A track released for a kit mismatch never becomes a new identity this soon (the crop may just have been
+// contaminated, or the track may still be turning into the other team).
+const RELEASE_HOLD=3;
+// Seconds an ended track keeps one jersey sample in the team model, so a kit seen a few players at a time accumulates.
+const KIT_WINDOW=4;
 
 const clamp=(v:number,a=0,b=1)=>v<a?a:v>b?b:v;
 const r3=(v:number)=>Math.round(v*1000)/1000;
@@ -37,7 +42,7 @@ export type GlobalPlayer={
  playerId:string;role:Role;team?:Team;status:IdentityStatus;gallery:GallerySample[];lastSeen:number;lastBox:Box;lastPitch?:Pt;exitEdge:string;velocity:Pt;
  identityConfidence:number;teamConfidence:number;roleConfidence:number;anchored:boolean;
  // runtime only
- track?:number;runner?:boolean;crossedAt:number;here:boolean;segment?:number;stab?:Stab;drift:number;pitchVelocity?:Pt;pendingSpatial:boolean;lastObserved:number;capUntil:number;anchoredAt:number;boundAt:number;
+ track?:number;runner?:boolean;crossedAt:number;here:boolean;segment?:number;stab?:Stab;drift:number;pitchVelocity?:Pt;pendingSpatial:boolean;lastObserved:number;capUntil:number;anchoredAt:number;boundAt:number;createdOn?:number;supersededBy?:string;
 };
 type Scored={appearance?:number;jersey:number;uniform?:number;team:boolean;spatial?:number;movement?:number;temporal:number;final:number;missing:number};
 type Summary={playerId:string;n:number;final:number;appearance?:number;jersey:number;uniform?:number;team:boolean;spatial?:number;spatialShare:number;movement?:number;temporal:number;missing:number};
@@ -49,6 +54,8 @@ export type TrackState={
  lastBox:Box;lastTime:number;lastScore:number;lastPitch?:Pt;
  state:LocalState;playerId?:string;team?:Team;role:Role;teamConfidence:number;roleConfidence:number;retired:boolean;runner?:boolean;reacquired:boolean;crossedAt:number;kitMiss:number;
  buffer:SoccerObservation[];hold:{o:SoccerObservation;heavy:boolean}[];reid:Map<string,Scored[]>;best:number;lastDeferred:number;deferrals:number;anchoredAt:number;reason:string;
+ // blind: candidate identities with neither a gallery nor spatial evidence. released: identity this track lost for a kit mismatch.
+ blind:{id:string;temporal:number}[];released?:{id:string;time:number};
 };
 export type StepSample={id:number;box:Box;score:number;evidence:'detection'|'predicted';zone:FieldZone;descriptor?:Descriptor;occluded:boolean;vote?:KitVote;nearGoal:boolean;stab:Stab;pitch?:Pt};
 export type StepContext={
@@ -64,7 +71,8 @@ export type StepOutput={observations:SoccerObservation[];events:ReidEvent[];issu
 // hard: one of the two was undetected or they overlapped heavily at some point (continuity is then a guess).
 // a is always confirmed; b may be an unidentified track (ids[1] undefined).
 type Pair={a:number;b:number;ids:[string,string|undefined];start:number;sep:number;hard:boolean;snap:Map<number,{x:number;y:number;t:number;h:number;vx:number;vy:number}>};
-export type TeamSample={jersey:number[];team?:Team;role?:Role;weight?:number};
+// prior: jersey of an automatic identity; it only orients the kit clusters (which kit is A) when no user label does.
+export type TeamSample={jersey:number[];team?:Team;role?:Role;weight?:number;prior?:boolean};
 
 const slotRole=(s:RosterSlot):Role=>s.team==='ref'?'referee':s.role&&s.role!=='unknown'?s.role:'player';
 const keeperish=(s:RosterSlot)=>s.role==='goalkeeper'||(!s.role&&s.number==='1');
@@ -94,6 +102,7 @@ export class IdentityManager{
  private together=new Set<string>(); // same-team identity pairs ever visible at the same time
  private limits=new Map<string,number>();
  private bank=new Map<string,{jersey:number[];time:number;team?:Team;role?:Role}[]>(); // user-confirmed jersey samples per identity
+ private kits=new Map<number,{s:TeamSample;time:number}>(); // latest jersey of recent local tracks (team model window)
  private roster:RosterSlot[]=[];
  private time=0;
  constructor(public options:SoccerOptions,saved:SavedIdentity[]=[]){for(const s of Array.isArray(saved)?saved:[])this.restore(s);}
@@ -108,7 +117,7 @@ export class IdentityManager{
   const conf=(v:number)=>Number.isFinite(v)?clamp(v):0;
   this.registry.set(s.playerId,{playerId:s.playerId,role:roles.includes(s.role)?s.role:'unknown',...(s.team==='A'||s.team==='B'?{team:s.team}:{}),status,gallery,lastSeen,lastBox:box,...(finitePt(s.lastPitch)?{lastPitch:{...s.lastPitch}}:{}),
    exitEdge:String(s.exitEdge||'').slice(0,8),velocity:finitePt(s.velocity)?{...s.velocity}:{x:0,y:0},identityConfidence:conf(s.identityConfidence),teamConfidence:conf(s.teamConfidence),roleConfidence:conf(s.roleConfidence),anchored:!!s.anchored,
-   drift:0,pendingSpatial:true,lastObserved:lastSeen,capUntil:0,anchoredAt:-Infinity,boundAt:-Infinity,crossedAt:-Infinity,here:false});
+   drift:0,pendingSpatial:true,lastObserved:-Infinity,capUntil:0,anchoredAt:-Infinity,boundAt:-Infinity,crossedAt:-Infinity,here:false});
  }
  snapshot():SavedIdentity[]{
   let list=[...this.registry.values()];
@@ -144,26 +153,71 @@ export class IdentityManager{
   this.bank.delete(playerId);this.bank.set(playerId,list.slice(-4));
   if(this.bank.size>80)this.bank.delete(this.bank.keys().next().value as string);
  }
- // Jersey samples for fitTeamModel: user-confirmed samples carry their team (anchored model); live tracks are
- // unlabelled, with role hints from confirmed referees/goalkeepers.
- teamSamples(current:Map<number,Descriptor>):TeamSample[]{
+ // Jersey samples for fitTeamModel: user-confirmed samples carry their team (anchored model); identities without
+ // user samples (restored or automatic) carry their team too, so the A/B mapping follows existing identities; live
+ // tracks (plus tracks seen in the last KIT_WINDOW s) are unlabelled, with role hints from confirmed officials/keepers.
+ teamSamples(current:Map<number,Descriptor>,time=this.time):TeamSample[]{
   const out:TeamSample[]=[];
   for(const [id,list] of this.bank){
    const g=this.registry.get(id),role=g?g.role:list[list.length-1]?.role,team=g?g.team:list[list.length-1]?.team;
    for(const s of list.slice(-2))out.push({jersey:s.jersey,...(role!=='referee'&&team?{team}:{}),...(role==='referee'||role==='goalkeeper'?{role}:{}),weight:1.5});}
+  for(const g of this.registry.values()){
+   if(this.bank.has(g.playerId)||!g.team||g.role==='referee'||g.status==='substituted'||g.status==='unknown')continue;
+   for(const x of g.gallery.slice(-2))if(x.d.jersey.some(v=>v>0))out.push({jersey:x.d.jersey,team:g.team,...(g.role==='goalkeeper'?{role:'goalkeeper' as const}:g.anchored?{}:{prior:true}),weight:1});
+  }
   const ids=new Set([...this.tracks.keys(),...current.keys()]);
   for(const id of [...ids].sort((a,b)=>a-b)){
    const t=this.tracks.get(id),d=current.get(id)??t?.descs[t.descs.length-1]?.d;
-   if(!d||d.quality<.25||!d.jersey.some(v=>v>0)||t?.retired||t?.state==='rejected'||t?.zone==='outside')continue;
+   if(!d||d.quality<.25||!d.jersey.some(v=>v>0)||t?.retired||t?.state==='rejected'||t?.zone==='outside'){this.kits.delete(id);continue;}
    const g=t?.playerId?this.registry.get(t.playerId):undefined,role=t?.state==='confirmed'?(g?.role??t.role):undefined;
-   out.push({jersey:d.jersey,...(role==='referee'||role==='goalkeeper'?{role}:{}),weight:d.quality});
+   // An automatic official defines the referee kit only once its kit stayed outside both teams for 2 s.
+   const hint=role==='goalkeeper'||(role==='referee'&&(g?.anchored||t!.teamVotes.length>=10&&t!.teamVotes.slice(-10).every(v=>v==='x')))?role:undefined;
+   const sample:TeamSample={jersey:d.jersey,...(hint?{role:hint}:{}),weight:d.quality};
+   out.push(sample);if(t&&t.hits>=this.options.minHits)this.kits.set(id,{s:sample,time});
   }
+  for(const [id,k] of this.kits){if(ids.has(id))continue;if(time-k.time>KIT_WINDOW||k.time>time+1e-6)this.kits.delete(id);else out.push(k.s);}
   return out;
+ }
+
+ // The kit model swapped which kit is A (a user label oriented it the other way). Every vote and automatic identity
+ // follows its kit to the other team's roster (same number when free), so nobody is released or duplicated by the
+ // team-change rule; identities you labelled keep their slot. Earlier saved observations keep the old ids.
+ flipTeams(time:number):ReidEvent[]{
+  const flip=(x?:Team)=>x==='A'?'B':x==='B'?'A':undefined,events:ReidEvent[]=[];
+  for(const t of this.tracks.values()){
+   t.evidence={...t.evidence,votes:t.evidence.votes.map(v=>({...v,team:flip(v.team),...((v as {keeper?:Team}).keeper?{keeper:flip((v as {keeper?:Team}).keeper)}:{})}))};
+   t.teamVotes=t.teamVotes.map(v=>v==='A'?'B':v==='B'?'A':v);t.reid.clear();
+   if(t.decision?.team){const team=flip(t.decision.team)!;t.decision={...t.decision,team,label:roleLabel(t.decision.role,team)};}
+   if(t.team&&!t.playerId)t.team=flip(t.team);
+  }
+  const moving=[...this.registry.values()].filter(g=>!g.anchored&&g.team&&g.role!=='referee'&&g.status!=='substituted');
+  const used=new Set([...this.registry.keys()].filter(id=>!moving.some(g=>g.playerId===id)));
+  for(const g of moving)this.registry.delete(g.playerId);
+  for(const g of moving){
+   const team=flip(g.team)!,old=g.playerId,mine=this.roster.find(s=>s.id===old);
+   const free=this.roster.filter(s=>s.active&&s.team===team&&s.role!=='referee'&&!used.has(s.id));
+   const slot=free.find(s=>mine&&s.number===mine.number)??(g.role==='goalkeeper'?free.find(keeperish):free.find(s=>!keeperish(s)))??free[0];
+   const t=g.track!==undefined?this.tracks.get(g.track):undefined;
+   if(!slot){ // no room on the other side: the track re-identifies like any other
+    if(t&&t.playerId===old){t.playerId=undefined;t.state='uncertain';t.team=team;t.buffer=[];t.reason='kits re-oriented by a label';}
+    continue;
+   }
+   used.add(slot.id);g.playerId=slot.id;g.team=team;this.registry.set(slot.id,g);
+   if(t&&t.playerId===old){t.playerId=slot.id;t.team=team;}
+   for(const x of this.tracks.values())if(x.released?.id===old)x.released={...x.released,id:slot.id};
+   for(const pair of this.pairs.values())pair.ids=pair.ids.map(id=>id===old?slot.id:id) as Pair['ids'];
+   for(const y of this.registry.values())if(y.supersededBy===old)y.supersededBy=slot.id;
+   events.push({time,kind:'team-change',...(t?{track:t.id}:{}),playerId:slot.id,message:`Your label oriented the kits the other way: automatic ${globalLabel(old,true)} is now ${globalLabel(slot.id,true)} (team ${team}). Earlier saved points keep ${globalLabel(old)}.`});
+  }
+  this.together.clear();
+  return events;
  }
 
  // ---------- per step ----------
  update(ctx:StepContext):StepOutput{
   const out:StepOutput={observations:[],events:[],issues:[],tracks:[],dropped:[],drop:[]};
+  // Time going backwards (a re-run from an earlier frame): earlier observations belong to another pass.
+  if(ctx.time<this.time-1e-6)for(const g of this.registry.values())g.lastObserved=-Infinity;
   this.time=ctx.time;this.roster=ctx.roster;
   const slots=new Map(ctx.roster.map(s=>[s.id,s]));
   this.syncRoster(ctx,slots);
@@ -173,7 +227,9 @@ export class IdentityManager{
   for(const a of ctx.anchors)this.anchor(a,ctx,slots,out);
   const live=[...this.tracks.values()].filter(t=>seen.has(t.id)).sort((a,b)=>a.id-b.id);
   for(const t of live){this.checkTeam(t,ctx,out);this.checkKeeper(t,ctx,out);}
-  for(const t of live)if(t.state!=='confirmed'&&t.state!=='uncertain')this.promote(t,ctx,out);
+  const waiting=live.filter(t=>t.state!=='confirmed'&&t.state!=='uncertain');
+  for(const t of waiting)t.decision=decideRole(t.evidence,ctx.model,this.options.minHits); // all first: promote compares them
+  for(const t of waiting)this.promote(t,ctx,out);
   this.resolve(live.filter(t=>t.state==='uncertain'),ctx,slots,out);
   this.guardSwaps(live.filter(t=>t.state!=='rejected'&&!t.retired),ctx,out);
   this.checkReacquired(live,ctx,out);
@@ -194,7 +250,7 @@ export class IdentityManager{
     const t=g.track!==undefined?this.tracks.get(g.track):undefined;
     if(t){t.playerId=undefined;t.state='unknown';t.retired=true;t.reason=`${globalLabel(g.playerId)} substituted; this track is not re-identified`;t.buffer=[];}
     g.track=undefined;g.status='substituted';
-   }else if(slot.active&&g.status==='substituted')g.status=g.exitEdge?'offscreen':'missing';
+   }else if(slot.active&&g.status==='substituted')g.status=g.supersededBy?'unknown':g.exitEdge?'offscreen':'missing';
   }
  }
  private endTrack(id:number,out:StepOutput){
@@ -215,7 +271,7 @@ export class IdentityManager{
   let t=this.tracks.get(s.id);
   if(!t){t={id:s.id,born:ctx.time,bornSegment:ctx.segment,firstStab:s.stab,...(s.pitch?{firstPitch:s.pitch}:{}),firstZone:s.evidence==='detection'?s.zone:'unknown',entryEdge:edgeOf(s.box),hits:0,inside:0,boundary:0,outside:0,outsideRun:0,
    evidence:emptyRoleEvidence(),teamVotes:[],descs:[],occluded:false,box:s.box,score:s.score,kind:s.evidence,seenAt:ctx.time,zone:s.zone,stab:s.stab,segment:ctx.segment,velocity:{x:0,y:0},hist:[],
-   lastBox:s.box,lastTime:ctx.time,lastScore:s.score,state:'candidate',role:'unknown',teamConfidence:0,roleConfidence:0,retired:false,reacquired:false,crossedAt:-Infinity,kitMiss:0,buffer:[],hold:[],reid:new Map(),best:0,lastDeferred:-Infinity,deferrals:0,anchoredAt:-Infinity,reason:''};
+   lastBox:s.box,lastTime:ctx.time,lastScore:s.score,state:'candidate',role:'unknown',teamConfidence:0,roleConfidence:0,retired:false,reacquired:false,crossedAt:-Infinity,kitMiss:0,buffer:[],hold:[],reid:new Map(),best:0,lastDeferred:-Infinity,deferrals:0,anchoredAt:-Infinity,reason:'',blind:[]};
    this.tracks.set(s.id,t);}
   t.box=s.box;t.score=s.score;t.kind=s.evidence;t.seenAt=ctx.time;t.stab=s.stab;t.pitch=s.pitch;t.current=undefined;t.occluded=s.occluded;
   if(t.segment!==ctx.segment){t.segment=ctx.segment;t.hist=[];t.velocity={x:0,y:0};delete t.pitchVelocity;}
@@ -240,8 +296,17 @@ export class IdentityManager{
   let g=this.registry.get(a.playerId);
   if(!g){g=this.blank(a.playerId,slotRole(slot),slot.team==='ref'?undefined:slot.team,a.box,ctx.time);this.registry.set(g.playerId,g);}
   const changed=t.playerId!==g.playerId||g.track!==t.id,notes:string[]=[];
-  if(g.track!==undefined&&g.track!==t.id){const old=this.tracks.get(g.track);if(old&&old.playerId===g.playerId){this.release(old,`user label moved ${globalLabel(g.playerId)} to track ${t.id}`);notes.push(`was on track ${old.id}`);}}
-  if(t.playerId&&t.playerId!==g.playerId){const y=this.registry.get(t.playerId);if(y&&y.track===t.id){this.unbind(y,true);notes.push(`replaces automatic ${globalLabel(y.playerId)}`);}}
+  if(g.track!==undefined&&g.track!==t.id){const old=this.tracks.get(g.track);if(old&&old.playerId===g.playerId){
+   this.release(old,`user label moved ${globalLabel(g.playerId)} to track ${t.id}`);notes.push(`was on track ${old.id}`);
+   // An automatic identity this label had replaced on that track is that person again: it competes in re-ID.
+   for(const y of this.registry.values())if(y.supersededBy===g.playerId&&y.createdOn===old.id){y.status='missing';delete y.supersededBy;}
+  }}
+  if(t.playerId&&t.playerId!==g.playerId){const y=this.registry.get(t.playerId);if(y&&y.track===t.id){
+   // Created on this very track, its whole gallery is this person: kept (never deleted) but out of re-ID competition,
+   // so it cannot pose as a second candidate for the player you labelled.
+   if(!y.anchored&&y.createdOn===t.id){y.track=undefined;y.status='unknown';y.supersededBy=g.playerId;notes.push(`replaces automatic ${globalLabel(y.playerId)}, created on this track`);}
+   else{this.unbind(y,true);notes.push(`replaces automatic ${globalLabel(y.playerId)}`);}
+  }}
   t.playerId=g.playerId;t.state='confirmed';t.team=g.team;t.role=g.role;t.anchoredAt=ctx.time;t.reid.clear();t.retired=false;t.reason='user label';t.teamVotes=[];t.teamConfidence=1;t.roleConfidence=1;
   if(changed)g.boundAt=ctx.time;
   g.track=t.id;g.status='active';g.here=true;g.anchored=true;g.anchoredAt=ctx.time;g.identityConfidence=1;g.teamConfidence=1;g.roleConfidence=1;g.capUntil=0;g.crossedAt=-Infinity;t.crossedAt=-Infinity;
@@ -283,12 +348,15 @@ export class IdentityManager{
  // CANDIDATE -> role. Never from one frame: minHits detections, mostly inside the pitch, a temporal role decision.
  private promote(t:TrackState,ctx:StepContext,out:StepOutput){
   if(t.retired){t.state='unknown';return;}
-  const o=this.options,d=decideRole(t.evidence,ctx.model,o.minHits),zr=zoneRatio(t);t.decision=d;
+  const o=this.options,d=t.decision??decideRole(t.evidence,ctx.model,o.minHits),zr=zoneRatio(t);t.decision=d;
   const votes=t.evidence.votes,refShare=votes.length?votes.filter(v=>v.refLike).length/votes.length:0;
   // Assistant referees run the touchline: allowed only with an established referee kit and a ref-like majority.
   const runner=d.role==='referee'&&!!ctx.model.referee&&refShare>=.5,born=t.firstZone==='boundary',pitchOk=ctx.pitchReliable||!ctx.filterEnabled;
   const need=born?o.boundaryHits:o.minHits;
-  let ok=pitchOk&&d.label!=='CANDIDATE'&&d.role!=='unknown'&&t.hits>=o.minHits;
+  let ok=pitchOk&&d.label!=='CANDIDATE'&&d.role!=='unknown'&&t.hits>=o.minHits,held='';
+  // An official in no known kit: never when a referee kit is known and this is not it, nor while someone else in
+  // another non-team kit is a referee candidate too (an unlabelled goalkeeper, a player in deep shade).
+  if(ok&&d.role==='referee'&&refShare<.5){const rival=ctx.model.referee?undefined:this.kitRival(t);held=ctx.model.referee?'outside both kits but not in the referee kit':rival?`another non-team kit (track ${rival.id}) could be the referee: label the referee once`:'';if(held)ok=false;}
   if(ok)ok=runner?t.hits>=need:zr>=.8&&(!born||(t.hits>=o.boundaryHits&&t.inside>=3));
   if(ok){
    t.state='uncertain';t.team=d.team;t.role=d.role;t.teamConfidence=d.teamConfidence;t.roleConfidence=d.roleConfidence;t.reason='';
@@ -298,7 +366,16 @@ export class IdentityManager{
    return;
   }
   t.state=t.hits>=3*o.minHits?(zr<.8&&!runner?'rejected':'unknown'):'candidate';
-  t.reason=!pitchOk?'pitch not reliable on this frame: no promotion':t.state==='rejected'?`mostly outside the playable area (inside ${pct(zr)})`:t.state==='unknown'?`no consistent kit or role after ${t.hits} detections`:`${t.hits}/${need} detections, inside ${pct(zr)}${born?' (born on the boundary)':''}`;
+  t.reason=!pitchOk?'pitch not reliable on this frame: no promotion':held&&t.state!=='rejected'?`not promoted as referee: ${held}`:t.state==='rejected'?`mostly outside the playable area (inside ${pct(zr)})`:t.state==='unknown'?`no consistent kit or role after ${t.hits} detections`:`${t.hits}/${need} detections, inside ${pct(zr)}${born?' (born on the boundary)':''}`;
+ }
+ // Another live person whose kit (jersey) differs from t's and who is (or would be) a referee.
+ private kitRival(t:TrackState){
+  const kit=(x:TrackState)=>[...x.descs].reverse().find(q=>!q.occluded)?.d.jersey,mine=kit(t);if(!mine)return undefined;
+  for(const x of this.tracks.values()){
+   if(x===t||x.retired||x.state==='rejected'||!((x.state==='confirmed'||x.state==='uncertain')?x.role==='referee':x.decision?.role==='referee'))continue;
+   const k=kit(x),d=k?bhattacharyya(mine,k):undefined;if(d!==undefined&&d>.3)return x;
+  }
+  return undefined;
  }
  // Seconds since the identity's bound track last had a detection (0 = observed now, Infinity = unbound).
  private lostFor(g:GlobalPlayer){const t=g.track!==undefined?this.tracks.get(g.track):undefined;return g.track===undefined||!t?Infinity:Math.max(0,this.time-t.lastTime);}
@@ -308,7 +385,7 @@ export class IdentityManager{
   const out:GlobalPlayer[]=[];
   for(const g of this.registry.values()){
    if(!slots.get(g.playerId)?.active||g.track===t.id)continue;
-   if(g.track!==undefined?this.lostFor(g)<LOST:!(g.status==='missing'||g.status==='offscreen'||g.status==='unknown'))continue;
+   if(g.track!==undefined?this.lostFor(g)<LOST:!(g.status==='missing'||g.status==='offscreen'))continue;
    if(t.role==='referee'){if(g.role==='referee'&&(g.runner===undefined||t.runner===undefined||g.runner===t.runner))out.push(g);continue;}
    if(g.role==='referee')continue;
    if(t.role==='goalkeeper'){if(g.role==='goalkeeper'||(!t.team||g.team===t.team)&&g.role==='unknown')out.push(g);continue;} // other-team keepers fail the team gate
@@ -320,25 +397,38 @@ export class IdentityManager{
   const o=this.options;
   for(const t of list){
    if(t.retired)continue;
-   const cands=this.candidatesFor(t,slots);
+   const cands=this.candidatesFor(t,slots);t.blind=[];
    if(!cands.length){t.reid.clear();t.best=0;this.createOrHold(t,ctx,slots,out);continue;}
    const ids=new Set(cands.map(g=>g.playerId));for(const k of [...t.reid.keys()])if(!ids.has(k))t.reid.delete(k);
    for(const g of cands){
-    const s=this.score(t,g,ctx);if(s.appearance===undefined&&s.spatial===undefined)continue; // count/edges/time alone never decide
+    // Count/edges/time alone never decide, but an identity that cannot be compared still competes (blind).
+    const s=this.score(t,g,ctx);if(s.appearance===undefined&&s.spatial===undefined){t.reid.delete(g.playerId);t.blind.push({id:g.playerId,temporal:s.temporal});continue;}
     const steps=t.reid.get(g.playerId)||[];steps.push(s);if(steps.length>WINDOW)steps.shift();t.reid.set(g.playerId,steps);
    }
   }
   // stranger: an unseen teammate (free roster slot) wears the same kit, so it scores the candidate's appearance
-  // with neutral spatial / movement / temporal evidence. A reconnect must beat it like any other candidate.
-  type Plan={t:TrackState;all:Summary[];need:number;stranger?:number};
+  // with neutral spatial / movement evidence; its temporal prior is the share of free slots among everyone this
+  // person could be. A team has one goalkeeper: no stranger once a keeper identity is a candidate.
+  // blind: a candidate without gallery or position is assumed to look like the best one (same kit), never excluded.
+  type Plan={t:TrackState;all:Summary[];need:number;stranger?:number;blind?:number};
   const plans:Plan[]=[];
   for(const t of list){
-   if(t.state!=='uncertain'||!t.reid.size)continue;
+   if(t.state!=='uncertain'||t.retired)continue;
+   const names=t.blind.map(x=>globalLabel(x.id)).join(', ');
+   if(!t.reid.size){
+    if(!t.blind.length)continue;
+    t.best=0;t.reason=`deferred: ${names} cannot be compared yet (no appearance sample or position)`;
+    if(this.deferAllowed(t,ctx.time))out.events.push({time:ctx.time,kind:'deferred',track:t.id,playerId:t.blind[0].id,message:`Track ${t.id}: identity deferred; ${names} cannot be compared yet (no appearance sample or position).`});
+    continue;
+   }
    const all=[...t.reid].map(([id,s])=>summarize(id,s)).sort((a,b)=>b.final-a.final||a.playerId.localeCompare(b.playerId));
-   const b=all[0],stranger=t.role!=='referee'&&this.freeSlot(t,slots)?combineReid({appearance:b.appearance,uniform:b.uniform,spatial:b.spatial!==undefined?.5:undefined,movement:b.movement!==undefined?.5:undefined,temporal:.5,team:true}):undefined;
-   t.best=b.final;plans.push({t,all,need:b.spatialShare>=.5?3:5,...(stranger!==undefined?{stranger}:{})});
+   const b=all[0],neutral=(temporal:number)=>combineReid({appearance:b.appearance,uniform:b.uniform,spatial:b.spatial!==undefined?.5:undefined,movement:b.movement!==undefined?.5:undefined,temporal,team:true});
+   const keeper=t.role==='goalkeeper'&&[...t.reid.keys(),...t.blind.map(x=>x.id)].some(id=>this.registry.get(id)?.role==='goalkeeper');
+   const free=t.role==='referee'||keeper?0:this.freeCount(t,slots),stranger=free?neutral(free/(free+t.reid.size+t.blind.length)):undefined;
+   const blind=t.blind.length?Math.max(...t.blind.map(x=>neutral(x.temporal))):undefined;
+   t.best=b.final;plans.push({t,all,need:b.spatialShare>=.5?3:5,...(stranger!==undefined?{stranger}:{}),...(blind!==undefined?{blind}:{})});
   }
-  const lead=(p:Plan)=>p.all[0].final-Math.max(p.all[1]?.final??0,p.stranger??0);
+  const lead=(p:Plan)=>p.all[0].final-Math.max(p.all[1]?.final??0,p.stranger??0,p.blind??0);
   const decisive=(p:Plan)=>p.all[0].n>=p.need&&p.all[0].final>=o.reidMin&&lead(p)>=o.reidMargin;
   // Exclusive assignment: clearest margins first; a tie with another open track defers both.
   const open=new Set(plans),taken=new Set<string>(),why=new Map<Plan,string>();
@@ -358,13 +448,16 @@ export class IdentityManager{
   for(const p of plans){
    if(!open.has(p))continue;
    const best=p.all[0],implausible=(s:Summary)=>s.final<.3||(s.spatial!==undefined&&s.spatialShare>=.5&&s.spatial<.15)||(p.stranger!==undefined&&p.stranger-s.final>=o.reidMargin);
-   if(p.all.every(s=>s.n>=p.need&&implausible(s))&&!this.briefLost(p.t)){
+   // Never a new identity while an uncomparable candidate could be this person, or right after a kit-mismatch release.
+   const hold=p.blind!==undefined||(!!p.t.released&&ctx.time-p.t.released.time<RELEASE_HOLD);
+   if(p.all.every(s=>s.n>=p.need&&implausible(s))&&!this.briefLost(p.t)&&!hold){
     const slot=this.freeSlot(p.t,slots);
     if(slot){for(const s of p.all.slice(0,3))out.events.push({time:ctx.time,kind:'reid-rejected',track:p.t.id,playerId:s.playerId,message:`Track ${p.t.id} is not ${globalLabel(s.playerId,true)}: ${s.final<.3?`score ${pct(s.final)}`:s.spatial!==undefined&&s.spatial<.15?`spatially implausible (${pct(s.spatial)})`:`an unseen teammate fits better (${pct(p.stranger??0)} vs ${pct(s.final)})`}.`,scores:scoresOf(s)});
      this.createIdentity(p.t,slot,ctx,out,'every missing teammate is implausible here');continue;}
    }
    if(best.n<p.need&&!why.has(p)){p.t.reason=`collecting re-ID evidence (${best.n}/${p.need})`;continue;}
-   const reason=why.get(p)??(best.final<o.reidMin?`best score ${pct(best.final)} below ${pct(o.reidMin)}`:p.stranger!==undefined&&p.stranger>=(p.all[1]?.final??0)?`an unseen teammate would score ${pct(p.stranger)}`:`lead ${pct(lead(p))} below ${pct(o.reidMargin)}`);
+   const second=p.all[1]?.final??0;
+   const reason=why.get(p)??(best.final<o.reidMin?`best score ${pct(best.final)} below ${pct(o.reidMin)}`:p.blind!==undefined&&p.blind>=second&&p.blind>=(p.stranger??0)?`${p.t.blind.map(x=>globalLabel(x.id)).join(', ')} cannot be compared (no appearance or position)`:p.stranger!==undefined&&p.stranger>=second?`an unseen teammate would score ${pct(p.stranger)}`:`lead ${pct(lead(p))} below ${pct(o.reidMargin)}`);
    this.defer(p.t,p.all,ctx,out,reason);
   }
  }
@@ -377,8 +470,16 @@ export class IdentityManager{
   const gd=g.gallery.length&&use.length?galleryDistance(g.gallery,use):undefined;
   const appearance=gd?similarity(gd.total):undefined,uniform=gd?(similarity(gd.shorts)+similarity(gd.socks))/2:undefined,jersey=gd?similarity(gd.jersey):.5;
   const same=g.segment!==undefined&&g.segment===ctx.segment&&t.bornSegment===ctx.segment&&!!g.stab;
+  // The identity was released from this very track (kit mismatch): where it left the identity is where it is now.
+  const released=t.released?.id===g.playerId&&g.lastSeen<=t.released.time+1e-6;
+  if(released&&same&&g.stab){
+   const dt=Math.max(0,ctx.time-g.lastSeen),k2=Math.min(dt,2),h=Math.max(.005,(g.stab.h+t.stab.h)/2);
+   const m=Math.hypot((t.stab.x-g.stab.x-g.velocity.x*k2)*ctx.aspect,t.stab.y-g.stab.y-g.velocity.y*k2)/h*PLAYER_HEIGHT,sigma=3+7*dt;
+   const spatial=Math.exp(-.5*(m/sigma)**2),temporal=1;
+   return {appearance,jersey,uniform,team,spatial,temporal,final:combineReid({appearance,uniform,spatial,temporal,team}),missing:dt};
+  }
   // Detected at the same time as the identity was still detected on another track: two different people.
-  const together=same&&t.born<g.lastSeen-1e-3;
+  const together=same&&t.born<g.lastSeen-1e-3&&!released;
   let spatial:number|undefined,movement:number|undefined;
   if(t.firstPitch&&g.lastPitch){
    const v=g.pitchVelocity??{x:0,y:0},m=Math.hypot((t.firstPitch.x-g.lastPitch.x-v.x*k)*PITCH_LENGTH,(t.firstPitch.y-g.lastPitch.y-v.y*k)*PITCH_WIDTH),sigma=3+7*gap;
@@ -401,8 +502,9 @@ export class IdentityManager{
   const best=all[0],second=all[1],g=this.registry.get(best.playerId);if(!g)return;
   const missing=best.missing;
   if(g.track!==undefined&&g.track!==t.id){const ghost=g.track;this.tracks.delete(ghost);out.drop.push(ghost);this.dropPairs(ghost,out);}
+  const others=second?` vs ${pct(second.final)} for ${globalLabel(second.playerId)}`:t.blind.length?` (${t.blind.map(x=>globalLabel(x.id)).join(', ')} not comparable)`:' (only missing candidate)';
   const crossed=this.bind(t,g,ctx,best.final);
-  out.events.push({time:ctx.time,kind:'reid',track:t.id,playerId:g.playerId,message:`Track ${t.id} re-identified as ${globalLabel(g.playerId,true)}: ${pct(best.final)}${second?` vs ${pct(second.final)} for ${globalLabel(second.playerId)}`:' (only missing candidate)'}, missing ${missing.toFixed(1)} s${best.spatial===undefined?', no spatial evidence':''}${crossed?'; follows a crossing, check':''}.`,scores:scoresOf(best,second)});
+  out.events.push({time:ctx.time,kind:'reid',track:t.id,playerId:g.playerId,message:`Track ${t.id} re-identified as ${globalLabel(g.playerId,true)}: ${pct(best.final)}${others}, missing ${missing.toFixed(1)} s${best.spatial===undefined?', no spatial evidence':''}${crossed?'; follows a crossing, check':''}.`,scores:scoresOf(best,second)});
   if(crossed)out.issues.push({playerId:g.playerId,time:ctx.time,reason:'Re-identified shortly after a crossing: check identity.'});
   for(const s of all.slice(1,4))out.events.push({time:ctx.time,kind:'reid-rejected',track:t.id,playerId:s.playerId,message:`Track ${t.id} is not ${globalLabel(s.playerId,true)}: ${pct(s.final)}, ${pct(best.final-s.final)} behind ${globalLabel(best.playerId)}.`,scores:scoresOf(s)});
   this.flush(t,g,ctx.time,out);
@@ -431,7 +533,7 @@ export class IdentityManager{
  }
  private count(team:Team|undefined,referees:boolean){
   let n=0;const active=new Set(this.roster.filter(s=>s.active).map(s=>s.id));
-  for(const g of this.registry.values())if(g.status!=='substituted'&&active.has(g.playerId)&&(referees?g.role==='referee':g.role!=='referee'&&g.team===team))n++;
+  for(const g of this.registry.values())if(g.status!=='substituted'&&g.status!=='unknown'&&active.has(g.playerId)&&(referees?g.role==='referee':g.role!=='referee'&&g.team===team))n++;
   return n;
  }
  // Lowest free active roster slot of the participant's group. Goalkeepers prefer a keeper slot / jersey 1;
@@ -444,9 +546,15 @@ export class IdentityManager{
   if(t.role==='goalkeeper')return free.find(s=>s.role==='goalkeeper')??free.find(keeperish)??free[0];
   return free.find(s=>!keeperish(s))??free.find(s=>s.role!=='goalkeeper');
  }
+ // How many unseen people this track could still be (free usable slots, within the team reference size).
+ private freeCount(t:TrackState,slots:Map<string,RosterSlot>){
+  if(!this.freeSlot(t,slots))return 0;
+  const free=[...slots.values()].filter(s=>s.active&&!this.registry.has(s.id)&&s.team===t.team&&s.role!=='referee'&&s.role!=='goalkeeper'&&!keeperish(s)).length;
+  return Math.max(1,Math.min(free,this.options.maxPerTeam-this.count(t.team,false)));
+ }
  private createIdentity(t:TrackState,slot:RosterSlot,ctx:StepContext,out:StepOutput,why:string){
   const g=this.blank(slot.id,slot.team==='ref'?'referee':slot.role==='goalkeeper'?'goalkeeper':t.role==='goalkeeper'?'goalkeeper':'player',slot.team==='ref'?undefined:slot.team,t.box,ctx.time);
-  this.registry.set(g.playerId,g);
+  g.createdOn=t.id;this.registry.set(g.playerId,g);
   for(const x of t.descs)if(!x.occluded)this.learn(g,x.d,x.time,false);
   const conf=t.role==='referee'?t.roleConfidence:t.teamConfidence;
   const crossed=this.bind(t,g,ctx,clamp(.55+.4*conf,.5,.95));
@@ -456,7 +564,7 @@ export class IdentityManager{
  }
  // Returns true when the binding follows a recent crossing (confidence capped, caller flags it).
  private bind(t:TrackState,g:GlobalPlayer,ctx:StepContext,conf:number){
-  t.playerId=g.playerId;t.state='confirmed';t.reid.clear();t.reason='';
+  t.playerId=g.playerId;t.state='confirmed';t.reid.clear();t.blind=[];t.reason='';
   if(t.role==='goalkeeper'&&g.role!=='goalkeeper'&&g.role!=='referee'&&!this.roster.find(s=>s.id===g.playerId)?.role)g.role='goalkeeper';
   if(!t.team&&g.team)t.team=g.team;
   if(t.role==='referee'&&t.runner!==undefined)g.runner=t.runner;
@@ -567,7 +675,7 @@ export class IdentityManager{
  }
  // Everything learnt about the person on a track (evidence, role, identity state) moves with the person.
  private swapPersons(a:TrackState,b:TrackState){
-  const keys=['born','bornSegment','firstStab','firstPitch','firstZone','entryEdge','hits','inside','boundary','outside','outsideRun','evidence','decision','teamVotes','descs','state','playerId','team','role','teamConfidence','roleConfidence','retired','runner','buffer','reid','best','lastDeferred','deferrals','anchoredAt','crossedAt','reason'] as const;
+  const keys=['born','bornSegment','firstStab','firstPitch','firstZone','entryEdge','hits','inside','boundary','outside','outsideRun','evidence','decision','teamVotes','descs','state','playerId','team','role','teamConfidence','roleConfidence','retired','runner','buffer','reid','best','lastDeferred','deferrals','anchoredAt','crossedAt','reason','blind','released'] as const;
   const x=a as unknown as Record<string,unknown>,y=b as unknown as Record<string,unknown>;
   for(const k of keys){const v=x[k];x[k]=y[k];y[k]=v;if(x[k]===undefined)delete x[k];if(y[k]===undefined)delete y[k];}
  }
@@ -598,12 +706,14 @@ export class IdentityManager{
     if(t.buffer.length>BUFFER)t.buffer.shift();continue;
    }
    // A crop whose jersey clearly contradicts the identity (another kit) is not this player: withhold it.
-   // Repeated contradictions mean the local track moved to someone else: the identity is released.
-   const dj=t.kind==='detection'&&t.current&&t.current.quality>=.3&&g.gallery.length&&t.current.jersey.some(v=>v>0)?galleryDistance(g.gallery,[t.current])?.jersey:undefined;
+   // Repeated contradictions mean the local track moved to someone else: the identity is released. Crops overlapping
+   // another detection mix two people and never count.
+   const dj=t.kind==='detection'&&!t.occluded&&t.current&&t.current.quality>=.3&&g.gallery.length&&t.current.jersey.some(v=>v>0)?galleryDistance(g.gallery,[t.current])?.jersey:undefined;
    if(dj!==undefined&&dj>KIT_MISMATCH){
     t.kitMiss++;
     if(t.kitMiss>=KIT_MISSES){
-     this.unbind(g,false);this.release(t,`kit no longer matches ${globalLabel(g.playerId)}`);t.kitMiss=0;
+     // The crop may only be hidden by someone the detector missed: this track may win the identity back.
+     this.unbind(g,false);this.release(t,`kit no longer matches ${globalLabel(g.playerId)}`);t.kitMiss=0;t.released={id:g.playerId,time:ctx.time};
      out.events.push({time:ctx.time,kind:'reid-rejected',track:t.id,playerId:g.playerId,message:`Track ${t.id} no longer matches ${globalLabel(g.playerId,true)}'s kit (jersey distance ${dj.toFixed(2)}); identity released.`});
      out.issues.push({playerId:g.playerId,time:ctx.time,reason:'Tracked person stopped matching this kit; identity released. Check this player.'});
     }else t.reason=`kit mismatch (${dj.toFixed(2)}): observation withheld`;
@@ -646,7 +756,7 @@ export class IdentityManager{
   const alike:{a:string;b:string;d:number}[]=[];
   for(const team of ['A','B'] as Team[]){
    // Only identities tracked in this session (co-visibility is not saved); two user-labelled ones are distinct.
-   const ids=[...this.registry.values()].filter(g=>g.here&&g.team===team&&g.role!=='referee'&&g.status!=='substituted'&&g.gallery.length>=2);
+   const ids=[...this.registry.values()].filter(g=>g.here&&g.team===team&&g.role!=='referee'&&g.status!=='substituted'&&g.status!=='unknown'&&g.gallery.length>=2);
    for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){
     const a=ids[i],b=ids[j];if((a.anchored&&b.anchored)||this.together.has([a.playerId,b.playerId].sort().join('|')))continue;
     const d=galleryDistance(a.gallery,b.gallery.map(s=>s.d))?.total;if(d!==undefined&&d<.08)alike.push({a:a.playerId,b:b.playerId,d});

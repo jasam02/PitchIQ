@@ -177,3 +177,26 @@ test('observationPoint clips boxes, bounds numbers and always yields schema-vali
  const odd=[{x:.99,y:.99,w:.5,h:.5},{x:.3333333333,y:.1234567891,w:.6666666667,h:.3},{x:0,y:0,w:1,h:1}].map(b=>tracking.observationPoint({...o,box:b}));
  assert.ok(tracking.trackingSchema.safeParse({...d,points:odd.map((q,i)=>({...q,time:i}))}).success);
 });
+
+test('reviewed boxes and start-frame roster suggestions are (weak) anchors with their time; tracker output never is',()=>{
+ const d=tracking.ensureOfficials(tracking.initialTracking());
+ const p=(playerId,time,extra)=>({playerId,time,box,score:.9,...extra});
+ d.points=[p('A1',1.05,{source:'manual',reviewed:true}),p('A2',1.1,{source:'experimental',reviewed:true,evidence:'detection',track:4,conf:.9}),
+  p('A3',1.1,{source:'experimental',reviewed:false,evidence:'reidentified'}),p('A4',1.1,{source:'experimental',reviewed:false,evidence:'reidentified',track:7,conf:.8}),
+  p('A5',1.1,{source:'experimental',reviewed:false,evidence:'detection',track:8,conf:.8})];
+ assert.deepEqual(tracking.confirmedAnchors(d,1,1.2),[{playerId:'A1',box,time:1.05},{playerId:'A2',box,time:1.1,weak:true}]);
+ assert.deepEqual(tracking.confirmedAnchors(d,1,1.2,true).map(a=>a.playerId+(a.weak?'~':'')),['A1','A2~','A3~'],'a kit suggestion, never a back-filled tracker point');
+ assert.ok(tracking.isConfirmed(d.points[1])&&!tracking.isConfirmed(d.points[2]));
+});
+
+test('identitiesAt restarts identities from their saved box at an earlier start frame',()=>{
+ const d={points:[{playerId:'A7',time:2,box:{x:.4,y:.4,w:.03,h:.15},score:.9,source:'experimental',reviewed:false,evidence:'detection'}],
+  identities:[identity('A7',{status:'active',lastSeen:30,lastPitch:{x:.5,y:.5}}),identity('A8',{lastSeen:30}),identity('A9',{lastSeen:2.1}),identity('A10',{status:'substituted',lastSeen:30})]};
+ d.points.push({...d.points[0],playerId:'A10'});
+ const [a7,a8,a9,a10]=tracking.identitiesAt(d,2.05);
+ assert.deepEqual([a7.status,a7.lastSeen,a7.lastBox,a7.lastPitch,a7.exitEdge],['missing',2,d.points[0].box,undefined,'']);
+ assert.equal(a7.gallery,d.identities[0].gallery);
+ assert.equal(a8,d.identities[1],'no saved box at the start frame');
+ assert.equal(a9,d.identities[2],'already seen at the start');
+ assert.equal(a10,d.identities[3],'substituted');
+});

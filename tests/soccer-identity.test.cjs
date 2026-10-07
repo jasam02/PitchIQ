@@ -556,3 +556,157 @@ test('LocalTracker replay over a real professional match: unique local ids per f
  // A camera cut ends every track.
  const r=lt.step([],99,{...still,cut:true});assert.equal(lt.tracks.length,0);assert.ok(r.ended.length>0&&r.ended.every(e=>e.cut));
 });
+
+// ---------- review regressions ----------
+test('existing identities orient the kits: a restored session never renames or duplicates them, whatever the detection order',()=>{
+ const {describe}=require('../lib/soccer/appearance.ts'),{kitVote}=require('../lib/soccer/classify.ts');
+ const first=new SoccerTracker();
+ run(first,20,(t,k)=>[...RED,...BLUE].map((p,i)=>wobble(p,k,i)));
+ const snap=JSON.parse(JSON.stringify(first.snapshot()));
+ assert.ok(snap.every(s=>s.team==='A'?/^A/.test(s.playerId):/^B/.test(s.playerId)));
+ // Next session, long after (no spatial evidence): blue players are listed first, which alone would make blue team A.
+ const next=new SoccerTracker({},snap),log=run(next,30,(t,k)=>[...BLUE,...RED].map((p,i)=>wobble(p,k,i)),{k0:300});
+ const redKit=kitVote(next.teamModel,describe(paint([RED[0]]),boxOf(RED[0]))).team;
+ assert.equal(redKit,'A','red (team A in the first session, listed first there) is still team A');
+ assert.equal(events(log,'new-identity').length,0);
+ assert.equal(events(log,'team-change').length,0);
+ assert.deepEqual(next.snapshot().map(s=>s.playerId+s.team).sort(),snap.map(s=>s.playerId+s.team).sort());
+ for(const l of log){for(const p of RED)assert.ok(l.who[p.key]==='-'||/^A/.test(l.who[p.key]));for(const p of BLUE)assert.ok(l.who[p.key]==='-'||/^B/.test(l.who[p.key]));}
+});
+
+test('a late label orienting the kits the other way moves automatic identities to the other team instead of duplicating everyone',()=>{
+ const tracker=new SoccerTracker();
+ const log=run(tracker,50,(t,k)=>[...BLUE,...RED].map((p,i)=>wobble(p,k,i)),{anchors:(t,k,seen)=>k===20?[{playerId:'A7',box:boxOf(seen.find(p=>p.key==='r1'))}]:[]});
+ const before=log[19].who,end=log[49].who;
+ for(const p of BLUE)assert.match(before[p.key],/^A\d+$/,'unlabelled, blue listed first became team A');
+ assert.equal(end.r1,'A7');
+ for(const p of BLUE)assert.equal(end[p.key],before[p.key].replace('A','B'),'same number, other team');
+ for(const p of RED.slice(1))assert.equal(end[p.key],before[p.key].replace('B','A'));
+ assert.equal(events(log,'new-identity').filter(e=>e.time>1).length,0);
+ assert.ok(events(log,'team-change').every(e=>/oriented the kits/.test(e.message)),'nobody released by the kit rule');
+ assert.equal(new Set(Object.values(end)).size,8);
+ const people=tracker.snapshot().filter(s=>s.status!=='unknown');
+ assert.equal(people.length,8,'one identity per person');
+ // r1's own automatic identity (created on that track) is kept but out of re-ID competition.
+ const auto=before.r1.replace('B','A');assert.equal(snapshotOf(tracker,auto).status,'unknown');
+});
+
+test('a crop hidden by an undetected opponent gives the released identity back to the same track (no duplicate)',()=>{
+ const tracker=new SoccerTracker();
+ const log=run(tracker,50,(t,k)=>[...[...RED,...BLUE].map((p,i)=>({...p,x:p.x+.004*Math.sin(k*.7+i)})),k>=25&&k<30&&{key:'occ',x:.308,y:.615,kit:'blue',visible:false}]);
+ const id=log[24].who.r2;assert.match(id,/^A\d+$/);
+ assert.ok(events(log,'reid-rejected').some(e=>e.playerId===id&&/no longer matches/.test(e.message)),'released while hidden');
+ assert.ok(events(log,'reid').some(e=>e.playerId===id&&e.time<7),'won back once the crop is clean');
+ assert.ok(log.slice(36).every(l=>l.who.r2===id));
+ assert.equal(events(log,'new-identity').filter(e=>e.time>1).length,0);
+ assert.equal(tracker.snapshot().filter(s=>s.team==='A').length,4);
+});
+
+test('an identity without gallery or position still competes: the others are not chosen by elimination',()=>{
+ const tracker=new SoccerTracker({maxPerTeam:3}),ids={};
+ const P1={key:'P1',x:.3,y:.6,kit:'red'},P2={key:'P2',x:.6,y:.32,kit:'red',h:.075},P3={key:'P3',x:.75,y:.6,kit:'red'};
+ const blue=[{key:'b1',x:.2,y:.45,kit:'blue'},{key:'b2',x:.45,y:.4,kit:'blue'},{key:'b3',x:.85,y:.4,kit:'blue'}];
+ const log=run(tracker,45,(t,k)=>(k<15?[P1,P2,P3,...blue]:[{key:'Q',x:.5,y:.6,kit:'red'},{...P3,x:.2}]).map((p,i)=>({...p,x:p.x+.004*Math.sin(k*.7+i)})),
+  {camera:(t,k)=>({...still,cut:k===15}),each:l=>{if(l.k===14)Object.assign(ids,l.who);},anchors:(t,k,seen)=>k===16?[{playerId:ids.P3,box:boxOf(seen.find(p=>p.key==='P3'))}]:[]});
+ assert.equal(snapshotOf(tracker,ids.P2).gallery.length,0,'the far player never got a gallery sample');
+ const after=log.slice(16);
+ assert.ok(after.every(l=>l.who.Q==='-'),'Q (really P2) is not given P1 by elimination');
+ assert.ok(events(after,'deferred').some(e=>/cannot be compared/.test(e.message)));
+ assert.equal(events(after,'reid').filter(e=>e.playerId===ids.P1).length,0);
+});
+
+test('a labelled goalkeeper is re-identified after a camera cut (a team has no second keeper)',()=>{
+ const tracker=new SoccerTracker(),GK={key:'gk',x:.08,y:.55,kit:'keeper'};
+ const ros=()=>roster().map(s=>s.id==='A1'?{...s,role:'goalkeeper'}:s);
+ const log=run(tracker,60,(t,k)=>[...RED,...BLUE,GK].map((p,i)=>wobble(k>=20?{...p,x:1-p.x}:p,k,i)),{roster:ros,camera:(t,k)=>({...still,cut:k===20}),anchors:(t,k,seen)=>k===2?[{playerId:'A1',box:boxOf(seen.find(p=>p.key==='gk'))}]:[]});
+ assert.equal(log[19].who.gk,'A1');
+ const reid=events(log.slice(20),'reid').find(e=>e.playerId==='A1');
+ assert.ok(reid,'reconnected');assert.match(reid.message,/no spatial evidence/);
+ assert.ok(log.slice(40).every(l=>l.who.gk==='A1'));
+ assert.equal(events(log,'new-identity').filter(e=>e.playerId?.startsWith('A')&&e.time>4).length,0);
+});
+
+test('people outside both kits become referees only when it is unambiguous; a shaded player stays in his team',()=>{
+ // An unlabelled goalkeeper (no goal line in view) and the referee: two different non-team kits, neither is guessed.
+ const tracker=new SoccerTracker(),GK={key:'gk',x:.08,y:.55,kit:'keeper'};
+ const log=run(tracker,30,(t,k)=>[...RED,...BLUE,GK,REF].map((p,i)=>wobble(p,k,i)));
+ assert.equal(log[29].who.gk,'-');assert.equal(log[29].who.ref,'-');
+ assert.ok(!tracker.snapshot().some(s=>s.role==='referee'));
+ assert.match(log[29].r.debug.tracks.find(d=>iou(d.box,boxOf(REF))>.5).reason,/label the referee/);
+ // A red player walking into deep shade (same hue, 35% darker) is not a referee and does not move the red prototype.
+ KITS.redShade={shirt:KITS.red.shirt.map(v=>Math.round(v*.65)),shorts:KITS.red.shorts.map(v=>Math.round(v*.65)),socks:KITS.red.socks.map(v=>Math.round(v*.65))};
+ const shade=new SoccerTracker(),log2=run(shade,50,(t,k)=>[...RED,...BLUE].map((p,i)=>wobble(p.key==='r2'&&k>=30?{...p,kit:'redShade'}:p,k,i)));
+ assert.equal(events(log2,'role').length,0);
+ assert.ok(!shade.snapshot().some(s=>s.role==='referee'));
+ assert.ok(log2.slice(36).every(l=>l.who.r2==='-'||/^A/.test(l.who.r2)));
+ const d=log2[49].r.debug.tracks.find(x=>iou(x.box,boxOf(RED[1]))>.5);assert.equal(d.team,'A');
+});
+
+test('a loose or click-sized label binds the person under it at once (no second track)',()=>{
+ const tracker=new SoccerTracker();
+ const loose=b=>{const w=b.w*1.6,h=b.h*1.25;return {x:b.x+b.w/2-w/2,y:b.y+b.h-h,w,h};},click=b=>({x:b.x+b.w/2-.0075,y:b.y+b.h*.35-.019,w:.015,h:.038});
+ const log=run(tracker,20,(t,k)=>[...RED,...BLUE].map((p,i)=>wobble(p,k,i)),{anchors:(t,k,seen)=>{
+  if(k===10)return [{playerId:'A9',box:loose(boxOf(seen.find(p=>p.key==='r2')))}];
+  if(k===12)return [{playerId:'A10',box:click(boxOf(seen.find(p=>p.key==='r3')))}];
+  return [];}});
+ assert.ok(log.slice(10).every(l=>l.who.r2==='A9'));
+ assert.ok(log.slice(12).every(l=>l.who.r3==='A10'));
+ for(const l of log.slice(10)){const n=l.r.debug.tracks.filter(d=>iou(d.box,boxOf(RED[1]))>.3).length;assert.equal(n,1,`tracks on r2 at ${l.t}`);}
+ assert.equal(observed(log[12].r.observations,boxOf(RED[2]),log[12].t).conf,1);
+});
+
+test('a label drawn between detection steps binds the moving player, never a box left behind on empty grass',()=>{
+ const runner=t=>({key:'run',x:.2+.3*t,y:.6,kit:'red'}),others=[...RED.slice(0,1),...RED.slice(2),...BLUE];
+ const tracker=new SoccerTracker();
+ const log=run(tracker,14,t=>[runner(t),...others],{anchors:(t,k)=>k===6?[{playerId:'A7',box:boxOf(runner(1.05)),time:1.05}]:[]});
+ for(const l of log.slice(6,9))assert.equal(l.who.run,'A7',`runner at ${l.t}`);
+ const a7=log.pool.filter(o=>o.playerId==='A7');
+ assert.ok(a7.length>=3);
+ for(const o of a7)assert.ok(iou(o.box,boxOf(runner(o.time)))>.5,`A7 at ${o.time} is on the runner`);
+});
+
+test('a label replacing an automatic identity created on that track: the player is re-identified as the label after leaving',()=>{
+ const tracker=new SoccerTracker();
+ const log=run(tracker,60,(t,k)=>[...RED,...BLUE].map((p,i)=>wobble(p,k,i)).filter(p=>!(p.key==='r2'&&k>=30&&k<40)),{anchors:(t,k,seen)=>k===12?[{playerId:'A9',box:boxOf(seen.find(p=>p.key==='r2'))}]:[]});
+ const auto=log[11].who.r2;assert.match(auto,/^A\d+$/);assert.notEqual(auto,'A9');
+ assert.ok(events(log,'reid').some(e=>e.playerId==='A9'&&e.time>=8));
+ assert.ok(log.slice(46).every(l=>l.who.r2==='A9'));
+ const kept=snapshotOf(tracker,auto);assert.ok(kept,'kept, not deleted');assert.equal(kept.status,'unknown');
+});
+
+test('re-running from an earlier frame emits the back-filled observations of that pass',()=>{
+ const scene=(t,k)=>[...RED,...BLUE,REF].map((p,i)=>wobble(p,k,i));
+ const first=new SoccerTracker();run(first,40,scene);
+ const again=new SoccerTracker({},JSON.parse(JSON.stringify(first.snapshot()))),log=run(again,20,scene);
+ const r1=log.pool.filter(o=>o.playerId==='R1');
+ assert.ok(r1.some(o=>o.evidence==='reidentified'));
+ assert.equal(Math.min(...r1.map(o=>o.time)),0);
+});
+
+test('the team model accumulates a kit seen only a few players at a time',()=>{
+ const reds=Array.from({length:9},(_,i)=>({key:'r'+i,x:.06+.1*i,y:[.35,.5,.65,.78][i%4],kit:'red'}));
+ const blues=Array.from({length:6},(_,i)=>({key:'b'+i,x:.15+.3*(i%3)+.05*Math.floor(i/3),y:[.45,.68][Math.floor(i/3)],kit:'blue'}));
+ // Three blue players for 1.6 s, none for 2 s, then three others: never more than three in one frame.
+ const tracker=new SoccerTracker();
+ const log=run(tracker,30,(t,k)=>[...reds,...blues.filter((_,i)=>i<3?k<8:k>=18&&k<26),{key:'ref',x:.5,y:.3,kit:'ref'}].map((p,i)=>({...p,x:p.x+.004*Math.sin(k*.7+i)})));
+ assert.ok(tracker.teamModel.a&&tracker.teamModel.b);
+ for(const k of ['b3','b4','b5'])assert.match(log[25].who[k],/^B\d+$/);
+ for(const p of reds)assert.match(log[25].who[p.key],/^A\d+$/);
+});
+
+test('the size model is dropped at a camera cut: a closer view keeps its players',()=>{
+ const tracker=new SoccerTracker(),wide=Array.from({length:10},(_,i)=>({key:'p'+i,x:.08+i*.09,y:.3+(i%5)*.11,kit:i%2?'red':'blue'}));
+ const close=[{x:.3,y:.6,h:.45},{x:.5,y:.7,h:.5},{x:.7,y:.65,h:.47},{x:.45,y:.45,h:.38}].map((p,i)=>({key:'c'+i,...p,kit:i%2?'red':'blue'}));
+ const log=run(tracker,8,(t,k)=>k<3?wide:close,{camera:(t,k)=>({...still,cut:k===3})});
+ assert.ok(log[2].r.debug.rejected.every(r=>r.reason!=='implausible-size'));
+ for(const l of log.slice(3))assert.deepEqual(l.r.debug.rejected.filter(r=>r.reason==='implausible-size'),[],`at ${l.t}`);
+ assert.equal(log[7].r.debug.tracks.length,4);
+});
+
+test('explainFrame shows identities only for the tracker\'s own frame',()=>{
+ const {tracker,log}=getA(),people=[...RED,...BLUE,REF],frame=paint(people),dets=people.map(detect);
+ const other=explainFrame(frame,dets,0,roster(),{},tracker);
+ assert.ok(other.tracks.every(t=>!t.playerId&&t.state==='candidate'),'no identity from the end of the run on another frame');
+ assert.match(other.tracks.find(t=>iou(t.box,boxOf(RED[0]))>.6).reason,/kit vote A/);
+ assert.equal(explainFrame(frame,dets,log[log.length-1].t,roster(),{},tracker).tracks.find(t=>iou(t.box,boxOf(REF))>.6).label,'REF-1');
+});

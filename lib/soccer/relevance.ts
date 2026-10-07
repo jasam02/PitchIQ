@@ -4,7 +4,7 @@ import {footPoint,nearestBoundary,pointInPolygon,signedDistance,zoneOf} from './
 import type {Box,FieldFilterConfig,PitchModel,Pt,RejectedDetection,RejectReason,ScoredDetection,SizeModel,TrackDetection} from './types';
 export const MIN_PERSON_SCORE=.08; // below this a detection is noise even for existing tracks
 export const SIZE_FIT_SCORE=.35; // people used to fit the size model
-export const SIZE_MIN_SAMPLES=6,SIZE_MAX_RATIO=2.2,SIZE_MIN_RATIO=.4;
+export const SIZE_MIN_SAMPLES=6,SIZE_MAX_RATIO=2.2,SIZE_MIN_RATIO=.4,LYING_MIN_RATIO=.6;
 const median=(v:number[])=>{const s=[...v].sort((a,b)=>a-b),n=s.length;return n?(n%2?s[n>>1]:(s[n/2-1]+s[n/2])/2):0;};
 // Robust perspective size model (Theil-Sen): expected box height = a + b * footY. People lower in the
 // image are closer to a camera above the pitch, so the slope is never negative.
@@ -30,7 +30,9 @@ export function assessDetections(detections:TrackDetection[],pitch:PitchModel,co
  const filtering=config.enabled&&pitch.reliable;let model:SizeModel=size??{a:0,b:0,reliable:false};
  if(filtering){const fit=fitSizeModel(scored.filter(d=>d.zone==='inside'&&d.score>=SIZE_FIT_SCORE));if(fit.reliable)model=fit;}
  const useSize=filtering&&model.reliable;
- if(useSize)for(const d of scored){const e=expectedHeight(model,d.foot.y);if(e>.004)d.sizeRatio=d.box.h/e;}
+ // Too short but about as long as a standing player is tall (a player lying after a tackle, a diving keeper): the
+ // long body axis is measured instead.
+ if(useSize)for(const d of scored){const e=expectedHeight(model,d.foot.y),long=Math.max(d.box.h,d.box.w*pitch.aspect);if(e>.004)d.sizeRatio=d.box.h/e<SIZE_MIN_RATIO&&long/e>=LYING_MIN_RATIO?long/e:d.box.h/e;}
  const outside=scored.filter(d=>d.zone==='outside'),accepted:ScoredDetection[]=[],rejected:RejectedDetection[]=[];
  const reject=(d:ScoredDetection,reason:RejectReason,detail:string)=>rejected.push({box:d.box,score:d.score,reason,detail});
  for(const d of scored){

@@ -14,6 +14,9 @@ type Sample={jersey:number[];team?:Team;role?:Role;weight?:number};
 
 const r3=(v:number)=>Math.round(v*1000)/1000;
 const dist=(a:number[],b:number[])=>bhattacharyya(a,b)??1;
+// Jersey histogram without its two brightness levels per hue (4 greys + 10 hues x 2 -> 14 bins): shade and
+// floodlights move mass between the levels of one hue, a different kit changes the hue (or the greys).
+const hueOnly=(v:number[])=>v.length===24?[...v.slice(0,4),...Array.from({length:10},(_,i)=>(v[4+2*i]||0)+(v[5+2*i]||0))]:v;
 const mass=(v:number[])=>v.reduce((a,x)=>a+(x>0?x:0),0);
 const median=(v:number[])=>{if(!v.length)return 0;const s=[...v].sort((a,b)=>a-b),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
 const weightOf=(s:Sample)=>s.weight!==undefined&&Number.isFinite(s.weight)&&s.weight>0?s.weight:1;
@@ -122,7 +125,13 @@ export function fitTeamModel(samples:{jersey:number[];team?:Team;role?:Role;weig
  const {fit,spread}=best;
  // Without history, A is the cluster holding the earliest sample; with history, nearest-centroid matching.
  let [a,b]=fit.members[0][0]<fit.members[1][0]?[fit.c[0],fit.c[1]]:[fit.c[1],fit.c[0]];
- if(previous?.a&&previous.b&&dist(a,previous.b)+dist(b,previous.a)<dist(a,previous.a)+dist(b,previous.b))[a,b]=[b,a];
+ if(previous?.a&&previous.b){
+  if(dist(a,previous.b)+dist(b,previous.a)<dist(a,previous.a)+dist(b,previous.b))[a,b]=[b,a];
+  // Both clusters are shades of one known kit (the other team left the view, part of the pitch in shadow): a
+  // lighting split, not two teams. The established model stays.
+  const hue=(x:number[],y:number[])=>dist(hueOnly(x),hueOnly(y)),pa=previous.a,pb=previous.b,near=(x:number[])=>hue(x,pa)<=hue(x,pb)?pa:pb;
+  if(near(a)===near(b)&&Math.max(hue(a,near(a)),hue(b,near(b)))<MIN_KIT_GAP)return fallback();
+ }
  return {a,b,referee,keepers,anchored:false,spread,samples:field.length};
 }
 
@@ -138,8 +147,12 @@ export function kitVote(model:TeamModel,d:Descriptor):KitVoteDetail{
  const limit=2.5*model.spread+.1,near=Math.min(distA,distB),special=Math.min(distRef,distKeeper);
  if(special<limit&&special<near+KIT_MARGIN){
   if(special+KIT_MARGIN<=near){vote.outlier=true;if(distRef<=distKeeper)vote.refLike=true;else{vote.keeperLike=true;if(keeper)vote.keeper=keeper;}}
- }else if(near>=limit)vote.outlier=true;
- else if(Math.abs(distA-distB)>=KIT_MARGIN)vote.team=distA<distB?'A':'B';
+ }else if(near>=limit){
+  // A darker or brighter crop of one team's hue (stadium shadow) is that team, unless an official/keeper kit fits as well.
+  const h=(p?:number[])=>p?dist(hueOnly(d.jersey),hueOnly(p)):1,ha=h(model.a),hb=h(model.b),hs=Math.min(h(model.referee),...model.keepers.map(k=>h(k.jersey)));
+  if(Math.min(ha,hb)<limit&&Math.abs(ha-hb)>=KIT_MARGIN&&hs>=Math.min(ha,hb)+KIT_MARGIN){vote.team=ha<hb?'A':'B';vote.margin=r3(Math.abs(ha-hb));}
+  else vote.outlier=true;
+ }else if(Math.abs(distA-distB)>=KIT_MARGIN)vote.team=distA<distB?'A':'B';
  return vote;
 }
 export function emptyRoleEvidence():RoleEvidence{return {hits:0,votes:[],nearGoal:0,central:0,boundary:0};}

@@ -61,11 +61,16 @@ export function ensureOfficials<T extends {players:Player[]}>(s:T):T{
 // Roster slots for the soccer identity tracker at `time` (substitutions resolved; ball excluded).
 export function soccerRoster(s:Roster,time:number):RosterSlot[]{return s.players.flatMap(p=>p.team==='ball'?[]:[{id:p.id,team:p.team,number:p.number,role:p.team==='ref'?'referee' as const:p.role,active:isActive(s,p.id,time)}]);}
 const clamp=(v:number,lo:number,hi:number)=>Number.isFinite(v)?Math.min(hi,Math.max(lo,v)):lo,round=(v:number,d=4)=>Number(clamp(v,-1e6,1e6).toFixed(d));
-// User-confirmed (non-experimental) boxes in (from,to], latest per active player; they override automatic identities.
-export function confirmedAnchors(s:Roster&{points:Point[]},from:number,to:number):{playerId:string;box:Box}[]{
+// Boxes you confirmed (labels and reviewed observations) are anchors. With suggestions, unreviewed roster suggestions
+// (kit-colour proposals: experimental 're-identified' boxes without a tracker id) count too, for the start frame.
+export const isConfirmed=(p:Point)=>p.source!=='experimental'||p.reviewed;
+const isSuggestion=(p:Point)=>p.source==='experimental'&&!p.reviewed&&p.evidence==='reidentified'&&p.track===undefined&&p.conf===undefined;
+// Confirmed boxes in (from,to], latest per active player, with the time they were drawn; they override automatic
+// identities. Reviewed automatic boxes and suggestions are weak: they bind the person under them, never a new track.
+export function confirmedAnchors(s:Roster&{points:Point[]},from:number,to:number,suggestions=false):{playerId:string;box:Box;time:number;weak?:boolean}[]{
  const latest=new Map<string,Point>();
- for(const p of s.points)if(p.source!=='experimental'&&p.playerId!=='ball'&&p.time>from&&p.time<=to&&isActive(s,p.playerId,p.time)&&(latest.get(p.playerId)?.time??-Infinity)<p.time)latest.set(p.playerId,p);
- return [...latest.values()].map(p=>({playerId:p.playerId,box:p.box}));
+ for(const p of s.points)if((isConfirmed(p)||suggestions&&isSuggestion(p))&&p.playerId!=='ball'&&p.time>from&&p.time<=to&&isActive(s,p.playerId,p.time)&&(latest.get(p.playerId)?.time??-Infinity)<p.time)latest.set(p.playerId,p);
+ return [...latest.values()].map(p=>({playerId:p.playerId,box:p.box,time:p.time,...(p.source==='experimental'?{weak:true}:{})}));
 }
 // Experimental point from an automatic observation: box clipped to the frame, numbers bounded; undefined when unusable.
 export function observationPoint(o:{playerId:string;time:number;box:{x:number;y:number;w:number;h:number};score:number;evidence?:Point['evidence'];track?:number;conf?:number;pitch?:{x:number;y:number}}):Point|undefined{
@@ -78,7 +83,7 @@ export function observationPoint(o:{playerId:string;time:number;box:{x:number;y:
 // and reviewed observations win), at most one per player per 10 ms (`seen` carries keys across steps). Observations
 // may be for earlier times (re-identified back-fill, held crossings). boxFor may replace a box (motion smoothing).
 export function soccerPoints(s:Roster&{points:Point[]},observations:SoccerObservation[],seen:Set<string>,boxFor?:(o:SoccerObservation)=>Box|undefined):Point[]{
- const ids=new Set(s.players.map(p=>p.id)),mine=s.points.filter(p=>p.source!=='experimental'||p.reviewed),out:Point[]=[];
+ const ids=new Set(s.players.map(p=>p.id)),mine=s.points.filter(isConfirmed),out:Point[]=[];
  for(const o of observations){
   if(!ids.has(o.playerId)||o.playerId==='ball'||!isActive(s,o.playerId,o.time)||mine.some(q=>q.playerId===o.playerId&&Math.abs(q.time-o.time)<.05))continue;
   const key=o.playerId+':'+Math.round(o.time*100);if(seen.has(key))continue;
@@ -97,6 +102,14 @@ export function cleanIdentities(s:{players:Player[]},list:SavedIdentity[]):Ident
   const parsed=identitySchema.safeParse(next);if(parsed.success)out.push(parsed.data);
  }
  return out.reverse().slice(0,40);
+}
+// Saved identities for a pass starting at `start`: an identity last seen elsewhere in time (a re-run from an earlier
+// frame) restarts from its saved box at the start frame, so the tracker has its position to re-identify it.
+export function identitiesAt(s:{points:Point[];identities?:Identity[]},start:number):Identity[]{
+ return (s.identities||[]).map(i=>{
+  const p=Math.abs(i.lastSeen-start)>.3&&i.status!=='substituted'&&i.status!=='unknown'?pointAt(s.points,i.playerId,start):undefined;if(!p)return i;
+  const next:Identity={...i,status:'missing',lastSeen:p.time,lastBox:{...p.box},exitEdge:'',velocity:{x:0,y:0}};delete next.lastPitch;return next;
+ });
 }
 // Appends tracker events to the saved log (newest kept), bounding count and message length.
 export function appendTrackingLog(log:TrackingLogEntry[]|undefined,events:ReidEvent[],max=300):TrackingLogEntry[]{
