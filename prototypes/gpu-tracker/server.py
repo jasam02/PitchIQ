@@ -12,9 +12,18 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, request, send_file
 from waitress import serve
 from pipeline import ROOT, gpu_info, metadata, run
+from soccer import calibration
 
 
-def validate(payload, duration):
+def _number(payload, key, default, low, high, message):
+    value = float(payload.get(key, default))
+    if not math.isfinite(value) or not low <= value <= high:
+        raise ValueError(message)
+    return value
+
+
+def validate(payload, meta):
+    duration = meta['duration']
     if not isinstance(payload, dict):
         raise ValueError('Expected a JSON settings object.')
     start, seconds = float(payload.get('start', 0)), float(payload.get('seconds', 60))
@@ -42,8 +51,37 @@ def validate(payload, duration):
         clean.append({'time': timestamp, 'points': points})
     if len(set(a['time'] for a in clean)) != len(clean):
         raise ValueError('Duplicate boundary times; replace the existing keyframe.')
+    calibrations = payload.get('calibrations', [])
+    if not isinstance(calibrations, list) or len(calibrations) > 100:
+        raise ValueError('At most 100 calibration keyframes are supported.')
+    marks = []
+    for anchor in calibrations:
+        timestamp = float(anchor['time'])
+        if not math.isfinite(timestamp) or not 0 <= timestamp < duration:
+            raise ValueError('Invalid calibration-keyframe time.')
+        points = anchor['points']
+        if not isinstance(points, list) or not 4 <= len(points) <= 30:
+            raise ValueError('A calibration keyframe needs 4 to 30 landmarks.')
+        clean_points = []
+        for p in points:
+            name, x, y = p['name'], p['x'], p['y']
+            if name not in calibration.LANDMARKS or any(not isinstance(v, (int, float)) or not math.isfinite(v) or not 0 <= v <= 1 for v in (x, y)):
+                raise ValueError('Calibration landmarks need a known name and a point inside the image.')
+            clean_points.append({'name': name, 'x': float(x), 'y': float(y)})
+        try:
+            calibration.solve(clean_points, meta['width'], meta['height'])
+        except ValueError as error:
+            raise ValueError(f'Calibration at {timestamp:.2f}s: {error}')
+        marks.append({'time': timestamp, 'points': clean_points})
+    if len(set(a['time'] for a in marks)) != len(marks):
+        raise ValueError('Duplicate calibration times; replace the existing keyframe.')
+    margin = _number(payload, 'touchlineMargin', .35, 0, 1, 'Touchline tolerance must be between 0% and 100% of player height.')
+    per_team = int(_number(payload, 'maxPerTeam', 11, 5, 30, 'Expected identities per team must be between 5 and 30.'))
     return {'start': start, 'seconds': seconds, 'imageSize': image_size,
-            'ballTiles': bool(payload.get('ballTiles', False)), 'boundaries': sorted(clean, key=lambda a: a['time'])}
+            'ballTiles': bool(payload.get('ballTiles', False)), 'boundaries': sorted(clean, key=lambda a: a['time']),
+            'calibrations': sorted(marks, key=lambda a: a['time']), 'fieldFilter': bool(payload.get('fieldFilter', True)),
+            'touchlineMargin': margin, 'maxPerTeam': per_team, 'continueIdentities': bool(payload.get('continueIdentities', False)),
+            'debug': bool(payload.get('debug', True))}
 
 
 def main():
@@ -61,7 +99,7 @@ def main():
     directory = ROOT/'runs'/video_key[:16]
     directory.mkdir(parents=True, exist_ok=True)
     app = Flask(__name__, static_folder=None)
-    app.config['MAX_CONTENT_LENGTH'] = 128*1024
+    app.config['MAX_CONTENT_LENGTH'] = 512*1024
     gate = threading.Lock()
     cancel = threading.Event()
     state = {'state': 'idle', 'stage': 'Ready', 'progress': 0, 'gpu': gpu}
@@ -73,13 +111,25 @@ def main():
         if candidate.parent == directory and (candidate/'result.json').exists():
             current['directory'] = candidate
             state.update(state='complete', stage='Previous result loaded', progress=1)
-    defaults = {'start': 0, 'seconds': min(60, meta['duration']), 'imageSize': 1280, 'ballTiles': False, 'boundaries': []}
+    defaults = validate({'seconds': max(.5, min(60, meta['duration']))}, meta)
     saved = directory/'settings.json'
     if saved.exists():
         try:
-            defaults = validate(json.loads(saved.read_text()), meta['duration'])
+            defaults = validate(json.loads(saved.read_text()), meta)
         except (ValueError, KeyError, TypeError):
             pass
+
+    def previous_identities():
+        """Saved global identities of the latest completed run of this video, if any."""
+        if not last.exists():
+            return None
+        try:
+            run_dir = directory/json.loads(last.read_text())['run']
+            if run_dir.parent != directory or not (run_dir/'identities.json').exists():
+                return None
+            return json.loads((run_dir/'identities.json').read_text())
+        except (ValueError, KeyError, TypeError, OSError):
+            return None
 
     @app.before_request
     def local_only():
@@ -107,7 +157,13 @@ def main():
 
     @app.get('/api/info')
     def info():
-        return jsonify(video=meta, gpu=gpu, videoKey=video_key, settings=defaults)
+        saved_ids = previous_identities()
+        summary = None
+        if saved_ids:
+            identities = saved_ids.get('registry', {}).get('identities', [])
+            summary = {'run': saved_ids.get('run'), 'start': saved_ids.get('start'), 'end': saved_ids.get('end'), 'identities': len(identities)}
+        return jsonify(video=meta, gpu=gpu, videoKey=video_key, settings=defaults,
+                       landmarks=sorted(calibration.LANDMARKS), previousIdentities=summary)
 
     @app.get('/api/status')
     def status():
@@ -131,6 +187,11 @@ def main():
         return send_file(BytesIO((path/'preview.jpg').read_bytes()), mimetype='image/jpeg')
 
     def begin(config):
+        previous = None
+        if config['continueIdentities']:
+            previous = previous_identities()
+            if previous is None:
+                raise ValueError('There is no earlier completed run of this video to continue identities from.')
         with gate:
             if state['state'] == 'running':
                 raise ValueError('A run is already processing.')
@@ -149,7 +210,7 @@ def main():
 
         def worker():
             try:
-                report = run(source, destination, config, progress, cancel.is_set)
+                report = run(source, destination, config, progress, cancel.is_set, previous)
                 report['sourceSHA256'] = video_key
                 (destination/'result.json').write_text(json.dumps(report, separators=(',', ':'), allow_nan=False), encoding='utf-8')
                 last.write_text(json.dumps({'run': run_name}), encoding='utf-8')
@@ -162,7 +223,7 @@ def main():
     @app.post('/api/run')
     def start():
         try:
-            begin(validate(request.get_json(), meta['duration']))
+            begin(validate(request.get_json(), meta))
             return jsonify(ok=True)
         except (ValueError, KeyError, TypeError) as error:
             return jsonify(error=str(error)), 400
@@ -176,7 +237,10 @@ def main():
     print(f"Review: http://127.0.0.1:{args.port}", flush=True)
     print(f"Video: {source}\nResults: {directory}\nCtrl+C stops the server.", flush=True)
     if args.run:
-        begin(defaults)
+        try:
+            begin(defaults)
+        except ValueError as error:
+            print(f'Could not start: {error}', flush=True)
     serve(app, host='127.0.0.1', port=args.port, threads=6)
 
 

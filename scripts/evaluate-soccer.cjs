@@ -5,6 +5,11 @@ const fs=require('node:fs'),load=require('../tests/load-ts.cjs');
 const {assignMinimum}=load('lib/persistent-tracker.ts'),{iou}=load('lib/detection-core.ts');
 const [predFile,truthFile]=process.argv.slice(2);if(!predFile||!truthFile)throw Error('Provide exported tracking JSON and annotated ground-truth JSON.');
 const pred=JSON.parse(fs.readFileSync(predFile,'utf8')),truth=JSON.parse(fs.readFileSync(truthFile,'utf8'));
+// The local GPU prototype's result.json (prototypes/gpu-tracker) stores people per frame; flatten it.
+if(!pred.observations&&Array.isArray(pred.frames)){
+ pred.observations=pred.frames.flatMap(f=>f.people.map(p=>({time:f.time,localId:p.track,globalId:p.id||undefined,box:{x:p.box[0],y:p.box[1],w:p.box[2],h:p.box[3]},role:p.role,identityConfidence:p.identity,uncertain:!p.id})));
+ pred.reidEvents=(pred.events||[]).filter(e=>e.kind==='reid').map(e=>({accepted:true,localId:e.track,globalId:e.playerId,time:e.time}));
+}
 if(!Array.isArray(truth.frames)||!truth.frames.length)throw Error('Ground truth needs annotated frames; unlabeled detections cannot measure identity accuracy.');
 const metrics={falseSpectatorDetections:0,refereeAsPlayerErrors:0,idSwitches:0,fragmentedPlayerTracks:0,duplicateGlobalIdentities:0,successfulReIDEvents:0,incorrectReIDEvents:0,unscoredReIDEvents:0,averagePlayerIdentityConfidence:0,visiblePlayerCoverage:0,unmatchedPredictedPlayers:0,perPlayer:{}};
 const previous=new Map(),ids=new Map(),evaluated=new Map();let confidence=0,confidenceN=0,visible=0,tracked=0;

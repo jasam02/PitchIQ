@@ -1,5 +1,9 @@
 # Persistent soccer tracking
 
+This page describes the browser workspace. The local GPU prototype has its own
+soccer identity layer (pitch detection, foot-point filtering, global identity
+manager, debug overlay); see [prototypes/gpu-tracker/README.md](../prototypes/gpu-tracker/README.md).
+
 This implementation replaces the browser run loop's single shirt-color memory
 with separate local tracks and a saved global identity registry. Old match
 documents remain readable. Confirmed labels can initialize learned galleries

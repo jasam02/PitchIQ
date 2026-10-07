@@ -1,9 +1,14 @@
 # PitchIQ — browser tracking workspace
 
 An experimental [local NVIDIA GPU prototype](prototypes/gpu-tracker/README.md)
-also provides soccer-trained detection, camera-aware tracking, inferred kit
-groups, and a standalone video review page. It runs separately from this browser
-workspace and is set up for the RTX 5080. See its README for Command Prompt steps.
+also provides soccer-trained detection and a standalone video review page. Its
+soccer tracking layer only tracks people on the detected pitch (foot-point
+test, audience and staff rejected), separates temporary local track IDs from
+persistent global player identities (`A-07`, `GK-1`, `REF-1`) that survive
+exits, returns and consecutive runs, keeps referees apart from players, defers
+uncertain identities instead of guessing, and has a debug overlay with an
+identity-event log. It runs separately from this browser workspace and is set
+up for the RTX 5080. See its README for Command Prompt steps.
 
 The workflow uploads MP4s in small chunks and runs **YOLOX detection, OSNet appearance Re-ID and persistent soccer tracking in the browser**, with Norfair motion filtering in a worker. Clients do not need Python. Open a match, let its first frame scan, confirm clear player identities, mark referees with **Track as referee**, and set goalkeeper roles. Teams can also be inferred from repeated kit evidence; automatically allocated roster slots are provisional identities, not recognized jersey numbers.
 

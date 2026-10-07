@@ -1,0 +1,1173 @@
+"""GLOBAL IDENTITY MANAGER. Sits above BoT-SORT.
+
+Local track IDs are temporary (an occlusion, an exit or a camera cut ends them). Global identities
+(A-07, B-03, GK-1, REF-1) are the actual people and persist for the whole run, and into the next
+run when identities are continued.
+
+Rules:
+- A detection becomes a CANDIDATE track first; it is promoted only after several observations,
+  mostly inside the pitch, with a stable role/team decision.
+- A promoted track is first compared with every missing identity of its team and role. A new
+  identity is created only when no missing identity can be this person.
+- Ambiguous matches are deferred (IDENTITY_UNCERTAIN), never guessed. Reconnection needs several
+  scored observations, a minimum score and a clear lead over the second-best identity and over an
+  unseen teammate.
+- One identity has at most one live track. Identities are never deleted; they become MISSING or
+  OFF_SCREEN and keep their appearance gallery.
+- Crossing players are never swapped on proximity alone; appearance must favour a swap.
+"""
+import math
+from collections import Counter, deque
+from dataclasses import dataclass, field
+
+from .appearance import Sample, add_to_gallery, compare, decode_descriptor, encode_descriptor
+from .geometry import clamp, edge_of, iou
+from .teams import RoleEvidence, decide_role, role_label
+
+# Final re-ID score weights, re-normalized over the components known for a pair.
+REID_WEIGHTS = {'appearance': .35, 'uniform': .1, 'spatial': .3, 'movement': .15, 'temporal': .1}
+PLAYER_HEIGHT = 1.8      # metres; converts image distances when there is no pitch calibration
+PITCH_LENGTH, PITCH_WIDTH = 105.0, 68.0
+SPATIAL_HORIZON = 35.0   # metres: beyond this reach the last position says nothing about who it is
+LOST = .35               # seconds without detection before a bound identity may move to a new track
+BUFFER_SECONDS = 12.0    # unidentified observations kept for retroactive labelling
+WINDOW, DESCS, HIST, VOTES = 10, 6, 10, 15
+ZONE_WINDOW = 25        # evidence ticks (5 s) used for the inside-the-pitch ratio
+SWAP_CAP, CLEAN, KIT_MISMATCH, MISSES = 2.0, .4, .6, 3
+RELEASE_HOLD = 3.0
+KIT_WINDOW = 4.0
+MAX_EVENTS_PER_STEP = 60
+
+
+def r3(v):
+    return round(float(v), 3)
+
+
+def pct(v):
+    return f'{round(clamp(v)*100)}%'
+
+
+def long_id(pid):
+    if pid.startswith('A-') or pid.startswith('B-'):
+        return f'Team{pid[0]}_Player_{pid[2:]}'
+    if pid.startswith('GK-'):
+        return f'Goalkeeper_{int(pid[3:]):02d}'
+    if pid.startswith('REF-'):
+        return f'Referee_{int(pid[4:]):02d}'
+    return pid
+
+
+def combine(c):
+    """Weighted mean over known components; a team mismatch is a hard gate (0)."""
+    if not c.get('team', True):
+        return 0.0
+    s = w = 0.0
+    for key, weight in REID_WEIGHTS.items():
+        v = c.get(key)
+        if v is not None and math.isfinite(v):
+            s += weight*v
+            w += weight
+    return s/w if w else 0.0
+
+
+@dataclass
+class Stab:
+    """Camera-compensated foot point and box height, in units of the camera segment's first frame."""
+    x: float
+    y: float
+    h: float
+
+
+@dataclass
+class Options:
+    max_per_team: int = 11
+    max_referees: int = 3
+    max_goalkeepers: int = 2
+    min_hits: int = 5            # evidence ticks before promotion (5 x 0.2 s = 1 s)
+    boundary_hits: int = 10      # stronger requirement for tracks first seen on the touchline
+    reid_min: float = .72
+    reid_margin: float = .15
+    gallery_size: int = 6
+    tick: float = .2             # seconds between evidence ticks
+    over_cap_seconds: float = 5.0
+
+
+@dataclass
+class GlobalPlayer:
+    pid: str
+    role: str
+    team: str | None
+    status: str = 'missing'      # active | missing | offscreen | unknown | substituted
+    gallery: list = field(default_factory=list)
+    first_seen: float = 0.0
+    last_seen: float = 0.0
+    last_box: list = field(default_factory=lambda: [.5, .5, .01, .02])
+    last_pitch: tuple | None = None
+    pitch_velocity: tuple | None = None
+    exit_edge: str = ''
+    velocity: tuple = (0.0, 0.0)
+    identity_confidence: float = 0.0
+    team_confidence: float = 0.0
+    role_confidence: float = 0.0
+    track: int | None = None
+    segment: int | None = None
+    stab: Stab | None = None
+    drift: int = 0
+    last_observed: float = -math.inf
+    cap_until: float = 0.0
+    crossed_at: float = -math.inf
+    bound_at: float = -math.inf
+    created_on: int | None = None
+    here: bool = False
+    restored: bool = False
+    observations: int = 0
+    gk_votes: Counter = field(default_factory=Counter)
+    history: deque = field(default_factory=lambda: deque(maxlen=40))
+
+    @property
+    def role_label(self):
+        return role_label(self.role, self.team)
+
+
+@dataclass
+class TrackState:
+    id: int
+    born: float
+    born_segment: int
+    first_stab: Stab
+    first_pitch: tuple | None
+    first_zone: str
+    entry_edge: str
+    box: list
+    stab: Stab
+    segment: int
+    score: float = 0.0
+    cls: str = 'player'
+    seen_at: float = 0.0
+    zone: str = 'unknown'
+    pitch: tuple | None = None
+    hits: int = 0
+    inside: int = 0
+    boundary: int = 0
+    outside: int = 0
+    outside_run: int = 0
+    zones: deque = field(default_factory=lambda: deque(maxlen=ZONE_WINDOW))
+    evidence: RoleEvidence = field(default_factory=RoleEvidence)
+    decision: object = None
+    team_votes: deque = field(default_factory=lambda: deque(maxlen=VOTES))
+    descs: deque = field(default_factory=lambda: deque(maxlen=DESCS))
+    current: object = None
+    occluded: bool = False
+    velocity: tuple = (0.0, 0.0)
+    pitch_velocity: tuple | None = None
+    hist: deque = field(default_factory=lambda: deque(maxlen=HIST))
+    last_box: list = None
+    last_time: float = 0.0
+    last_tick: float = -math.inf
+    last_pitch: tuple | None = None
+    state: str = 'candidate'     # candidate | confirmed | uncertain | unknown | rejected
+    player_id: str | None = None
+    team: str | None = None
+    role: str = 'unknown'
+    team_confidence: float = 0.0
+    role_confidence: float = 0.0
+    retired: bool = False
+    reacquired: bool = False
+    crossed_at: float = -math.inf
+    kit_miss: int = 0
+    look_miss: int = 0
+    pending: deque = field(default_factory=deque)   # unidentified person dicts (retroactive labelling)
+    emitted: deque = field(default_factory=deque)   # (time, person dict) recently emitted while bound
+    reid: dict = field(default_factory=dict)
+    best: float = 0.0
+    last_deferred: float = -math.inf
+    deferrals: int = 0
+    reason: str = ''
+    blind: list = field(default_factory=list)
+    released: tuple | None = None
+
+
+class IdentityManager:
+    def __init__(self, options=None, saved=None):
+        self.o = options or Options()
+        self.registry = {}
+        self.tracks = {}
+        self.pairs = {}
+        self.together = set()
+        self.limits = {}
+        self.kits = {}
+        self.counters = Counter()
+        self.time = 0.0
+        self.started = None
+        self.last_tick = -math.inf
+        self.events_log = []
+        if saved:
+            self.restore(saved)
+
+    # ---------- persistence ----------
+    def snapshot(self):
+        out = []
+        for g in self.registry.values():
+            out.append({'id': g.pid, 'role': g.role, 'team': g.team, 'status': g.status,
+                        'gallery': [{'t': r3(s.time), 'd': encode_descriptor(s.d)} for s in g.gallery],
+                        'firstSeen': r3(g.first_seen), 'lastSeen': r3(g.last_seen), 'lastBox': [round(float(v), 5) for v in g.last_box],
+                        'lastPitch': None if g.last_pitch is None else [r3(g.last_pitch[0]), r3(g.last_pitch[1])],
+                        'exitEdge': g.exit_edge, 'identityConfidence': r3(g.identity_confidence),
+                        'teamConfidence': r3(g.team_confidence), 'roleConfidence': r3(g.role_confidence),
+                        'observations': g.observations, 'gkVotes': dict(g.gk_votes)})
+        return {'version': 1, 'identities': out, 'counters': dict(self.counters)}
+
+    def restore(self, saved):
+        for v in saved.get('identities', []) if isinstance(saved, dict) else []:
+            try:
+                pid, role = str(v['id']), v['role']
+                if pid in self.registry or role not in ('player', 'goalkeeper', 'referee'):
+                    continue
+                gallery = []
+                for s in v.get('gallery', [])[-self.o.gallery_size:]:
+                    d = decode_descriptor(s.get('d', {}))
+                    if d is not None:
+                        gallery.append(Sample(d, float(s.get('t', 0))))
+                box = [float(x) for x in v.get('lastBox', [.5, .5, .01, .02])][:4]
+                edge = str(v.get('exitEdge', ''))[:8]
+                g = GlobalPlayer(pid, role, v.get('team') if v.get('team') in ('A', 'B') else None,
+                                 'offscreen' if edge else 'missing', gallery, float(v.get('firstSeen', 0)), float(v.get('lastSeen', 0)), box,
+                                 tuple(v['lastPitch']) if v.get('lastPitch') else None, None, edge,
+                                 identity_confidence=clamp(float(v.get('identityConfidence', 0))),
+                                 team_confidence=clamp(float(v.get('teamConfidence', 0))), role_confidence=clamp(float(v.get('roleConfidence', 0))),
+                                 restored=True, gk_votes=Counter(v.get('gkVotes', {})))
+                self.registry[pid] = g
+            except (KeyError, TypeError, ValueError):
+                continue
+        for key, value in (saved.get('counters', {}) if isinstance(saved, dict) else {}).items():
+            self.counters[key] = max(self.counters[key], int(value))
+
+    # ---------- per frame ----------
+    def update(self, ctx):
+        """ctx: dict with time, samples, ended, model, pitch_reliable, filter_enabled, aspect, segment,
+        drift, stabilize. Returns {'people', 'events', 'issues', 'drop'}."""
+        out = {'people': [], 'events': [], 'issues': [], 'drop': []}
+        t = ctx['time']
+        if self.started is None:
+            self.started = t
+        if t < self.time-1e-6:
+            for g in self.registry.values():
+                g.last_observed = -math.inf
+        self.time = t
+        tick = ctx.get('tick', True)
+        for e in ctx['ended']:
+            self._end_track(e, out)
+        seen = set()
+        for s in ctx['samples']:
+            self._observe(s, ctx, tick)
+            seen.add(s['id'])
+        live = sorted((self.tracks[i] for i in seen if i in self.tracks), key=lambda x: x.id)
+        if tick:
+            for tr in live:
+                self._check_team(tr, ctx, out)
+            waiting = [tr for tr in live if tr.state not in ('confirmed', 'uncertain')]
+            for tr in waiting:
+                tr.decision = decide_role(tr.evidence, ctx['model'], self.o.min_hits)
+            for tr in waiting:
+                self._promote(tr, ctx, out)
+            self._resolve([tr for tr in live if tr.state == 'uncertain'], ctx, out)
+            self._guard_swaps([tr for tr in live if tr.state != 'rejected' and not tr.retired], ctx, out)
+            self._check_reacquired(live, ctx, out)
+            self._goalkeeper_teams(live, ctx, out)
+        self._refresh(live, ctx, out, tick)
+        if tick and self._allow('sanity-scan', t, 5):
+            for e in self.sanity(t):
+                if self._allow('sanity:'+e['message'][:60], t, 30):
+                    out['events'].append(e)
+        if len(out['events']) > MAX_EVENTS_PER_STEP:
+            out['events'] = out['events'][-MAX_EVENTS_PER_STEP:]
+        return out
+
+    def _end_track(self, end, out):
+        tid = end['id']
+        tr = self.tracks.pop(tid, None)
+        if tr is None:
+            return
+        self._drop_pairs(tid, out)
+        g = self.registry.get(tr.player_id) if tr.player_id else None
+        if g is not None and g.track == tid:
+            edge = edge_of(tr.last_box)
+            g.track = None
+            g.exit_edge = edge
+            if g.status != 'substituted':
+                g.status = 'offscreen' if edge else 'missing'
+            return
+        if tr.state == 'uncertain' and not tr.retired:
+            out['events'].append(self._event('deferred', tr.id, None,
+                                             f'Track {tr.id} ({self._describe(tr.role, tr.team)}) ended before its identity could be decided; it stays unidentified.'))
+
+    def _observe(self, s, ctx, tick):
+        tr = self.tracks.get(s['id'])
+        t = ctx['time']
+        if tr is None:
+            tr = TrackState(s['id'], t, ctx['segment'], s['stab'], s.get('pitch'), s['zone'], edge_of(s['box']), s['box'], s['stab'], ctx['segment'])
+            tr.last_box, tr.last_time = s['box'], t
+            self.tracks[s['id']] = tr
+        tr.reacquired = t-tr.last_time > LOST and tr.hits > 0
+        tr.box, tr.score, tr.cls, tr.seen_at, tr.stab, tr.pitch = s['box'], s['score'], s['cls'], t, s['stab'], s.get('pitch')
+        tr.zone, tr.occluded = s['zone'], s['occluded']
+        if tr.segment != ctx['segment']:
+            tr.segment, tr.velocity, tr.pitch_velocity = ctx['segment'], (0.0, 0.0), None
+            tr.hist.clear()
+        tr.current = None
+        if tick:
+            tr.last_tick = t
+            tr.hits += 1
+            tr.inside += tr.zone == 'inside'
+            tr.boundary += tr.zone == 'boundary'
+            tr.outside += tr.zone == 'outside'
+            tr.outside_run = tr.outside_run+1 if tr.zone == 'outside' else 0
+            tr.zones.append(tr.zone)
+            d = s.get('descriptor')
+            if d is not None:
+                tr.current = d
+                if d.quality >= .2:
+                    tr.descs.append((d, t, s['occluded']))
+            vote = s.get('vote')
+            tr.evidence.add(s['cls'], s['score'], vote, s.get('near_goal', False))
+            if vote is not None and vote.valid:
+                tr.team_votes.append(vote.team or ('x' if vote.outlier else '-'))
+            if tr.hist:
+                prev = tr.hist[-1]
+                dt = t-prev[0]
+                if 1e-3 < dt <= 1.5:
+                    vx, vy = (tr.stab.x-prev[1])/dt, (tr.stab.y-prev[2])/dt
+                    tr.velocity = (.6*tr.velocity[0]+.4*vx, .6*tr.velocity[1]+.4*vy) if len(tr.hist) > 1 else (vx, vy)
+            tr.hist.append((t, tr.stab.x, tr.stab.y))
+            if tr.pitch is not None and tr.last_pitch is not None and 1e-3 < t-tr.last_time <= 1.5:
+                dt = t-tr.last_time
+                vx, vy = (tr.pitch[0]-tr.last_pitch[0])/dt, (tr.pitch[1]-tr.last_pitch[1])/dt
+                tr.pitch_velocity = (.6*tr.pitch_velocity[0]+.4*vx, .6*tr.pitch_velocity[1]+.4*vy) if tr.pitch_velocity else (vx, vy)
+            elif tr.pitch is None:
+                tr.pitch_velocity = None
+            tr.last_pitch = tr.pitch
+        tr.last_box, tr.last_time = s['box'], t
+
+    # ---------- team / role ----------
+    def _check_team(self, tr, ctx, out):
+        """A confirmed player whose kit votes switched (>= 80% of the last 15) is released and re-identified."""
+        if tr.state not in ('confirmed', 'uncertain') or tr.team is None or tr.role != 'player' or len(tr.team_votes) < VOTES:
+            return
+        other = 'B' if tr.team == 'A' else 'A'
+        n = sum(1 for v in tr.team_votes if v == other)
+        if n < .8*VOTES:
+            return
+        g = self.registry.get(tr.player_id) if tr.player_id else None
+        if g is not None and g.track == tr.id:
+            self._unbind(g)
+            out['issues'].append({'id': g.pid, 'time': ctx['time'], 'reason': 'Kit changed to the other team; identity released.'})
+        tr.player_id, tr.team, tr.state, tr.best = None, other, 'uncertain', 0.0
+        tr.reid.clear()
+        tr.team_votes.clear()
+        tr.reason = f'kit changed to team {other}'
+        out['events'].append(self._event('team-change', tr.id, g.pid if g else None,
+                                         f"Track {tr.id}{f' ({g.pid})' if g else ''} matched team {other}'s kit in {n} of the last {VOTES} observations; re-identifying as team {other}."))
+
+    def _promote(self, tr, ctx, out):
+        """CANDIDATE -> role. Never from one frame: min_hits observations, mostly inside the pitch,
+        and a temporal role decision. Tracks born on the touchline need stronger evidence."""
+        if tr.retired:
+            tr.state = 'unknown'
+            return
+        o, d = self.o, tr.decision
+        recent = [z for z in tr.zones if z != 'unknown']
+        zr = sum(1 if z == 'inside' else .5 if z == 'boundary' else 0 for z in recent)/len(recent) if recent else 0.0
+        born = tr.first_zone == 'boundary'
+        need = o.boundary_hits if born else o.min_hits
+        pitch_ok = ctx['pitch_reliable'] or not ctx['filter_enabled']
+        ok = pitch_ok and d.label != 'CANDIDATE' and d.role != 'unknown' and tr.hits >= o.min_hits
+        # Assistant referees run the touchline: allowed for a confident referee decision.
+        runner = d.role == 'referee' and d.role_confidence >= .6
+        if ok:
+            ok = tr.hits >= need if runner else zr >= .8 and (not born or (tr.hits >= o.boundary_hits and tr.inside >= 3))
+        if ok:
+            tr.state, tr.team, tr.role = 'uncertain', d.team, d.role
+            tr.team_confidence, tr.role_confidence, tr.reason = d.team_confidence, d.role_confidence, ''
+            out['events'].append(self._event('promotion', tr.id, None,
+                                             f'Track {tr.id} promoted to {self._describe(d.role, d.team)} after {tr.hits} observations (inside {pct(zr)}, team {pct(d.team_confidence)}, role {pct(d.role_confidence)}).'))
+            return
+        if tr.hits >= 3*o.min_hits:
+            tr.state = 'rejected' if zr < .8 and not runner else 'unknown'
+        else:
+            tr.state = 'candidate'
+        if not pitch_ok:
+            tr.reason = 'pitch not reliable on this frame: no promotion'
+        elif tr.state == 'rejected':
+            tr.reason = f'mostly outside the playable area (inside {pct(zr)})'
+        elif tr.state == 'unknown':
+            tr.reason = f'no consistent role or kit after {tr.hits} observations ({d.reason})'
+        else:
+            tr.reason = f"{tr.hits}/{need} observations, inside {pct(zr)}{' (born on the touchline)' if born else ''}; {d.reason}"
+
+    # ---------- re-identification ----------
+    def _lost_for(self, g):
+        tr = self.tracks.get(g.track) if g.track is not None else None
+        return math.inf if tr is None else max(0.0, self.time-tr.last_time)
+
+    def _same_group(self, tr, g):
+        if tr.role == 'referee':
+            return g.role == 'referee'
+        if tr.role == 'goalkeeper':
+            return g.role == 'goalkeeper'
+        return g.role == 'player' and (tr.team is None or g.team is None or g.team == tr.team)
+
+    def _brief_lost(self, tr):
+        for g in self.registry.values():
+            if g.track is not None and g.track != tr.id and self._same_group(tr, g) and 0 < self._lost_for(g) < LOST:
+                return g
+        return None
+
+    def _candidates(self, tr):
+        out = []
+        for g in self.registry.values():
+            if g.status in ('substituted', 'unknown') or g.track == tr.id:
+                continue
+            if g.track is not None:
+                if self._lost_for(g) < LOST:
+                    continue
+            elif g.status not in ('missing', 'offscreen'):
+                continue
+            if tr.role == 'referee':
+                if g.role == 'referee':
+                    out.append(g)
+            elif tr.role == 'goalkeeper':
+                if g.role == 'goalkeeper' and (tr.team is None or g.team is None or g.team == tr.team):
+                    out.append(g)
+            elif g.role == 'player' and g.team == tr.team:
+                out.append(g)
+        return out
+
+    def _resolve(self, uncertain, ctx, out):
+        o = self.o
+        for tr in uncertain:
+            if tr.retired:
+                continue
+            cands = self._candidates(tr)
+            tr.blind = []
+            if not cands:
+                tr.reid.clear()
+                tr.best = 0.0
+                self._create_or_hold(tr, ctx, out)
+                continue
+            ids = {g.pid for g in cands}
+            for k in list(tr.reid):
+                if k not in ids:
+                    del tr.reid[k]
+            for g in cands:
+                s = self._score(tr, g, ctx)
+                if s['appearance'] is None and s['spatial'] is None:
+                    tr.reid.pop(g.pid, None)
+                    tr.blind.append((g.pid, s['temporal']))
+                    continue
+                tr.reid.setdefault(g.pid, deque(maxlen=WINDOW)).append(s)
+        plans = []
+        for tr in uncertain:
+            if tr.state != 'uncertain' or tr.retired:
+                continue
+            names = ', '.join(pid for pid, _ in tr.blind)
+            if not tr.reid:
+                if not tr.blind:
+                    continue
+                tr.best = 0.0
+                tr.reason = f'deferred: {names} cannot be compared yet (no appearance sample or position)'
+                if self._defer_allowed(tr, ctx['time']):
+                    out['events'].append(self._event('deferred', tr.id, tr.blind[0][0], f'Track {tr.id}: identity deferred; {names} cannot be compared yet.'))
+                continue
+            summaries = sorted((self._summarize(pid, steps) for pid, steps in tr.reid.items()), key=lambda s: (-s['final'], s['id']))
+            best = summaries[0]
+            stranger = blind = None
+            free = 0 if tr.role in ('referee', 'goalkeeper') else self._free_count(tr.team)
+            if free:
+                prior = free/(free+len(tr.reid)+len(tr.blind))
+                stranger = self._neutral(best, prior, self._teammate_baseline(tr, summaries))
+            if tr.blind:
+                blind = max(self._neutral(best, temporal, best['appearance']) for _, temporal in tr.blind)
+            tr.best = best['final']
+            plans.append({'tr': tr, 'all': summaries, 'need': 3 if best['spatialShare'] >= .5 else 5, 'stranger': stranger, 'blind': blind})
+
+        def lead(p):
+            return p['all'][0]['final']-max(p['all'][1]['final'] if len(p['all']) > 1 else 0.0, p['stranger'] or 0.0, p['blind'] or 0.0)
+
+        def decisive(p):
+            return p['all'][0]['n'] >= p['need'] and p['all'][0]['final'] >= o.reid_min and lead(p) >= o.reid_margin
+
+        open_plans, taken, why = list(plans), set(), {}
+        for _ in range(3):
+            progress = False
+            for p in sorted([p for p in open_plans if decisive(p)], key=lambda p: (-lead(p), p['tr'].id)):
+                best = p['all'][0]
+                lost = self._brief_lost(p['tr'])
+                if lost is not None:
+                    why[id(p)] = f'{lost.pid} just lost detection'
+                    continue
+                if best['id'] in taken:
+                    why[id(p)] = f"{best['id']} was just assigned to another track"
+                    continue
+                rival = next((q for q in open_plans if q is not p and any(s['id'] == best['id'] and s['n'] >= 2 and s['final'] >= best['final']-o.reid_margin for s in q['all'])), None)
+                if rival is not None:
+                    why[id(p)] = f"track {rival['tr'].id} matches {best['id']} almost as well"
+                    continue
+                taken.add(best['id'])
+                open_plans.remove(p)
+                why.pop(id(p), None)
+                self._reconnect(p['tr'], p['all'], ctx, out)
+                progress = True
+            if not progress:
+                break
+        for p in open_plans:
+            tr, best = p['tr'], p['all'][0]
+
+            def implausible(s):
+                return s['final'] < .3 or (s['spatial'] is not None and s['spatialShare'] >= .5 and s['spatial'] < .15) or \
+                    (p['stranger'] is not None and p['stranger']-s['final'] >= o.reid_margin)
+            hold = p['blind'] is not None or (tr.released is not None and ctx['time']-tr.released[1] < RELEASE_HOLD)
+            if all(s['n'] >= p['need'] and implausible(s) for s in p['all']) and self._brief_lost(tr) is None and not hold:
+                created = self._create_or_hold(tr, ctx, out, rejected=p['all'][:3], stranger=p['stranger'])
+                if created:
+                    continue
+            if best['n'] < p['need'] and id(p) not in why:
+                tr.reason = f"collecting re-ID evidence ({best['n']}/{p['need']})"
+                continue
+            second = p['all'][1]['final'] if len(p['all']) > 1 else 0.0
+            if id(p) in why:
+                reason = why[id(p)]
+            elif best['final'] < o.reid_min:
+                reason = f"best score {pct(best['final'])} below {pct(o.reid_min)}"
+            elif p['blind'] is not None and p['blind'] >= second and p['blind'] >= (p['stranger'] or 0):
+                reason = f"{', '.join(pid for pid, _ in tr.blind)} cannot be compared (no appearance or position)"
+            elif p['stranger'] is not None and p['stranger'] >= second:
+                reason = f"an unseen teammate would score {pct(p['stranger'])}"
+            else:
+                reason = f'lead {pct(lead(p))} below {pct(o.reid_margin)}'
+            self._defer(tr, p['all'], ctx, out, reason)
+
+    def _neutral(self, best, temporal, appearance):
+        return combine({'appearance': appearance, 'uniform': best['uniform'],
+                        'spatial': .5 if best['spatial'] is not None else None,
+                        'movement': .5 if best['movement'] is not None else None, 'temporal': temporal, 'team': True})
+
+    def _teammate_baseline(self, tr, summaries):
+        """How alike this person looks to the most similar known teammate other than the best
+        candidate: the other candidates and teammates visible right now. At most one identity is this
+        person, so if the best candidate is right, these are all someone else; an unseen teammate is
+        assumed to look about as alike. Without any such reference: as alike as the best candidate."""
+        best = summaries[0]
+        if best['appearance'] is None:
+            return None
+        values = [s['appearance'] for s in summaries[1:] if s['appearance'] is not None]
+        probes = self._probes(tr)
+        for g in self.registry.values():
+            other = self.tracks.get(g.track) if g.track is not None else None
+            if not probes or other is None or other.id == tr.id or other.seen_at != self.time or g.role != 'player' or g.team != tr.team or not g.gallery:
+                continue
+            c = compare(g.gallery, probes)
+            if c and c['appearance'] is not None:
+                values.append(c['appearance'])
+        return max(values) if values else best['appearance']
+
+    def _probes(self, tr):
+        clean = [d for d, _, occluded in tr.descs if not occluded]
+        return clean or [d for d, _, _ in tr.descs]
+
+    def _score(self, tr, g, ctx):
+        """Components in [0,1]; None = unknown (its weight is removed)."""
+        gap = abs(tr.born-g.last_seen) if g.restored and g.track is None and g.segment is None else max(0.0, tr.born-g.last_seen)
+        k = min(gap, 2.0)
+        team = tr.role in ('referee', 'goalkeeper') or tr.team is None or g.team is None or tr.team == g.team
+        c = compare(g.gallery, self._probes(tr)) if g.gallery and tr.descs else None
+        appearance = c['appearance'] if c else None
+        if c and appearance is None:
+            appearance = clamp(1-c['total']/.6)  # colour-only fallback when no embeddings exist
+        uniform = (clamp(1-c['shorts']/.6)+clamp(1-c['socks']/.6))/2 if c else None
+        jersey = clamp(1-c['jersey']/.6) if c else .5
+        same = g.segment is not None and g.segment == ctx['segment'] and tr.born_segment == ctx['segment'] and g.stab is not None
+        released = tr.released is not None and tr.released[0] == g.pid and g.last_seen <= tr.released[1]+1e-6
+        if released and same:
+            dt = max(0.0, ctx['time']-g.last_seen)
+            h = max(.005, (g.stab.h+tr.stab.h)/2)
+            k2 = min(dt, 2.0)
+            m = math.hypot((tr.stab.x-g.stab.x-g.velocity[0]*k2)*ctx['aspect'], tr.stab.y-g.stab.y-g.velocity[1]*k2)/h*PLAYER_HEIGHT
+            spatial = math.exp(-.5*(m/(3+7*dt))**2)
+            final = combine({'appearance': appearance, 'uniform': uniform, 'spatial': spatial, 'temporal': 1.0, 'team': team})
+            return {'appearance': appearance, 'jersey': jersey, 'uniform': uniform, 'team': team, 'spatial': spatial,
+                    'movement': None, 'temporal': 1.0, 'final': final, 'missing': dt, 'cosine': c.get('cosine') if c else None}
+        # Detected while the identity was still detected on another track: two different people.
+        together = same and tr.born < g.last_seen-1e-3 and not released
+        spatial = movement = None
+        sigma = 3+7*gap
+        if tr.first_pitch is not None and g.last_pitch is not None and sigma <= SPATIAL_HORIZON:
+            v = g.pitch_velocity or (0.0, 0.0)
+            m = math.hypot((tr.first_pitch[0]-g.last_pitch[0]-v[0]*k)*PITCH_LENGTH, (tr.first_pitch[1]-g.last_pitch[1]-v[1]*k)*PITCH_WIDTH)
+            spatial = math.exp(-.5*(m/sigma)**2)
+        if same:
+            extra = max(0, ctx['drift']-g.drift)
+            h = max(.005, (g.stab.h+tr.first_stab.h)/2)
+            metres = lambda dx, dy: math.hypot(dx*ctx['aspect'], dy)/h*PLAYER_HEIGHT
+            loose = sigma+5*extra
+            if spatial is None and extra <= 6 and loose <= SPATIAL_HORIZON:
+                m = metres(tr.first_stab.x-g.stab.x-g.velocity[0]*k, tr.first_stab.y-g.stab.y-g.velocity[1]*k)
+                spatial = math.exp(-.5*(m/loose)**2)
+            # Exit edge vs entry edge, and (after a short gap) whether the new track appeared where the old
+            # one was heading. After a longer absence a returning player usually comes back the other way.
+            exit_edge, entry = g.exit_edge, tr.entry_edge
+            e = (1.0 if entry == exit_edge else .25 if entry else .35) if exit_edge else (.4 if entry else .8)
+            speed = metres(*g.velocity)
+            dx, dy = tr.first_stab.x-g.stab.x, tr.first_stab.y-g.stab.y
+            if gap < 3 and speed > 1 and metres(dx, dy) > 1:
+                a = ctx['aspect']
+                cos = (dx*g.velocity[0]*a*a+dy*g.velocity[1])/(math.hypot(dx*a, dy)*math.hypot(g.velocity[0]*a, g.velocity[1]))
+                e = .7*e+.3*(.5+.5*cos)
+            movement = clamp(e)
+        if together:
+            spatial = 0.0
+        temporal = clamp(math.exp(-gap/30), .2, 1)
+        final = 0.0 if together else combine({'appearance': appearance, 'uniform': uniform, 'spatial': spatial,
+                                               'movement': movement, 'temporal': temporal, 'team': team})
+        return {'appearance': appearance, 'jersey': jersey, 'uniform': uniform, 'team': team, 'spatial': spatial,
+                'movement': movement, 'temporal': temporal, 'final': final, 'missing': gap, 'cosine': c.get('cosine') if c else None}
+
+    @staticmethod
+    def _summarize(pid, steps):
+        steps = list(steps)
+        mean = lambda key: (sum(s[key] for s in steps if s[key] is not None)/max(1, sum(1 for s in steps if s[key] is not None))) \
+            if any(s[key] is not None for s in steps) else None
+        return {'id': pid, 'n': len(steps), 'final': sum(s['final'] for s in steps)/len(steps), 'appearance': mean('appearance'),
+                'jersey': sum(s['jersey'] for s in steps)/len(steps), 'uniform': mean('uniform'), 'team': all(s['team'] for s in steps),
+                'spatial': mean('spatial'), 'spatialShare': sum(1 for s in steps if s['spatial'] is not None)/len(steps),
+                'movement': mean('movement'), 'temporal': sum(s['temporal'] for s in steps)/len(steps), 'missing': steps[-1]['missing'],
+                'cosine': mean('cosine')}
+
+    @staticmethod
+    def _scores(s, second=None):
+        v = lambda x: None if x is None else r3(x)
+        out = {'appearance': v(s['appearance']), 'osnetCosine': v(s['cosine']), 'jersey': r3(s['jersey']), 'uniform': v(s['uniform']),
+               'team': s['team'], 'spatial': v(s['spatial']), 'movement': v(s['movement']), 'temporal': r3(s['temporal']),
+               'final': r3(s['final']), 'missingSeconds': r3(s['missing'])}
+        if second is not None:
+            out['secondBest'] = r3(second['final'])
+        return out
+
+    def _reconnect(self, tr, summaries, ctx, out):
+        best = summaries[0]
+        second = summaries[1] if len(summaries) > 1 else None
+        g = self.registry.get(best['id'])
+        if g is None:
+            return
+        if g.track is not None and g.track != tr.id:
+            ghost = g.track
+            self.tracks.pop(ghost, None)
+            out['drop'].append(ghost)
+            self._drop_pairs(ghost, out)
+        crossed = self._bind(tr, g, ctx['time'], best['final'])
+        lines = ['RE-ID EVENT', f'Local Track: {tr.id}', f'Matched Global Player: {long_id(g.pid)}']
+        if best['appearance'] is not None:
+            lines.append(f"Appearance similarity: {best['appearance']:.2f}" + (f" (OSNet cosine {best['cosine']:.2f})" if best['cosine'] is not None else ''))
+        lines += [f"Team match: {'yes' if best['team'] else 'no'}", f"Jersey similarity: {best['jersey']:.2f}"]
+        lines.append(f"Spatial plausibility: {best['spatial']:.2f}" if best['spatial'] is not None else 'Spatial plausibility: not comparable (camera cut or long gap)')
+        lines += [f"Time missing: {best['missing']:.1f} seconds", f"Final identity confidence: {best['final']:.2f}"]
+        lines.append(f"Second best: {second['id']} {second['final']:.2f}" if second else
+                     f"Second best: none ({', '.join(pid for pid, _ in tr.blind)} not comparable)" if tr.blind else 'Second best: none (only missing candidate)')
+        if crossed:
+            lines.append('Follows a crossing: confidence capped, check this identity.')
+            out['issues'].append({'id': g.pid, 'time': ctx['time'], 'reason': 'Re-identified shortly after a crossing: check identity.'})
+        out['events'].append(self._event('reid', tr.id, g.pid, '\n'.join(lines), self._scores(best, second), accepted=True))
+        for s in summaries[1:4]:
+            out['events'].append(self._event('reid-rejected', tr.id, s['id'],
+                                             f"RE-ID REJECTED\nLocal Track: {tr.id}\nCandidate: {long_id(s['id'])}\nScore {s['final']:.2f}, {best['final']-s['final']:.2f} behind {best['id']}.", self._scores(s)))
+        self._flush(tr, g, ctx['time'])
+
+    def _defer(self, tr, summaries, ctx, out, reason):
+        best = summaries[0]
+        second = summaries[1] if len(summaries) > 1 else None
+        versus = f" vs {second['id']} {pct(second['final'])}" if second else ''
+        tr.reason = f"deferred: {best['id']} {pct(best['final'])}{versus} ({reason})"
+        if not self._defer_allowed(tr, ctx['time']):
+            return
+        lines = ['RE-ID DEFERRED', f'Local Track: {tr.id}', f"Best: {long_id(best['id'])} {best['final']:.2f}"]
+        for s in summaries[1:3]:
+            lines.append(f"Also possible: {long_id(s['id'])} {s['final']:.2f}")
+        lines.append(f'Reason: {reason}')
+        out['events'].append(self._event('deferred', tr.id, best['id'], '\n'.join(lines), self._scores(best, second)))
+
+    def _create_or_hold(self, tr, ctx, out, rejected=(), stranger=None):
+        lost = self._brief_lost(tr)
+        if lost is not None:
+            tr.reason = f'waiting: {lost.pid} lost detection {self._lost_for(lost):.1f} s ago'
+            return False
+        group = 'referee' if tr.role == 'referee' else 'goalkeeper' if tr.role == 'goalkeeper' else tr.team
+        n, cap = self._count(group), self._cap(group)
+        over = n >= cap
+        if over:
+            observed = ctx['time']-tr.born
+            hard = n >= cap+5 or tr.role in ('referee', 'goalkeeper')
+            if hard or observed < self.o.over_cap_seconds or not rejected:
+                tr.reason = f'{self._group_name(group)} already has {n} identities: kept unidentified'
+                if self._allow('cap-'+str(group), ctx['time'], 5):
+                    out['events'].append(self._event('sanity', tr.id, None,
+                                                     f'{self._group_name(group)} already has {n} identities (expected at most {cap}); track {tr.id} stays unidentified. Likely a missed re-identification.'))
+                return False
+        for s in rejected:
+            why = f"score {pct(s['final'])}" if s['final'] < .3 else \
+                f"spatially implausible ({pct(s['spatial'])})" if s['spatial'] is not None and s['spatial'] < .15 else \
+                f"an unseen teammate fits better ({pct(stranger or 0)} vs {pct(s['final'])})"
+            out['events'].append(self._event('reid-rejected', tr.id, s['id'], f"RE-ID REJECTED\nLocal Track: {tr.id}\nCandidate: {long_id(s['id'])}\nReason: {why}", self._scores(s)))
+        pid = self._next_id(tr)
+        role = tr.role if tr.role in ('referee', 'goalkeeper') else 'player'
+        g = GlobalPlayer(pid, role, tr.team if role != 'referee' else None, first_seen=ctx['time'], last_seen=ctx['time'], last_box=list(tr.box), created_on=tr.id)
+        self.registry[pid] = g
+        for d, t, occluded in tr.descs:
+            if not occluded:
+                g.gallery = add_to_gallery(g.gallery, d, t, self.o.gallery_size)
+        conf = tr.role_confidence if tr.role in ('referee', 'goalkeeper') else tr.team_confidence
+        crossed = self._bind(tr, g, ctx['time'], clamp(.55+.4*conf, .5, .95))
+        why = 'every missing identity of this group is implausible here' if rejected else f'no missing {self._group_name(group)} identity'
+        if over:
+            why += f'; {self._group_name(group)} now has {n+1} identities (expected at most {cap}), check for duplicates'
+            out['issues'].append({'id': pid, 'time': ctx['time'], 'reason': f'{self._group_name(group)} exceeds the expected {cap} identities.'})
+        out['events'].append(self._event('new-identity', tr.id, pid, f'Track {tr.id} becomes new identity {long_id(pid)} ({self._describe(g.role, g.team)}; {why}{"; follows a crossing, check" if crossed else ""}).'))
+        self._flush(tr, g, ctx['time'])
+        return True
+
+    def _next_id(self, tr):
+        if tr.role == 'referee':
+            key, fmt = 'REF', 'REF-{}'
+        elif tr.role == 'goalkeeper':
+            key, fmt = 'GK', 'GK-{}'
+        else:
+            key, fmt = tr.team, tr.team+'-{:02d}'
+        while True:
+            self.counters[key] += 1
+            pid = fmt.format(self.counters[key])
+            if pid not in self.registry:
+                return pid
+
+    def _group_name(self, group):
+        return {'referee': 'Officials', 'goalkeeper': 'Goalkeepers'}.get(group, f'Team {group}')
+
+    def _cap(self, group):
+        return self.o.max_referees if group == 'referee' else self.o.max_goalkeepers if group == 'goalkeeper' else self.o.max_per_team
+
+    def _count(self, group):
+        n = 0
+        for g in self.registry.values():
+            if g.status in ('substituted', 'unknown'):
+                continue
+            if group == 'referee':
+                n += g.role == 'referee'
+            elif group == 'goalkeeper':
+                n += g.role == 'goalkeeper'
+            else:
+                n += g.role == 'player' and g.team == group
+        return n
+
+    def _free_count(self, team):
+        return max(0, self.o.max_per_team-self._count(team))
+
+    def _bind(self, tr, g, time, conf):
+        tr.player_id, tr.state, tr.blind, tr.reason = g.pid, 'confirmed', [], ''
+        tr.reid.clear()
+        if tr.team is None and g.team is not None:
+            tr.team = g.team
+        g.track, g.status, g.here, g.bound_at, g.restored = tr.id, 'active', True, time, False
+        g.identity_confidence = r3(clamp(conf))
+        g.team_confidence, g.role_confidence = r3(tr.team_confidence), r3(tr.role_confidence)
+        g.cap_until = 0.0
+        crossed = time-g.crossed_at < 10 or time-tr.crossed_at < 10
+        if crossed:
+            g.cap_until = time+SWAP_CAP
+        return crossed
+
+    def _unbind(self, g):
+        g.track, g.status, g.exit_edge = None, 'missing', ''
+
+    def _release(self, tr, why):
+        tr.player_id = None
+        tr.state = 'uncertain' if tr.decision is not None and tr.role != 'unknown' else 'candidate'
+        tr.reid.clear()
+        tr.reason = why
+
+    def _conf(self, g, time):
+        return r3(min(.5, g.identity_confidence) if time < g.cap_until else g.identity_confidence)
+
+    def _flush(self, tr, g, time):
+        """Observations of a track that was not yet identified are labelled retroactively
+        ('reidentified'), only for times when the identity had no observation of its own."""
+        conf = self._conf(g, time)
+        while tr.pending:
+            person = tr.pending.popleft()
+            if g.last_observed+1e-6 < person['time'] < time-1e-6:
+                person.update(id=g.pid, label=g.pid, team=g.team, role=g.role_label, state='confirmed', identity=conf, evidence='reidentified')
+                person.pop('reason', None)
+                g.observations += 1
+
+    # ---------- crossings ----------
+    def _guard_swaps(self, live, ctx, out):
+        """Confirmed tracks that overlap are paired; once they separate the identities are compared
+        KEEP vs SWAP. Appearance must favour a swap; trajectories alone never swap identities."""
+        t = ctx['time']
+        for key, p in list(self.pairs.items()):
+            a, b = self.tracks.get(p['a']), self.tracks.get(p['b'])
+            valid = a is not None and b is not None and a.state == 'confirmed' and b.state == 'confirmed' and \
+                a.player_id == p['ids'][0] and b.player_id == p['ids'][1] and t-p['start'] <= 6
+            if not valid:
+                del self.pairs[key]
+                if a is not None and b is not None and t-p['start'] > 6:
+                    self._dissolve(p, out)
+                continue
+            if a.seen_at != t or b.seen_at != t:
+                p['hard'], p['sep'] = True, 0
+                continue
+            overlap = iou(a.box, b.box)
+            if overlap > .4:
+                p['hard'] = True
+            p['sep'] = p['sep']+1 if overlap < .05 and not self._centre_close(a.box, b.box, ctx['aspect']) else 0
+            clean = lambda x: x.current is not None and x.current.quality >= CLEAN and not x.occluded
+            if p['sep'] >= 2 and ((clean(a) and clean(b)) or p['sep'] >= 6):
+                del self.pairs[key]
+                self._judge_crossing(a, b, p, ctx, out, clean(a) and clean(b))
+        for i in range(len(live)):
+            for j in range(i+1, len(live)):
+                a, b = live[i], live[j]
+                if a.state != 'confirmed' or b.state != 'confirmed':
+                    continue
+                key = (min(a.id, b.id), max(a.id, b.id))
+                if key in self.pairs:
+                    continue
+                overlap = iou(a.box, b.box)
+                if overlap <= .15 and not self._centre_close(a.box, b.box, ctx['aspect']):
+                    continue
+                snap = lambda x: next(((h[0], h[1], h[2]) for h in reversed(x.hist) if h[0] < t-1e-6), (t, x.stab.x, x.stab.y))
+                self.pairs[key] = {'a': a.id, 'b': b.id, 'ids': (a.player_id, b.player_id), 'start': t, 'sep': 0, 'hard': overlap > .4,
+                                   'snap': {a.id: snap(a)+(a.velocity,), b.id: snap(b)+(b.velocity,)}}
+
+    @staticmethod
+    def _centre_close(a, b, aspect):
+        return math.hypot((a[0]+a[2]/2-b[0]-b[2]/2)*aspect, a[1]+a[3]/2-b[1]-b[3]/2) < .6*(a[2]+b[2])/2*aspect
+
+    def _appearance_distance(self, g, tr):
+        if tr.current is None or not g.gallery:
+            return None
+        c = compare(g.gallery, [tr.current])
+        if c is None:
+            return None
+        return 1-c['appearance'] if c['appearance'] is not None else clamp(c['total']/.6)
+
+    def _judge_crossing(self, a, b, p, ctx, out, clean):
+        ga, gb = self.registry.get(p['ids'][0]), self.registry.get(p['ids'][1])
+        if ga is None or gb is None:
+            return
+        t = ctx['time']
+        h = max(.005, (a.stab.h+b.stab.h)/2)
+
+        def predicted(s):
+            k = min(2.0, t-s[0])
+            return s[1]+s[3][0]*k, s[2]+s[3][1]*k
+        qa, qb = predicted(p['snap'][a.id]), predicted(p['snap'][b.id])
+        m = lambda st, q: math.hypot((st.x-q[0])*ctx['aspect'], st.y-q[1])/h*PLAYER_HEIGHT
+        trajectory = (m(a.stab, qb)+m(b.stab, qa))-(m(a.stab, qa)+m(b.stab, qb))  # metres; > 0 favours KEEP
+        d = lambda g, tr: self._appearance_distance(g, tr) if clean else None
+        aa, ab, bb, ba = d(ga, a), d(ga, b), d(gb, b), d(gb, a)
+        look = (ab+ba)-(aa+bb) if None not in (aa, ab, bb, ba) else None  # > 0 favours KEEP
+        names = f'{ga.pid} and {gb.pid}'
+        if look is not None and (look <= -.5 or (look <= -.2 and trajectory < 4)):
+            why = f'appearance favours the swap by {-look:.2f}, trajectory {trajectory:.1f} m'
+            a.player_id, b.player_id = gb.pid, ga.pid
+            ga.track, gb.track = b.id, a.id
+            ga.bound_at = gb.bound_at = t
+            a.team, b.team, a.role, b.role = gb.team, ga.team, gb.role, ga.role
+            a.team_votes.clear()
+            b.team_votes.clear()
+            # Observations emitted since the crossing began follow the corrected identities.
+            for tr, g in ((a, gb), (b, ga)):
+                for when, person in tr.emitted:
+                    if when >= p['start']-1e-6:
+                        person.update(id=g.pid, label=g.pid, team=g.team, role=g.role_label, identity=min(person.get('identity', 1), .5))
+                out['events'].append(self._event('swap-corrected', tr.id, g.pid, f'Identities of {names} swapped back after crossing: {g.pid} is track {tr.id} ({why}).'))
+            return
+        similar = look is None or abs(look) < .2
+        if (similar and (p['hard'] or trajectory < 2)) or (look is not None and look <= -.2):
+            why = (f"appearance too similar{', one was hidden' if p['hard'] else ''}, paths {'favour keeping' if trajectory >= 0 else 'favour swapping'} by {abs(trajectory):.1f} m"
+                   if similar else f'appearance suggests a swap but the paths disagree ({trajectory:.1f} m)')
+            self._flag_crossing([ga, gb], [a, b], a.id, f'{names} crossed (tracks {a.id}/{b.id}); {why}. Identities kept; confidence lowered. Check identities.', out)
+
+    def _flag_crossing(self, ids, tracks, track, message, out):
+        for g in ids:
+            g.cap_until = max(g.cap_until, self.time+SWAP_CAP)
+            g.crossed_at = self.time
+        for tr in tracks:
+            tr.crossed_at = self.time
+        if not self._allow('cross-'+'|'.join(sorted(g.pid for g in ids)), self.time, 2):
+            return
+        out['events'].append(self._event('swap-uncertain', track, ids[0].pid, message))
+        for g in ids:
+            out['issues'].append({'id': g.pid, 'time': self.time, 'reason': 'Crossed a similar player: check identities.'})
+
+    def _dissolve(self, p, out):
+        if not p['hard']:
+            return
+        ids = [g for g in (self.registry.get(p['ids'][0]), self.registry.get(p['ids'][1])) if g is not None]
+        tracks = [tr for tr in (self.tracks.get(p['a']), self.tracks.get(p['b'])) if tr is not None]
+        if ids:
+            self._flag_crossing(ids, tracks, p['a'], f"{' and '.join(g.pid for g in ids)} were hidden together and did not separate cleanly. Identities kept; confidence lowered. Check identities.", out)
+
+    def _drop_pairs(self, tid, out):
+        for key, p in list(self.pairs.items()):
+            if tid in (p['a'], p['b']):
+                del self.pairs[key]
+                self._dissolve(p, out)
+
+    def _check_reacquired(self, live, ctx, out):
+        """A confirmed track picked up again after being hidden right next to a similar person may now
+        follow that person: confidence is lowered and the identity flagged (never swapped)."""
+        for tr in live:
+            if not tr.reacquired or tr.state != 'confirmed' or tr.player_id is None:
+                continue
+            if any(tr.id in (p['a'], p['b']) for p in self.pairs.values()):
+                continue
+            g = self.registry.get(tr.player_id)
+            w = tr.box[2]*ctx['aspect']
+            cx, cy = tr.box[0]+tr.box[2]/2, tr.box[1]+tr.box[3]/2
+            similar = next((o for o in live if o is not tr and o.state not in ('rejected',) and not o.retired and
+                            (o.team == tr.team and o.role == tr.role if o.state == 'confirmed' else True) and
+                            math.hypot((o.box[0]+o.box[2]/2-cx)*ctx['aspect'], o.box[1]+o.box[3]/2-cy) < 3*w), None)
+            if similar is None or g is None:
+                continue
+            g.cap_until = max(g.cap_until, ctx['time']+SWAP_CAP)
+            if self._allow('reacq-'+g.pid, ctx['time'], 2):
+                out['events'].append(self._event('swap-uncertain', tr.id, g.pid, f'{g.pid} (track {tr.id}) re-acquired after being hidden next to a similar player (track {similar.id}). Identity kept; confidence lowered.'))
+
+    # ---------- goalkeeper team ----------
+    def _goalkeeper_teams(self, live, ctx, out):
+        """Goalkeeper kits match neither team. A keeper's team is inferred from who defends next to
+        them: the two outfield players nearest the keeper's goal (deepest along the image x axis,
+        on the keeper's side) belong to the keeper's team far more often than not (offside line).
+        Votes accumulate; a decision needs >= 15 votes and a 75% majority."""
+        players = [(tr, self.registry[tr.player_id]) for tr in live if tr.state == 'confirmed' and tr.player_id in self.registry]
+        outfield = [(tr, g) for tr, g in players if g.role == 'player' and g.team and tr.seen_at == ctx['time']]
+        if sum(g.team == 'A' for _, g in outfield) < 2 or sum(g.team == 'B' for _, g in outfield) < 2:
+            return
+        xs = sorted(tr.stab.x for tr, _ in outfield)
+        middle = xs[len(xs)//2]
+        for tr, g in players:
+            if g.role != 'goalkeeper' or g.team is not None or tr.seen_at != ctx['time']:
+                continue
+            side = 1 if tr.stab.x > middle else -1
+            deepest = sorted(outfield, key=lambda item: -side*item[0].stab.x)[:2]
+            if any(side*(o.stab.x-middle) <= 0 for o, _ in deepest) or deepest[0][1].team != deepest[1][1].team:
+                continue
+            g.gk_votes[deepest[0][1].team] += 1
+            total = sum(g.gk_votes.values())
+            team, n = g.gk_votes.most_common(1)[0]
+            if total >= 15 and n/total >= .75:
+                if any(o.role == 'goalkeeper' and o.team == team and o is not g for o in self.registry.values()):
+                    if self._allow('gk-conflict-'+g.pid, ctx['time'], 30):
+                        out['events'].append(self._event('role', tr.id, g.pid, f'{g.pid} defends like team {team}, but team {team} already has a goalkeeper; team left unknown.'))
+                    continue
+                g.team, tr.team = team, team
+                g.team_confidence = tr.team_confidence = r3(n/total)
+                out['events'].append(self._event('role', tr.id, g.pid, f'{g.pid} assigned to team {team}: the deepest outfield players next to this goalkeeper were team {team} in {n} of {total} observations.'))
+
+    # ---------- per-frame output ----------
+    def _refresh(self, live, ctx, out, tick):
+        t = ctx['time']
+        visible = []
+        for tr in live:
+            g = self.registry.get(tr.player_id) if tr.state == 'confirmed' and tr.player_id else None
+            if tr.state == 'confirmed' and (g is None or g.track != tr.id):
+                tr.player_id, tr.state = None, 'uncertain'
+                g = None
+            person = {'time': t, 'track': tr.id, 'box': [round(float(v), 5) for v in tr.box], 'score': round(float(tr.score), 3),
+                      'cls': tr.cls, 'zone': tr.zone, 'evidence': 'observed'}
+            if tr.pitch is not None:
+                person['pitch'] = [round(float(tr.pitch[0]), 4), round(float(tr.pitch[1]), 4)]
+            if g is not None and tick:
+                self._check_mismatch(tr, g, ctx, out)
+                if tr.player_id != g.pid:
+                    g = None
+            if g is None:
+                label, role = self._unbound_label(tr)
+                person.update(id=None, label=label, team=tr.team, role=role, state=tr.state, identity=r3(tr.best if tr.state == 'uncertain' else 0))
+                if tr.reason:
+                    person['reason'] = tr.reason[:160]
+                if not tr.retired and tr.state in ('candidate', 'uncertain'):
+                    tr.pending.append(person)
+                    while tr.pending and t-tr.pending[0]['time'] > BUFFER_SECONDS:
+                        tr.pending.popleft()
+                out['people'].append(person)
+                continue
+            g.last_seen, g.last_box, g.stab, g.segment, g.drift = t, list(tr.box), tr.stab, ctx['segment'], ctx['drift']
+            g.velocity, g.exit_edge, g.status = tr.velocity, '', 'active'
+            if tr.pitch is not None:
+                g.last_pitch, g.pitch_velocity = tr.pitch, tr.pitch_velocity
+            else:
+                g.last_pitch = g.pitch_velocity = None
+            if tick:
+                if tr.current is not None and not tr.occluded and tr.zone != 'outside' and self._conf(g, t) >= .6:
+                    g.gallery = add_to_gallery(g.gallery, tr.current, t, self.o.gallery_size)
+                g.history.append({'t': r3(t), 'box': person['box'], **({'pitch': person['pitch']} if 'pitch' in person else {})})
+            visible.append(g)
+            if tr.zone == 'outside' and tr.outside_run > 10:
+                person.update(id=None, label=g.pid, team=g.team, role=g.role_label, state='confirmed', identity=0.0, reason='long outside the pitch: not saved as a match observation')
+                out['people'].append(person)
+                continue
+            person.update(id=g.pid, label=g.pid, team=g.team, role=g.role_label, state='confirmed', identity=self._conf(g, t))
+            g.observations += 1
+            g.last_observed = t
+            tr.emitted.append((t, person))
+            while tr.emitted and t-tr.emitted[0][0] > 8:
+                tr.emitted.popleft()
+            out['people'].append(person)
+        for i in range(len(visible)):
+            for j in range(i+1, len(visible)):
+                if visible[i].team and visible[i].team == visible[j].team:
+                    self.together.add(tuple(sorted((visible[i].pid, visible[j].pid))))
+
+    def _check_mismatch(self, tr, g, ctx, out):
+        """A crop whose jersey (or learned appearance) clearly contradicts the identity is not this
+        player. Repeated contradictions mean the local track moved to someone else: release."""
+        cur = tr.current
+        if cur is None or tr.occluded or cur.quality < .3 or not g.gallery:
+            return
+        c = compare(g.gallery, [cur])
+        if c is None:
+            return
+        kit_bad = cur.has_jersey and c['jersey'] > KIT_MISMATCH
+        look_bad = c['appearance'] is not None and c.get('cosine', 1) < .5 and len(g.gallery) >= 3
+        tr.kit_miss = tr.kit_miss+1 if kit_bad else 0
+        tr.look_miss = tr.look_miss+1 if look_bad else 0
+        if tr.kit_miss >= MISSES or tr.look_miss >= MISSES:
+            what = f"jersey distance {c['jersey']:.2f}" if tr.kit_miss >= MISSES else f"OSNet cosine {c.get('cosine', 0):.2f}"
+            self._unbind(g)
+            self._release(tr, f'no longer matches {g.pid}')
+            tr.kit_miss = tr.look_miss = 0
+            tr.released = (g.pid, ctx['time'])
+            out['events'].append(self._event('reid-rejected', tr.id, g.pid, f"Track {tr.id} no longer matches {long_id(g.pid)} ({what}); identity released."))
+            out['issues'].append({'id': g.pid, 'time': ctx['time'], 'reason': 'Tracked person stopped matching this identity; released.'})
+        elif kit_bad or look_bad:
+            tr.reason = 'appearance mismatch: watching'
+
+    def _unbound_label(self, tr):
+        if tr.state == 'uncertain':
+            label = 'REF-?' if tr.role == 'referee' else 'GK-?' if tr.role == 'goalkeeper' else f'{tr.team}-?' if tr.team else '?'
+            return label, 'IDENTITY_UNCERTAIN'
+        if tr.state == 'rejected':
+            return 'OUT', 'REJECTED_OUTSIDE_FIELD'
+        if tr.state == 'unknown':
+            return 'UNK', 'UNKNOWN'
+        return 'CAND', 'CANDIDATE'
+
+    # ---------- sanity ----------
+    def sanity(self, time):
+        out = []
+        for team in ('A', 'B'):
+            n = self._count(team)
+            if n > self.o.max_per_team:
+                out.append(self._event('sanity', None, None, f'Team {team} has {n} player identities (expected at most {self.o.max_per_team}). Players are probably being recreated instead of re-identified, or substitutions happened.'))
+        refs = self._count('referee')
+        if refs > self.o.max_referees:
+            out.append(self._event('sanity', None, None, f'{refs} referee identities (expected at most {self.o.max_referees}).'))
+        alike = []
+        for team in ('A', 'B'):
+            ids = [g for g in self.registry.values() if g.here and g.team == team and g.role == 'player' and g.status not in ('substituted', 'unknown') and len(g.gallery) >= 2]
+            for i in range(len(ids)):
+                for j in range(i+1, len(ids)):
+                    a, b = ids[i], ids[j]
+                    if tuple(sorted((a.pid, b.pid))) in self.together:
+                        continue
+                    c = compare(a.gallery, [s.d for s in b.gallery])
+                    if c is None:
+                        continue
+                    same = c['cosine'] >= .93 if c.get('cosine') is not None else c['total'] < .08
+                    if same:
+                        alike.append((c.get('cosine', 1-c['total']), a.pid, b.pid))
+        for score, a, b in sorted(alike, reverse=True)[:3]:
+            out.append(self._event('sanity', None, a, f'{long_id(a)} and {long_id(b)} were never visible together and look alike ({score:.2f}): possible duplicate identity.'))
+        return out
+
+    # ---------- helpers ----------
+    def _describe(self, role, team):
+        if role == 'goalkeeper' and not team:
+            return 'GOALKEEPER (team unknown)'
+        return role_label(role, team)
+
+    def _event(self, kind, track, pid, message, scores=None, accepted=False):
+        e = {'time': r3(self.time), 'kind': kind, 'track': track, 'playerId': pid, 'message': message}
+        if scores:
+            e['scores'] = scores
+        if accepted:
+            e['accepted'] = True
+        return e
+
+    def _defer_allowed(self, tr, time):
+        wait = min(30.0, 2*2**min(4, max(0, tr.deferrals-1)))
+        if time-tr.last_deferred < wait and time >= tr.last_deferred:
+            return False
+        tr.last_deferred = time
+        tr.deferrals += 1
+        return True
+
+    def _allow(self, key, time, every):
+        last = self.limits.get(key)
+        if last is not None and time-last < every and time >= last:
+            return False
+        self.limits[key] = time
+        if len(self.limits) > 400:
+            self.limits.pop(next(iter(self.limits)))
+        return True
+
+    # ---------- team model input ----------
+    def team_samples(self, current, time):
+        """Jersey samples for the kit model: live tracks the detector calls players (plus tracks seen in
+        the last few seconds), inside or on the edge of the pitch, with a clean enough crop.
+        current: {track id: (descriptor, detector class, zone)} for this frame."""
+        out = []
+        for tid, (d, cls, zone) in current.items():
+            tr = self.tracks.get(tid)
+            if d is None or d.quality < .25 or not d.has_jersey or zone == 'outside' or (tr is not None and (tr.retired or tr.state == 'rejected')):
+                self.kits.pop(tid, None)
+                continue
+            player = tr.evidence.detector_shares()['player'] >= .6 if tr is not None and tr.evidence.detector else cls == 'player'
+            if not player:
+                self.kits.pop(tid, None)
+                continue
+            sample = {'jersey': d.jersey, 'weight': d.quality, 'order': tr.born if tr is not None else time}
+            out.append(sample)
+            if tr is not None and tr.hits >= self.o.min_hits:
+                self.kits[tid] = (sample, time)
+        for tid, (sample, when) in list(self.kits.items()):
+            if tid in current:
+                continue
+            if time-when > KIT_WINDOW or when > time+1e-6:
+                del self.kits[tid]
+            else:
+                out.append(sample)
+        return out
+
+    def referee_jerseys(self):
+        out = []
+        for tr in self.tracks.values():
+            shares = tr.evidence.detector_shares()
+            if len(tr.evidence.detector) >= 5 and shares['referee'] >= .8:
+                clean = [d for d, _, occluded in tr.descs if not occluded and d.has_jersey]
+                if clean:
+                    out.append(clean[-1].jersey)
+        return out
+
+    def summary(self):
+        groups = {'players': [], 'goalkeepers': [], 'referees': []}
+        for g in sorted(self.registry.values(), key=lambda g: g.pid):
+            status = 'missing' if g.status == 'active' and self._lost_for(g) > LOST else g.status
+            entry = {'id': g.pid, 'longId': long_id(g.pid), 'team': g.team, 'role': g.role_label, 'status': status.upper().replace('OFFSCREEN', 'OFF_SCREEN'),
+                     'firstSeen': r3(g.first_seen), 'lastSeen': r3(g.last_seen), 'observations': g.observations,
+                     'identityConfidence': r3(g.identity_confidence), 'teamConfidence': r3(g.team_confidence),
+                     'roleConfidence': r3(g.role_confidence), 'gallerySize': len(g.gallery), 'lastBox': [round(float(v), 4) for v in g.last_box],
+                     'lastPitch': None if g.last_pitch is None else [r3(g.last_pitch[0]), r3(g.last_pitch[1])],
+                     'velocity': [round(float(g.velocity[0]), 4), round(float(g.velocity[1]), 4)], 'exitEdge': g.exit_edge,
+                     'restored': g.restored, 'history': list(g.history)[-10:]}
+            groups['referees' if g.role == 'referee' else 'goalkeepers' if g.role == 'goalkeeper' else 'players'].append(entry)
+        return groups
