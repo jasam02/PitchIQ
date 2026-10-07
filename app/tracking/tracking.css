@@ -21,3 +21,28 @@
 .field-lines {position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden}
 .tracking-corner {pointer-events:none;font-size:12px}
 .field-mark-row {display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+
+/* Soccer identity debug overlay: purely visual, never intercepts drawing or box selection. */
+.soccer-debug {position:absolute;inset:0;pointer-events:none;z-index:0;line-height:1.25}
+.soccer-debug * {pointer-events:none}
+.debug-track {position:absolute;border:1.5px solid}
+.debug-track.candidate {border-style:dashed}
+.debug-track.uncertain,.debug-track.unknown {border-style:dotted}
+.debug-track>span {position:absolute;left:-1.5px;top:100%;white-space:nowrap;font-size:10px;font-weight:600;color:#111a12;padding:0 3px;border-radius:0 0 3px 3px}
+.debug-reject {position:absolute;border:1px dashed #ff5b52;opacity:.85}
+.debug-reject>span {position:absolute;left:-1px;top:100%;white-space:nowrap;font-size:9px;font-weight:600;color:#ff8f88;background:#000000b0;padding:0 2px}
+.debug-pitch {position:absolute;left:8px;top:8px;font-size:11px;font-weight:600;letter-spacing:.05em;color:#c7ed89;background:#000000b8;padding:3px 7px;border-radius:4px}
+.debug-slider {display:flex;flex-direction:column;gap:10px;margin:14px 0 4px;font-size:14px}
+.tracking-shell .debug-reason {font-size:13px;margin:6px 0;color:var(--muted-foreground)}
+.debug-reason strong {color:#ff8f88;font-weight:600}
+.role-field {display:flex;flex-direction:column;gap:6px;font-size:14px}
+.identity-list {display:flex;flex-direction:column;max-height:340px;overflow-y:auto;margin-top:8px}
+.identity-row {display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:3px;padding:9px 0;border-bottom:1px solid var(--border);font-size:14px}
+.identity-row b {font-weight:700;margin-right:6px;font-variant-numeric:tabular-nums}
+.soccer-event pre {margin:0;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;color:var(--muted-foreground)}
+.soccer-event.kind-reid strong {color:#c7ed89}
+.soccer-event.kind-reid-rejected strong {color:#ff8f88}
+.soccer-event.kind-sanity strong,.soccer-event.kind-swap-uncertain strong {color:#ff9d2e}
+.tracking-tabs button {font-size:13px;padding-inline:4px}
+.tracking-save>a.button {text-decoration:none}
+@media(max-width:600px){.debug-track>span{font-size:8px}.debug-pitch{font-size:9px}.tracking-save{flex-wrap:wrap}}

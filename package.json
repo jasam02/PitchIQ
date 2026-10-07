@@ -12,7 +12,7 @@
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "test": "node --test tests/tracking.test.cjs",
+    "test": "node --test tests/tracking.test.cjs tests/soccer-pitch.test.cjs tests/soccer-appearance.test.cjs tests/soccer-identity.test.cjs tests/soccer-schema.test.cjs tests/soccer-integration.test.cjs",
     "test:upload": "node --test tests/upload.test.cjs",
     "typecheck": "tsc --noEmit",
     "db:local": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc",

@@ -6,6 +6,8 @@ The ball trail shows recent observations, compensated for camera movement. It st
 
 This remains a segment-tracking prototype. Keep the tab open. The upload limit is 100 MiB, tracking saves every five processed seconds and pauses at its existing saved-point limit (roughly 30 seconds with 22 active tracks). It is not yet an unattended full-match service. The COCO detector still misses some tiny/occluded balls and cannot identify names or jersey numbers.
 
+**Soccer identity tracking** is now the default automatic mode. It ignores spectators and bench staff outside the pitch, separates referees and goalkeepers from players, and keeps one stable identity per roster player across exits, returns and camera cuts. Uncertain identities are left open instead of guessed. A debug overlay and an identity-event log show why each decision was made. See [Soccer identity tracking](docs/SOCCER_TRACKING.md) for the architecture, statuses, debug workflow, configuration and limits. An **Upload video** button is always available in the dashboard top bar and sidebar.
+
 See [September 29 update](docs/SEPT29_TRACKING_UPDATE.md) for changes, evidence and limits. The optional [native runner](services/video/README.md) remains for developers, but is no longer part of the client workflow.
 
 ## Run locally
