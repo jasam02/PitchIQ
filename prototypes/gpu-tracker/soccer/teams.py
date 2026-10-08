@@ -1,14 +1,12 @@
-"""Team kits from torso colour, per-observation kit votes, and temporal role decisions.
+"""Team kits from torso colour and per-observation kit votes.
 
-The soccer detector already separates player / goalkeeper / referee classes; those class votes
-are accumulated per track and combined with kit evidence. Two team kits are learned from the
-jersey (upper torso) histograms of people the detector calls players, so referees and keepers do
-not pull a team prototype. Nothing is decided from one frame: a track stays CANDIDATE until enough
-consistent votes exist, and an established team only changes after a strong majority of recent
-votes points the other way.
+Two team kits are learned from the jersey (upper torso) histograms of people the detector calls
+players, with a spread per team and a shorts prototype per team. Kits worn by few people (referees,
+goalkeepers) are kept as separate prototypes, so a person in another kit is reported as matching
+neither team instead of being pushed into whichever team is closest. Role decisions over time live
+in roles.py.
 """
 import math
-from collections import Counter, deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -17,7 +15,6 @@ KIT_MARGIN = .06       # required lead of the nearer kit prototype
 MIN_SAMPLES = 6
 MIN_KIT_SEPARATION = .35
 MIN_KIT_GAP = .3
-MAX_VOTES = 40
 
 
 @dataclass
@@ -27,23 +24,42 @@ class TeamModel:
     referee: np.ndarray | None = None
     spread: float = .2
     samples: int = 0
+    spread_a: float | None = None
+    spread_b: float | None = None
+    shorts_a: np.ndarray | None = None
+    shorts_b: np.ndarray | None = None
+    referee_shorts: np.ndarray | None = None
+    keepers: list = field(default_factory=list)    # [{'team': 'A'|'B'|None, 'jersey': hist}]
 
     @property
     def ready(self):
         return self.a is not None and self.b is not None
 
+    def team_spread(self, team):
+        value = self.spread_a if team == 'A' else self.spread_b
+        return self.spread if value is None else value
+
     def to_json(self):
         r = lambda v: None if v is None else [round(float(x), 4) for x in v]
         return {'learned': self.ready, 'a': r(self.a), 'b': r(self.b), 'referee': r(self.referee),
-                'spread': round(self.spread, 3), 'samples': self.samples,
+                'spread': round(self.spread, 3), 'spreadA': self.spread_a, 'spreadB': self.spread_b,
+                'shortsA': r(self.shorts_a), 'shortsB': r(self.shorts_b), 'refereeShorts': r(self.referee_shorts),
+                'keepers': [{'team': k['team'], 'jersey': r(k['jersey'])} for k in self.keepers], 'samples': self.samples,
                 'meaning': 'Kit groups learned from torso colour; A/B naming is arbitrary within the run.'}
 
     @classmethod
     def from_json(cls, v):
         if not isinstance(v, dict):
             return cls()
-        arr = lambda x: np.asarray(x, np.float64) if isinstance(x, list) and len(x) == 24 else None
-        return cls(arr(v.get('a')), arr(v.get('b')), arr(v.get('referee')), float(v.get('spread', .2)), int(v.get('samples', 0)))
+        arr = lambda x, n=24: np.asarray(x, np.float64) if isinstance(x, list) and len(x) == n else None
+        keepers = [{'team': k.get('team'), 'jersey': arr(k.get('jersey'))} for k in v.get('keepers', []) if arr(k.get('jersey')) is not None]
+        return cls(arr(v.get('a')), arr(v.get('b')), arr(v.get('referee')), float(v.get('spread', .2)), int(v.get('samples', 0)),
+                   v.get('spreadA'), v.get('spreadB'), arr(v.get('shortsA'), 12), arr(v.get('shortsB'), 12), arr(v.get('refereeShorts'), 12), keepers)
+
+    def replace(self, **changes):
+        values = {name: getattr(self, name) for name in self.__dataclass_fields__}
+        values.update(changes)
+        return TeamModel(**values)
 
 
 def _normalize(x):
@@ -135,7 +151,7 @@ def fit_team_model(samples, previous=None):
     previous = previous or TeamModel()
     usable = [s for s in samples if s['jersey'] is not None and np.isfinite(s['jersey']).all() and np.sum(s['jersey']) > 0]
     if len(usable) < MIN_SAMPLES:
-        return TeamModel(previous.a, previous.b, previous.referee, previous.spread, len(usable))
+        return previous.replace(samples=len(usable))
     if len(usable) > 200:
         step = math.ceil(len(usable)/200)
         usable = usable[::step]
@@ -160,32 +176,63 @@ def fit_team_model(samples, previous=None):
             if best is None or score > best[0]+1e-9:
                 best = (score, centres, members, spread)
     if best is None:
-        return TeamModel(previous.a, previous.b, previous.referee, previous.spread, len(xs))
+        return previous.replace(samples=len(xs))
     _, centres, members, spread = best
     first = [min(order[i] for i in m) for m in members]
-    a, b = (centres[0], centres[1]) if first[0] <= first[1] else (centres[1], centres[0])
+    swap = first[0] > first[1]
     if previous.ready:
-        if hellinger(a, previous.b)+hellinger(b, previous.a) < hellinger(a, previous.a)+hellinger(b, previous.b):
-            a, b = b, a
+        a0, b0 = (centres[1], centres[0]) if swap else (centres[0], centres[1])
+        if hellinger(a0, previous.b)+hellinger(b0, previous.a) < hellinger(a0, previous.a)+hellinger(b0, previous.b):
+            swap = not swap
+    order_ab = (1, 0) if swap else (0, 1)
+    a, b = centres[order_ab[0]], centres[order_ab[1]]
+    team_members = [members[order_ab[0]], members[order_ab[1]]]
+    spreads = [min(.35, max(.06, float(np.median([hellinger(xs[i], c) for i in m])))) if len(m) >= 3 else spread
+               for m, c in zip(team_members, (a, b))]
+    shorts = []
+    for m in team_members:
+        sh = [usable[i]['shorts'] for i in m if usable[i].get('shorts') is not None and np.sum(usable[i]['shorts']) > 0]
+        shorts.append(weighted_mean(sh, [1]*len(sh)) if len(sh) >= 3 else None)
+    if previous.ready:
         # Both clusters are shades of one known kit (the other team left the view): a lighting split.
         hue = lambda x, y: hellinger(hue_only(x), hue_only(y))
         near = lambda x: 'a' if hue(x, previous.a) <= hue(x, previous.b) else 'b'
         if near(a) == near(b):
-            return TeamModel(previous.a, previous.b, previous.referee, previous.spread, len(xs))
+            return previous.replace(samples=len(xs))
         # Smooth so a single refit cannot jump the prototypes.
         a = _normalize(.7*_normalize(previous.a)+.3*_normalize(a))
         b = _normalize(.7*_normalize(previous.b)+.3*_normalize(b))
-    return TeamModel(a, b, previous.referee, spread, len(xs))
+        blend = lambda old, new: new if old is None else old if new is None else _normalize(.7*_normalize(old)+.3*_normalize(new))
+        shorts = [blend(previous.shorts_a, shorts[0]), blend(previous.shorts_b, shorts[1])]
+        mix = lambda old, new: new if old is None else .7*old+.3*new
+        spreads = [mix(previous.spread_a, spreads[0]), mix(previous.spread_b, spreads[1])]
+    return previous.replace(a=a, b=b, spread=spread, samples=len(xs), spread_a=spreads[0], spread_b=spreads[1],
+                            shorts_a=shorts[0], shorts_b=shorts[1])
 
 
-def with_referee(model, jerseys):
-    """Referee kit prototype from people the detector consistently calls referees."""
+def with_referee(model, samples):
+    """Referee kit (jersey and shorts) from people the detector consistently calls referees and from
+    confirmed referee identities. samples: [(jersey, shorts or None)] or plain jersey histograms."""
+    samples = [s if isinstance(s, tuple) else (s, None) for s in samples]
+    jerseys = [j for j, _ in samples if j is not None and np.sum(j) > 0]
     if len(jerseys) < 2:
         return model
     D = pairwise(jerseys)
     medoid = int(np.argmin(D.sum(axis=1)))
-    keep = [x for x, d in zip(jerseys, D[medoid]) if d <= _trim_limit(D[medoid])]
-    return TeamModel(model.a, model.b, weighted_mean(keep, [1]*len(keep)), model.spread, model.samples)
+    keep = [i for i, d in enumerate(D[medoid]) if d <= _trim_limit(D[medoid])]
+    shorts = [samples[i][1] for i in keep if samples[i][1] is not None and np.sum(samples[i][1]) > 0]
+    return model.replace(referee=weighted_mean([jerseys[i] for i in keep], [1]*len(keep)),
+                         referee_shorts=weighted_mean(shorts, [1]*len(shorts)) if len(shorts) >= 2 else model.referee_shorts)
+
+
+def with_keepers(model, keepers):
+    """Goalkeeper kit prototypes from confirmed goalkeeper identities: [(team or None, [jerseys])]."""
+    out = []
+    for team, jerseys in keepers:
+        jerseys = [j for j in jerseys if j is not None and np.sum(j) > 0]
+        if jerseys:
+            out.append({'team': team, 'jersey': weighted_mean(jerseys, [1]*len(jerseys))})
+    return model.replace(keepers=out[:4]) if out else model
 
 
 @dataclass
@@ -198,24 +245,40 @@ class KitVote:
     margin: float
     ref_like: bool = False
     valid: bool = False
+    keeper_like: bool = False
+    keeper_team: str | None = None
+    dist_keeper: float = 1.0
+    shorts_mismatch: bool = False
 
 
-def kit_vote(model, jersey):
-    """team: nearer prototype when it leads by KIT_MARGIN and is within 2.5*spread+.1. outlier: far
-    from both kits or clearly closer to the referee kit. Ties stay undecided."""
+def kit_vote(model, jersey, shorts=None):
+    """team: the nearer team kit, when it leads by KIT_MARGIN and lies within that team's own spread.
+    A kit far from both teams, clearly closer to the referee or a goalkeeper kit, or wearing the
+    wrong shorts for the nearer team is an outlier: it matches neither team. Ties stay undecided."""
     has = jersey is not None and float(np.sum(jersey)) > 0
     da = hellinger(jersey, model.a) if has and model.a is not None else 1.0
     db = hellinger(jersey, model.b) if has and model.b is not None else 1.0
     dr = hellinger(jersey, model.referee) if has and model.referee is not None else 1.0
-    vote = KitVote(None, round(da, 3), round(db, 3), round(dr, 3), False, round(abs(da-db), 3))
+    dk, keeper_team = 1.0, None
+    for k in model.keepers:
+        d = hellinger(jersey, k['jersey']) if has else 1.0
+        if d < dk:
+            dk, keeper_team = d, k['team']
+    vote = KitVote(None, round(da, 3), round(db, 3), round(dr, 3), False, round(abs(da-db), 3), dist_keeper=round(dk, 3))
     if not has or not model.ready:
         vote.margin = 0.0
         return vote
     vote.valid = True
-    limit = 2.5*model.spread+.1
+    near_team = 'A' if da <= db else 'B'
     near = min(da, db)
-    if dr < limit and dr+KIT_MARGIN <= near:
-        vote.outlier = vote.ref_like = True
+    limit = min(.5, 2.5*model.team_spread(near_team)+.1)
+    special = min(dr, dk)
+    if special < .45 and special+KIT_MARGIN <= near:
+        vote.outlier = True
+        if dr <= dk:
+            vote.ref_like = True
+        else:
+            vote.keeper_like, vote.keeper_team = True, keeper_team
     elif near >= limit:
         # A darker or brighter crop of one team's hue (stadium shadow) is still that team.
         ha, hb = hellinger(hue_only(jersey), hue_only(model.a)), hellinger(hue_only(jersey), hue_only(model.b))
@@ -225,7 +288,15 @@ def kit_vote(model, jersey):
         else:
             vote.outlier = True
     elif abs(da-db) >= KIT_MARGIN:
-        vote.team = 'A' if da < db else 'B'
+        vote.team = near_team
+    if vote.team is not None and shorts is not None and np.sum(shorts) > 0:
+        team_shorts = model.shorts_a if vote.team == 'A' else model.shorts_b
+        if team_shorts is not None:
+            ds = hellinger(shorts, team_shorts)
+            dref = hellinger(shorts, model.referee_shorts) if model.referee_shorts is not None else 1.0
+            if ds > .7 or (ds > .5 and dref+.15 < ds):
+                vote.team, vote.outlier, vote.shorts_mismatch = None, True, True
+                vote.ref_like = dref+.15 < ds and dr < .55
     return vote
 
 
@@ -240,77 +311,3 @@ def role_label(role, team):
     if role == 'player' and team:
         return f'PLAYER_TEAM_{team}'
     return 'UNKNOWN'
-
-
-@dataclass
-class RoleEvidence:
-    hits: int = 0
-    detector: deque = field(default_factory=lambda: deque(maxlen=MAX_VOTES))  # (class, score)
-    kits: deque = field(default_factory=lambda: deque(maxlen=MAX_VOTES))      # KitVote
-    near_goal: int = 0
-
-    def add(self, cls, score, vote, near_goal):
-        self.hits += 1
-        if cls in ('player', 'goalkeeper', 'referee'):
-            self.detector.append((cls, max(.05, float(score))))
-        if vote is not None and vote.valid:
-            self.kits.append(vote)
-        self.near_goal += 1 if near_goal else 0
-
-    def detector_shares(self):
-        total = sum(s for _, s in self.detector)
-        shares = Counter()
-        for cls, s in self.detector:
-            shares[cls] += s
-        return {k: (shares[k]/total if total else 0.0) for k in ('player', 'goalkeeper', 'referee')}
-
-
-@dataclass
-class RoleDecision:
-    label: str            # PLAYER_TEAM_A ... | REFEREE | GOALKEEPER[_TEAM_x] | CANDIDATE
-    role: str             # player | goalkeeper | referee | unknown
-    team: str | None
-    team_confidence: float
-    role_confidence: float
-    reason: str = ''
-
-
-def decide_role(e, model, min_votes=5):
-    """Temporal decision from detector class votes and kit votes; CANDIDATE until strong enough.
-    PLAYER needs >= 70% kit votes for one team (mean margin >= .05) and a player majority from the
-    detector. REFEREE / GOALKEEPER need a >= 60% detector majority; a referee whose kit clearly
-    matches a team is held back (a detector confusion), as is anyone in neither kit."""
-    n_det = len(e.detector)
-    minimum = max(3, min_votes)
-    support = min(1.0, .75+.25*(e.hits-minimum)/minimum) if e.hits >= minimum else .75*e.hits/minimum
-    shares = e.detector_shares()
-    kits = list(e.kits)
-    nk = len(kits)
-    count = lambda f: sum(1 for v in kits if f(v))
-    na, nb, no = count(lambda v: v.team == 'A'), count(lambda v: v.team == 'B'), count(lambda v: v.outlier)
-    team, team_share = None, 0.0
-    for t, n in (('A', na), ('B', nb)):
-        mine = [v.margin for v in kits if v.team == t]
-        if nk and n/nk >= .7 and np.mean(mine) >= .05:
-            team, team_share = t, n/nk
-    r3 = lambda v: round(float(v), 3)
-    candidate = lambda why: RoleDecision('CANDIDATE', 'unknown', None, r3(max(na, nb)/nk*support if nk else 0),
-                                         r3(max(shares.values())*support if n_det else 0), why)
-    if e.hits < minimum or n_det < minimum:
-        return candidate(f'{e.hits}/{minimum} observations')
-    if shares['referee'] >= .6:
-        if team and shares['referee'] < .85:
-            return candidate(f"detector says referee ({shares['referee']:.0%}) but kit matches team {team}")
-        out = no/nk if nk else .6
-        return RoleDecision('REFEREE', 'referee', None, 0.0, r3(shares['referee']*support*(.6+.4*out)))
-    if shares['goalkeeper'] >= .6:
-        if team and shares['goalkeeper'] < .85:
-            return candidate(f"detector says goalkeeper ({shares['goalkeeper']:.0%}) but kit matches team {team}")
-        return RoleDecision('GOALKEEPER', 'goalkeeper', None, 0.0, r3(shares['goalkeeper']*support))
-    if not model.ready:
-        return candidate('waiting for two team kits')
-    if team and shares['player'] >= .5:
-        return RoleDecision(role_label('player', team), 'player', team, r3(team_share*support), r3(shares['player']*support))
-    if nk and no/nk >= .6:
-        return candidate('kit matches neither team')
-    return candidate(f'kit votes A {na} / B {nb} / other {no}')

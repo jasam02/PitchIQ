@@ -5,7 +5,8 @@ import numpy as np
 from scene import H, W, draw_person, person_box, pitch_frame
 from soccer.appearance import (Descriptor, add_to_gallery, compare, decode_descriptor, describe, descriptor_distance,
                                encode_descriptor, grass_reference)
-from soccer.teams import RoleEvidence, TeamModel, decide_role, fit_team_model, kit_vote, with_referee
+from soccer.roles import RoleEvidence, decide_role
+from soccer.teams import TeamModel, fit_team_model, kit_vote, with_referee
 
 
 def px(box):
@@ -99,32 +100,32 @@ class TeamTests(unittest.TestCase):
     def test_role_needs_temporal_evidence(self):
         model = TeamModel(hist(4, 5), hist(16, 17), None, .1, 20)
         e = RoleEvidence()
-        e.add('player', .9, kit_vote(model, hist(4, 5)), False)
+        e.add('player', .9, kit_vote(model, hist(4, 5)))
         self.assertEqual(decide_role(e, model).label, 'CANDIDATE')
         for _ in range(6):
-            e.add('player', .9, kit_vote(model, hist(4, 5)), False)
+            e.add('player', .9, kit_vote(model, hist(4, 5)))
         self.assertEqual(decide_role(e, model).label, 'PLAYER_TEAM_A')
-        e.add('player', .9, kit_vote(model, hist(16, 17)), False)  # one bad frame
+        e.add('player', .9, kit_vote(model, hist(16, 17)))  # one bad frame
         self.assertEqual(decide_role(e, model).label, 'PLAYER_TEAM_A')
 
     def test_referee_from_detector_votes(self):
         model = with_referee(TeamModel(hist(4, 5), hist(16, 17), None, .1, 20), [hist(8, 9), hist(8, 9)])
         e = RoleEvidence()
         for _ in range(6):
-            e.add('referee', .8, kit_vote(model, hist(8, 9)), False)
+            e.add('referee', .8, kit_vote(model, hist(8, 9)))
         self.assertEqual(decide_role(e, model).label, 'REFEREE')
         confused = RoleEvidence()
         for _ in range(6):
-            confused.add('referee', .5, kit_vote(model, hist(4, 5)), False)
+            confused.add('referee', .5, kit_vote(model, hist(4, 5)))
         for _ in range(2):
-            confused.add('player', .5, kit_vote(model, hist(4, 5)), False)
+            confused.add('player', .5, kit_vote(model, hist(4, 5)))
         self.assertEqual(decide_role(confused, model).label, 'CANDIDATE', 'a referee class on a team kit is held back')
 
     def test_goalkeeper_from_detector_votes(self):
         model = TeamModel(hist(4, 5), hist(16, 17), None, .1, 20)
         e = RoleEvidence()
         for _ in range(6):
-            e.add('goalkeeper', .8, kit_vote(model, hist(12, 13)), True)
+            e.add('goalkeeper', .8, kit_vote(model, hist(12, 13)), {'near_goal': True, 'goal_side': 'left'})
         d = decide_role(e, model)
         self.assertEqual((d.label, d.role, d.team), ('GOALKEEPER', 'goalkeeper', None))
 

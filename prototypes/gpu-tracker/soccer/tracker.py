@@ -1,8 +1,9 @@
 """Per-frame soccer tracking pipeline (everything after the detector):
 
     person detections -> camera motion -> pitch detection -> outside-field filter (foot point)
-    -> local tracker (BoT-SORT) -> appearance (OSNet + part colours) -> team/role evidence
-    -> pitch coordinates -> GLOBAL IDENTITY MANAGER -> persistent soccer observations
+    -> local tracker (BoT-SORT) -> appearance (OSNet + part colours) -> kit votes + position cues
+    -> pitch coordinates -> GLOBAL IDENTITY MANAGER (identity, team and role) -> persistent soccer
+    observations; ball candidates -> one tracked match ball
 """
 import math
 from dataclasses import dataclass
@@ -10,12 +11,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import appearance as app
+from .ball import BallTracker
 from .camera import CameraMotion, CameraState, Keyframes
-from .geometry import foot_point, iou, line_distance
+from .geometry import iou
 from .identity import IdentityManager, Options, Stab
 from .pitch import FieldFilter, PitchDetector, calibrated_model, warp_model
 from .relevance import REJECT_TEXT, assess
-from .teams import TeamModel, fit_team_model, kit_vote, with_referee
+from .goals import GoalMemory, position_cues
+from .teams import TeamModel, fit_team_model, kit_vote, with_keepers, with_referee
 
 CLASSES = {1: 'goalkeeper', 2: 'player', 3: 'referee'}
 MIN_VOTE_QUALITY = .2
@@ -46,16 +49,10 @@ def _occluded(box, others, aspect):
     return False
 
 
-def _near_goal(pitch, box, pitch_point):
-    if pitch_point is not None:
-        return (pitch_point[0] < .17 or pitch_point[0] > .83) and .12 < pitch_point[1] < .88
-    f = foot_point(box)
-    return any(l['side'] in ('left', 'right') and line_distance(f, l['a'], l['b'], pitch.aspect) < .15 for l in pitch.lines)
-
-
 class SoccerTracker:
-    def __init__(self, width, height, config, local_tracker, embedder=None, saved=None):
+    def __init__(self, width, height, config, local_tracker, embedder=None, saved=None, fps=25.0):
         self.width, self.height = width, height
+        self.ball = BallTracker(width, height, fps)
         self.aspect = width/height
         self.config = config
         self.local = local_tracker
@@ -64,6 +61,7 @@ class SoccerTracker:
         self.state = CameraState(width, height)
         self.keyframes = Keyframes(config.boundaries, config.calibrations, width, height)
         self.pitch_detector = PitchDetector()
+        self.goals = GoalMemory()
         self.analysed = self.pitch = None
         self.carried_motion, self.carried_reliable = np.eye(3), True
         self.size = None
@@ -77,8 +75,17 @@ class SoccerTracker:
         self.issues = []
         self.cuts = 0
 
-    def step(self, frame, time, rows):
-        """rows: (N, 6) person detections [x1, y1, x2, y2, score, class id] in pixels (no ball)."""
+    def _scale(self, boxes):
+        """Expected person height (normalized) at a foot row: the perspective size model, else the median
+        person on this frame."""
+        if self.size is not None and self.size.reliable:
+            return lambda y: max(1e-3, self.size.expected(y))
+        heights = sorted(b[3] for b in boxes)
+        return (lambda y: heights[len(heights)//2]) if heights else None
+
+    def step(self, frame, time, rows, ball_rows=None):
+        """rows: (N, 6) person detections [x1, y1, x2, y2, score, class id] in pixels; ball_rows: (M, 6)
+        ball candidates from the detector."""
         W, H = self.width, self.height
         rows = np.asarray(rows, np.float32).reshape(-1, 6)
         dets = []
@@ -146,7 +153,8 @@ class SoccerTracker:
                 descriptors[local_id] = app.describe(frame, xyxy[index], boxes_px, embeddings[index], grass)
         if tick and (not self.model.ready or time-self.fit_at >= 1 or time < self.fit_at):
             current = {lid: (descriptors.get(lid), tracked[i]['cls'], tracked[i]['zone']) for lid, i in matches}
-            self.model = with_referee(fit_team_model(self.ids.team_samples(current, time), self.model), self.ids.referee_jerseys())
+            model = fit_team_model(self.ids.team_samples(current, time), self.model)
+            self.model = with_keepers(with_referee(model, self.ids.referee_samples()), self.ids.keeper_samples())
             self.fit_at = time
         samples = []
         for local_id, index in matches:
@@ -154,16 +162,21 @@ class SoccerTracker:
             pitch_point = self.keyframes.to_pitch(d['box'])
             sx, sy, sh = self.state.stabilize(d['box'])
             sample = {'id': local_id, 'box': d['box'], 'score': d['score'], 'cls': d['cls'], 'zone': d['zone'],
-                      'occluded': _occluded(d['box'], boxes, self.aspect), 'stab': Stab(sx, sy, sh),
-                      'near_goal': _near_goal(pitch, d['box'], pitch_point)}
+                      'occluded': _occluded(d['box'], boxes, self.aspect), 'stab': Stab(sx, sy, sh)}
             if pitch_point is not None:
                 sample['pitch'] = pitch_point
             descriptor = descriptors.get(local_id)
             if descriptor is not None:
                 sample['descriptor'] = descriptor
                 if descriptor.quality >= MIN_VOTE_QUALITY:
-                    sample['vote'] = kit_vote(self.model, descriptor.jersey)
+                    sample['vote'] = kit_vote(self.model, descriptor.jersey, descriptor.shorts)
             samples.append(sample)
+        # Where people stand: near a goal (and which), deepest towards a goal, isolated (role evidence).
+        if tick:
+            self.goals.update(pitch.goals, self.state.stabilize_point, self.state.segment, time)
+            cues = position_cues(samples, self.goals, self.aspect)
+            for sample in samples:
+                sample['cues'] = cues[sample['id']]
         # 6. Global identity manager.
         result = self.ids.update({'time': time, 'tick': tick, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                   'model': self.model, 'pitch_reliable': pitch.reliable or self.keyframes.boundary() is not None,
@@ -171,11 +184,19 @@ class SoccerTracker:
                                   'segment': self.state.segment, 'drift': self.state.drift})
         for ghost in result['drop']:
             self.local.forget(ghost)
-        self.events += result['events']
+        # 7. The single match ball (its own tracker, separate from people).
+        people = [(p['track'], p['box']) for p in result['people'] if p['state'] != 'rejected']
+        people += [(None, b) for b in boxes if not any(iou(b, q) > .5 for _, q in people)]
+        calibrated = self.keyframes.H is not None
+        ball, ball_candidates = self.ball.step(frame, time, ball_rows if ball_rows is not None else np.zeros((0, 6)), M, reliable, cut,
+                                               pitch, people, self._scale(boxes), self.state.stabilize_point, self.state.segment,
+                                               self.keyframes.to_pitch_point if calibrated else None)
+        self.events += result['events']+self.ball.events
+        self.ball.events = []
         self.issues += result['issues']
         self.previous_boxes = boxes
         boundary = self.keyframes.boundary()
-        return {'people': result['people'],
+        return {'people': result['people'], 'ball': ball, 'ballCandidates': ball_candidates,
                 'rejected': [{'box': [round(v, 4) for v in r['box']], 'reason': r['reason'], 'text': REJECT_TEXT[r['reason']],
                               **({'detail': r['detail'][:90]} if self.config.debug else {})} for r in rejected],
                 'pitch': pitch.to_json() if (tick or cut) else None,

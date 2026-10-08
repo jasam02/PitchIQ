@@ -6,7 +6,10 @@ stands. Zones: inside / boundary (small touchline tolerance) / outside /
 unknown (no reliable pitch). Outside detections are rejected with a reason;
 a perspective size model rejects implausibly large or small people.
 Precision over recall: briefly missing a player on the touchline is better
-than tracking the crowd.
+than tracking the crowd. One exception: a lone person just outside the near
+touchline whom the detector confidently calls a referee (an assistant referee)
+is kept in the boundary zone; a track that stays there can only ever become an
+official, never a player.
 """
 import math
 
@@ -18,6 +21,8 @@ from .pitch import nearest_boundary, zone_in_polygon, zone_of
 MIN_PERSON_SCORE = .10
 SIZE_FIT_SCORE = .35
 SIZE_MIN_SAMPLES, SIZE_MAX_RATIO, SIZE_MIN_RATIO, LYING_MIN_RATIO = 6, 2.2, .4, .6
+OFFICIAL_SCORE = .5      # detector 'referee' score for an assistant referee outside the touchline
+OFFICIAL_REACH = .8      # how far beyond the near touchline, in body heights
 ZONE_RANK = {'inside': 0, 'unknown': 1, 'boundary': 2, 'outside': 3}
 
 REJECT_TEXT = {'outside-pitch': 'REJECTED: OUTSIDE PITCH', 'audience': 'REJECTED: AUDIENCE',
@@ -94,11 +99,14 @@ def assess(detections, pitch, config, size=None, user_polygon=None):
     for d in scored:
         if d['zone'] == 'outside':
             audience, detail = _audience(d, pitch, outside)
-            reason = 'audience' if audience else 'outside-pitch'
-            rejected.append({'box': d['box'], 'score': d['score'], 'reason': reason, 'detail': detail})
-            if not audience:
-                continuation.append(d)
-            continue
+            if not audience and _assistant_referee(d, pitch, outside):
+                d['zone'], d['official'] = 'boundary', True
+            else:
+                reason = 'audience' if audience else 'outside-pitch'
+                rejected.append({'box': d['box'], 'score': d['score'], 'reason': reason, 'detail': detail})
+                if not audience:
+                    continuation.append(d)
+                continue
         if use_size and not SIZE_MIN_RATIO <= d['sizeRatio'] <= SIZE_MAX_RATIO:
             e = model.expected(d['foot'][1])
             rejected.append({'box': d['box'], 'score': d['score'], 'reason': 'implausible-size',
@@ -110,6 +118,17 @@ def assess(detections, pitch, config, size=None, user_polygon=None):
             continue
         accepted.append(d)
     return accepted, continuation, rejected, model
+
+
+def _assistant_referee(d, pitch, outside):
+    """Alone, just beyond the near touchline, and a confident detector 'referee'."""
+    if d.get('cls') != 'referee' or d['score'] < OFFICIAL_SCORE or d['outsideBy'] > OFFICIAL_REACH*d['box'][3]:
+        return False
+    edge = nearest_boundary(pitch, d['foot']) if pitch.reliable else None
+    if edge is None or edge['side'] != 'near':
+        return False
+    radius = 2*d['box'][3]
+    return not any(o is not d and math.hypot((o['foot'][0]-d['foot'][0])*pitch.aspect, o['foot'][1]-d['foot'][1]) < radius for o in outside)
 
 
 def _audience(d, pitch, outside):

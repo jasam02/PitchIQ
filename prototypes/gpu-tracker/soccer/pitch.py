@@ -1,12 +1,13 @@
 """Playable-field detection, recomputed for every analysed frame.
 
-Grass segmentation (largest connected grass region, painted lines bridged,
-advertising boards not bridged) gives a grass hull. Long white boundary lines
-(touchlines, goal lines) with only a thin grass run-off band beyond them clip
-that hull, so a coach standing on the run-off grass is outside the pitch.
-A boundary line that briefly disappears is carried with the camera motion for
-up to two seconds. Nothing here is a permanent rectangle: the region follows
-pans and zooms because it is re-detected from the image itself.
+The legal field is defined by its white boundary lines, not by green grass. White paint is found as
+a thin bright ridge on the grass (morphological top-hat at 640 px width), so even a thin, blurred far
+touchline is seen. Long straight lines are fitted, and for each side of the pitch the outermost line
+that is painted on grass (grass on both sides, a run-off strip beyond it) becomes the boundary:
+advertising-board edges have no grass beyond them and are never boundaries. A steep line with short
+lines leaving it towards the image edge is a penalty/goal-area front, not a goal line. Boundary lines
+are tracked over time (smoothed, carried through camera motion, changed only when a new position is
+confirmed), and the grass region is only the fallback for sides where no boundary line is visible.
 
 Image-plane only. Metric pitch coordinates come from calibration.py.
 """
@@ -21,9 +22,10 @@ from .geometry import (centroid, clip_polygon, clip_unit, convex_hull, foot_poin
                        transform_points, x_at, y_at)
 
 MIN_GRASS = .12          # grass share of the frame needed for a reliable pitch
-LINE_MAX_AGE = 2.0       # seconds a boundary line is carried with a reliable camera estimate
-LINE_MAX_AGE_LOOSE = .6  # ... when the camera estimate is unreliable
-FINE_W = 320             # sampling grid width (cells)
+LINE_MAX_AGE = 3.0       # seconds a boundary line is carried with a reliable camera estimate
+LINE_MAX_AGE_LOOSE = .8  # ... when the camera estimate is unreliable
+FINE_W = 320             # grass sampling grid width (cells)
+LINE_W = 640             # paint / line analysis width (pixels)
 
 
 @dataclass
@@ -49,15 +51,28 @@ class PitchModel:
     aspect: float
     polygon: list = field(default_factory=list)        # playable region, normalized points
     grass_polygon: list = field(default_factory=list)  # grass hull before line clipping
-    lines: list = field(default_factory=list)          # [{'a','b','side','support','age'}]
+    lines: list = field(default_factory=list)          # boundary lines [{'a','b','side','support','age'}]
     coverage: float = 0.0
     source: str = 'none'                               # auto | calibration | none
+    goals: list = field(default_factory=list)          # goal-end hints [{'side','kind': goal-line|box-front,'a','b'}]
+    markings: list = field(default_factory=list)       # all fitted paint lines (debug)
+
+    def sources(self):
+        """Where each side of the polygon comes from: a detected line, a carried line, or the grass edge."""
+        out = {side: 'grass edge' for side in ('far', 'near', 'left', 'right')}
+        if self.source == 'calibration':
+            return {side: 'calibration' for side in out}
+        for l in self.lines:
+            out[l['side']] = 'line' if l['age'] <= 0 else 'carried line'
+        return out
 
     def to_json(self):
         r = lambda p: [round(float(p[0]), 4), round(float(p[1]), 4)]
         return {'reliable': self.reliable, 'source': self.source, 'coverage': round(self.coverage, 3),
                 'polygon': [r(p) for p in self.polygon], 'grass': [r(p) for p in self.grass_polygon],
-                'lines': [{'a': r(l['a']), 'b': r(l['b']), 'side': l['side'], 'age': round(l['age'], 2)} for l in self.lines]}
+                'lines': [{'a': r(l['a']), 'b': r(l['b']), 'side': l['side'], 'age': round(l['age'], 2)} for l in self.lines],
+                'goals': [{'side': g['side'], 'kind': g['kind'], 'a': r(g['a']), 'b': r(g['b'])} for g in self.goals],
+                'markings': [[*r(m['a']), *r(m['b'])] for m in self.markings[:16]], 'edges': self.sources()}
 
 
 # ---------- sampling ----------
@@ -66,18 +81,41 @@ def _grass(r, g, b):
     return (g > 30) & (g > r*.95) & (g > b*1.12) & (g-b > 12)
 
 
-def sample_frame(frame):
-    """Per-cell grass fraction, white paint and dark (letterbox) flags on a <=320 wide grid."""
+def line_masks(frame):
+    """Grass and white-paint masks at <= 640 px width. Paint is a thin bright ridge: the top-hat of the
+    darkest colour channel (white is bright in all three, grass is dark in red and blue), so a 1-2 px
+    far touchline blended with grass still stands out, while wide white advertising boards do not."""
     h, w = frame.shape[:2]
     fw = min(FINE_W, w)
     fh = max(2, min(h, round(fw*h/w)))
-    small = cv2.resize(frame, (fw*2, fh*2), interpolation=cv2.INTER_AREA).astype(np.int16)
-    b, g, r = small[..., 0], small[..., 1], small[..., 2]
+    small = cv2.resize(frame, (fw*2, fh*2), interpolation=cv2.INTER_AREA)
+    b8, g8_, r8 = cv2.split(small)
+    b, g, r = b8.astype(np.int16), g8_.astype(np.int16), r8.astype(np.int16)
     grass = _grass(r, g, b)
-    lo, hi = np.minimum(np.minimum(r, g), b), np.maximum(np.maximum(r, g), b)
-    white = (lo >= 110) & (hi-lo <= 70) & (r+g+b >= 380) & ~grass
+    low = cv2.min(cv2.min(b8, g8_), r8)
+    high = cv2.max(cv2.max(b8, g8_), r8)
+    spread = high.astype(np.int16)-low
+    tophat = cv2.morphologyEx(low, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)))
+    ridge = (tophat >= 28) & (spread <= 110) & (low >= 80)
+    g8 = grass.astype(np.uint8)
+    # Grass at >= 2 of the 4 pixels 3..6 px away on one side (box filters along the offset direction).
+    above = cv2.filter2D(g8, -1, np.array([[1], [1], [1], [1], [0], [0], [0], [0], [0], [0], [0], [0], [0]], np.float32), anchor=(0, 6), borderType=cv2.BORDER_CONSTANT) >= 2
+    below = cv2.filter2D(g8, -1, np.array([[0], [0], [0], [0], [0], [0], [0], [0], [0], [1], [1], [1], [1]], np.float32), anchor=(0, 6), borderType=cv2.BORDER_CONSTANT) >= 2
+    left = cv2.filter2D(g8, -1, np.array([[1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]], np.float32), anchor=(6, 0), borderType=cv2.BORDER_CONSTANT) >= 2
+    right = cv2.filter2D(g8, -1, np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1]], np.float32), anchor=(6, 0), borderType=cv2.BORDER_CONSTANT) >= 2
+    return {'w': fw*2, 'h': fh*2, 'grass': grass, 'ridge': ridge, 'low': low, 'high': high, 'sum': b+g+r, 'tophat': tophat,
+            'h_line': ridge & above & below,   # paint with grass above and below
+            'v_line': ridge & left & right}    # paint with grass left and right
+
+
+def sample_frame(frame, masks=None):
+    """Per-cell grass fraction, white paint and dark (letterbox) flags on a <=320 wide grid."""
+    masks = masks or line_masks(frame)
+    fw, fh = masks['w']//2, masks['h']//2
+    grass, low, high = masks['grass'], masks['low'], masks['high']
+    white = (low >= 110) & (high.astype(np.int16)-low <= 70) & (masks['sum'] >= 380) & ~grass
     pool = lambda mask: cv2.resize(mask.astype(np.float32), (fw, fh), interpolation=cv2.INTER_AREA)
-    return {'w': fw, 'h': fh, 'frac': pool(grass), 'white': pool(white) > 1e-3, 'dark': pool(hi < 28) > 1-1e-3}
+    return {'w': fw, 'h': fh, 'frac': pool(grass), 'white': pool(white | masks['ridge']) > 1e-3, 'dark': pool(high < 28) > 1-1e-3}
 
 
 def _shift(m, dy, dx):
@@ -154,72 +192,128 @@ def grass_region(f):
 
 
 # ---------- boundary lines ----------
-def hough(U, V, u_len, v_len, max_slope, step, bin_w, max_lines, min_support):
+def hough(U, V, u_len, v_len, max_slope, step, bin_w, max_lines, min_support, weights=None):
     """Lines through points (u along, v across) with |dv/du| <= max_slope. OpenCV's Hough transform
     proposes peaks; each is refined by least squares on the remaining points, and accepted only when
     enough distinct u positions (grid columns or rows) support it, so thick lines are not
     over-counted. Inliers are removed before the next peak."""
     U, V = np.asarray(U, np.int64), np.asarray(V, np.float64)
+    Wt = np.ones(len(U)) if weights is None else np.asarray(weights, np.float64)
     out = []
     if len(U) < min_support:
         return out
     mask = np.zeros((int(v_len)+1, int(u_len)+1), np.uint8)
     mask[np.clip(V.astype(np.int64), 0, int(v_len)), np.clip(U, 0, int(u_len))] = 255
     low = math.atan2(1, max_slope)
-    peaks = cv2.HoughLines(mask, 1, np.pi/360, max(2, int(min_support*.6)), min_theta=low, max_theta=math.pi-low)
+    peaks = cv2.HoughLines(mask, 1, np.pi/180, max(2, int(min_support*.6)), min_theta=low, max_theta=math.pi-low)
     if peaks is None:
         return out
     uc = u_len/2
     alive = np.ones(len(U), bool)
-    for rho, theta in peaks[:40, 0]:
+    for rho, theta in peaks[:24, 0]:
         if len(out) >= max_lines or alive.sum() < min_support:
             break
         sin, cos = math.sin(theta), math.cos(theta)
         if abs(sin) < 1e-6:
             continue
         s, c = -cos/sin, (rho-uc*cos)/sin
-        u, v = U[alive], V[alive]
+        u, v, wt = U[alive], V[alive], Wt[alive]
         du = u-uc
         for tol in (bin_w+1, 1.5):
             sel = np.abs(v-(c+s*du)) <= tol
-            n = int(sel.sum())
-            su, sv, suu, suv = du[sel].sum(), v[sel].sum(), (du[sel]**2).sum(), (du[sel]*v[sel]).sum()
+            if sel.sum() < 2:
+                break
+            # Weighted by paint strength: a half-blended edge pixel pulls the fit less than the line's core.
+            ws, dus, vs = wt[sel], du[sel], v[sel]
+            n, su, sv, suu, suv = ws.sum(), (ws*dus).sum(), (ws*vs).sum(), (ws*dus*dus).sum(), (ws*dus*vs).sum()
             den = n*suu-su*su
-            if n < 2 or den <= 1e-9:
+            if den <= 1e-9:
                 break
             s = (n*suv-su*sv)/den
             c = (sv-s*su)/n
         residual = np.abs(V-(c+s*(U-uc)))
-        inliers = np.sort(U[alive & (residual <= 1.5)])
-        support = len(np.unique(inliers))
-        if support < min_support or abs(s) > max_slope*1.15:
+        near = alive & (residual <= 1.5)
+        columns = np.unique(U[near])
+        if len(columns) < min_support or abs(s) > max_slope*1.15:
             continue
-        alive &= residual > 3
-        u0 = inliers[int(len(inliers)*.02)]
-        u1 = inliers[max(0, math.ceil(len(inliers)*.98)-1)]
-        out.append({'u0': float(u0), 'u1': float(u1), 'v0': c+s*(u0-uc), 'v1': c+s*(u1-uc), 'support': support})
+        # Keep the longest run of columns without a big gap: a fit that strings together unrelated paint
+        # (a tangent to the centre circle and a box edge) falls apart into short pieces.
+        breaks = np.flatnonzero(np.diff(columns) > max(4, .05*u_len))
+        starts, ends = np.r_[0, breaks+1], np.r_[breaks, len(columns)-1]
+        best = int(np.argmax(ends-starts))
+        run = columns[starts[best]:ends[best]+1]
+        if len(run) < min_support:
+            continue
+        u0, u1 = float(run[0]), float(run[-1])
+        alive &= ~((residual <= 3) & (U >= u0) & (U <= u1))
+        out.append({'u0': u0, 'u1': u1, 'v0': c+s*(u0-uc), 'v1': c+s*(u1-uc), 'support': len(run)})
     return out
 
 
-def detect_lines(f):
-    """Long straight white lines with grass on both sides: near-horizontal (touchline family) and
-    steep (goal-line family). Interior lines are found too and rejected by choose_boundaries."""
-    w, h = f['w'], f['h']
-    grass, white = f['frac'] >= .5, f['white']
-    d = max(2, round(h/60))
-    def near(dy, dx):
-        hit = np.zeros_like(grass)
-        for k in range(d, 2*d+1):
-            hit |= _shift(grass, dy*k, dx*k)
-        return hit
-    hy, hx = np.nonzero(white & near(-1, 0) & near(1, 0))
-    vy, vx = np.nonzero(white & near(0, -1) & near(0, 1))
+def detect_lines(masks):
+    """Straight paint lines with grass on both sides: near-horizontal (touchline family, including short
+    penalty-box side edges) and steep (goal lines, halfway line, box fronts). Normalized endpoints."""
+    w, h = masks['w'], masks['h']
+    hy, hx = np.nonzero(masks['h_line'])
+    vy, vx = np.nonzero(masks['v_line'])
+    strength = masks['tophat']
     segs = []
-    for l in hough(hx, hy, w, h, .36, .02, 2, 4, .2*w):
+    for l in hough(hx, hy, w, h, .36, .02, 2, 8, .04*w, strength[hy, hx]):
         segs.append({'kind': 'h', 'a': ((l['u0']+.5)/w, (l['v0']+.5)/h), 'b': ((l['u1']+.5)/w, (l['v1']+.5)/h), 'support': l['support']/w})
-    for l in hough(vy, vx, h, w, 2.9, .05, 3, 4, .15*h):
+    for l in hough(vy, vx, h, w, 2.9, .05, 3, 8, .1*h, strength[vy, vx]):
         segs.append({'kind': 'v', 'a': ((l['v0']+.5)/w, (l['u0']+.5)/h), 'b': ((l['v1']+.5)/w, (l['u1']+.5)/h), 'support': l['support']/h})
     return segs
+
+
+def line_quality(line, side, masks):
+    """Is this a painted boundary on the grass? Samples perpendicular profiles along the line: paint on
+    the line, grass just inside it, and grass just beyond it (the run-off strip). An advertising-board
+    edge or a stand has no grass beyond it."""
+    w, h = masks['w'], masks['h']
+    (ax, ay), (bx, by) = line['a'], line['b']
+    dx, dy = (bx-ax)*w, (by-ay)*h
+    length = math.hypot(dx, dy)
+    if length < 4:
+        return {'paint': 0.0, 'inside': 0.0, 'beyond': 0.0}
+    nx, ny = -dy/length, dx/length
+    out = {'near': (0, 1), 'far': (0, -1), 'left': (-1, 0), 'right': (1, 0)}[side]
+    if nx*out[0]+ny*out[1] < 0:
+        nx, ny = -nx, -ny
+    t = np.linspace(.03, .97, 40)
+    x, y = ax*w+dx*t, ay*h+dy*t
+    keep = (x >= 0) & (x < w) & (y >= 0) & (y < h)
+    x, y = x[keep], y[keep]
+    if not len(x):
+        return {'paint': 0.0, 'inside': 0.0, 'beyond': 0.0}
+
+    def hits(mask, offsets):
+        xs = np.rint(x[:, None]+nx*offsets[None, :]).astype(int)
+        ys = np.rint(y[:, None]+ny*offsets[None, :]).astype(int)
+        ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+        values = np.zeros(xs.shape, bool)
+        values[ok] = mask[ys[ok], xs[ok]]
+        return values.sum(axis=1)
+
+    return {'paint': float((hits(masks['ridge'], np.array([-1, 0, 1])) >= 1).mean()),
+            'inside': float((hits(masks['grass'], -np.arange(3, 9)) >= 3).mean()),
+            'beyond': float((hits(masks['grass'], np.arange(3, 9)) >= 3).mean())}
+
+
+def box_front(line, side, segs, aspect):
+    """A steep line with short touchline-family lines leaving it towards its side of the image is the
+    front edge of a penalty or goal area (their side edges run to the goal line), not a goal line."""
+    out = -1 if side == 'left' else 1
+    seg = (line['a'], line['b'])
+    lo, hi = min(line['a'][1], line['b'][1])-.03, max(line['a'][1], line['b'][1])+.03
+    for other in segs:
+        if other['kind'] != 'h' or abs(other['b'][0]-other['a'][0]) > .5:
+            continue
+        for p, q in ((other['a'], other['b']), (other['b'], other['a'])):
+            if not lo <= p[1] <= hi or line_distance(p, seg[0], seg[1], aspect) > .03:
+                continue
+            if out*(q[0]-x_at(seg, q[1])) > .02:  # the other end lies beyond this line, towards the goal
+                return True
+    return False
 
 
 def _horizontal(side):
@@ -289,63 +383,58 @@ def band_stats(line, side, r):
             'depth': depths[len(depths)//2] if depths else math.inf, 'on': on/count if count else 0}
 
 
-def edge_line(line, side, r, f):
-    """Share of the line's extent where thin paint runs along the outer grass edge (with no white
-    further out, so not a white board): the real boundary is there and this line is interior."""
-    k = f['w']//r['w']
-    horizontal, out = _horizontal(side), 1 if side in ('near', 'right') else -1
-    white = f['white']
-    def is_white(along, across):
-        x, y = (along, across) if horizontal else (across, along)
-        return 0 <= x < f['w'] and 0 <= y < f['h'] and bool(white[y, x])
-    a, b = line['a'], line['b']
-    unit = r['cw'] if horizontal else r['ch']
-    lo = max(0, int(min(a[0] if horizontal else a[1], b[0] if horizontal else b[1])/unit))
-    hi = min((r['w'] if horizontal else r['h'])-1, int(max(a[0] if horizontal else a[1], b[0] if horizontal else b[1])/unit))
-    n = hit = 0
-    for c in range(lo, hi+1):
-        e = (r['top'][c] if side == 'far' else r['bottom'][c]) if horizontal else (r['left'][c] if side == 'left' else r['right'][c])
-        if e < 0:
-            continue
-        n += 1
-        edge = (e+1)*k-1 if out > 0 else e*k
-        at = lambda dist: any(is_white(c*k+i, edge+out*dist) for i in range(k))
-        if any(at(dist) for dist in (-1, 0, 1, 2, 3)) and not any(at(dist) for dist in (5, 6, 7)):
-            hit += 1
-    return hit/n if n else 0.0
-
-
-def choose_boundaries(segs, r, aspect, f):
-    """A line is a boundary only if it is outermost on its side and the grass beyond it is a thin
-    run-off band. Short lines (technical-area markings) are skipped; a failing line fails for every
-    line inside it too."""
+def choose_boundaries(segs, r, aspect, masks):
+    """For each side the outermost painted line with a thin grass run-off beyond it is the boundary.
+    Lines that are not paint on grass are skipped; a line with too much grass beyond it is interior,
+    and so is every line inside it. Paint at the very edge of the grass with nothing beyond it (an
+    advertising-board edge, or a touchline with no visible run-off) is used only when no painted line
+    with grass beyond it lies just inside it. Returns (lines, goal hints)."""
     c = (r['cx'], r['cy'])
     by_side = {}
     for seg in segs:
         horizontal = seg['kind'] == 'h'
         span = abs(seg['b'][0]-seg['a'][0]) if horizontal else abs(seg['b'][1]-seg['a'][1])
-        if (seg['support'] < .3 or span < .5) if horizontal else (seg['support'] < .2 or span < .3):
+        if (seg['support'] < .25 or span < .4) if horizontal else (seg['support'] < .2 or span < .25):
             continue
         side = side_of(seg, horizontal, c)
         by_side.setdefault(side, []).append((line_distance(c, seg['a'], seg['b'], aspect), seg))
-    found = {}
+    found, goals = {}, []
     for side, items in by_side.items():
-        for _, seg in sorted(items, key=lambda item: -item[0]):
+        chosen, edge_only, interior = None, None, False
+        for distance, seg in sorted(items, key=lambda item: -item[0]):
+            q = line_quality(seg, side, masks)
+            if q['paint'] < .35 or q['inside'] < .5:
+                continue  # not paint lying on the grass: look further in
             s = band_stats(seg, side, r)
             if not s['count'] or s['on'] < .5:
                 continue
+            if side in ('left', 'right') and box_front(seg, side, segs, aspect):
+                # The front of a penalty or goal area marks the goal end, also when the goal line beyond
+                # it is out of view or cannot be confirmed (it runs off the image edge).
+                goals.append({'side': side, 'kind': 'box-front', 'a': seg['a'], 'b': seg['b']})
+                break
+            if interior:
+                continue  # inside an interior line nothing is a boundary; only a box front is still looked for
             if s['beyond'] >= .25*s['inner']:
-                break
-            interior = s['depth'] > .06 and edge_line(seg, side, r, f) >= .5
-            if side == 'near':
-                fail = s['term'] < .5 and s['depth'] > .12
-            else:
-                fail = s['term'] < .5 or interior
-            if fail:
-                break
-            found[side] = {'a': seg['a'], 'b': seg['b'], 'side': side, 'support': seg['support'], 'age': 0.0}
+                interior = True  # deep grass beyond: an interior line (and so is everything inside it)
+                continue
+            if (s['term'] < .5 and s['depth'] > .12) if side == 'near' else s['term'] < .5:
+                interior = True  # the grass beyond does not end inside the view: not a boundary
+                continue
+            if q['beyond'] < .4:
+                if edge_only is None:
+                    edge_only = (distance, seg)
+                continue
+            if edge_only is None or edge_only[0]-distance <= .12:
+                chosen = seg
             break
-    return found
+        if chosen is None and edge_only is not None:
+            chosen = edge_only[1]
+        if chosen is not None:
+            found[side] = {'a': chosen['a'], 'b': chosen['b'], 'side': side, 'support': chosen['support'], 'age': 0.0}
+            if side in ('left', 'right'):
+                goals.append({'side': side, 'kind': 'goal-line', 'a': chosen['a'], 'b': chosen['b']})
+    return found, goals
 
 
 def move_line(line, matrix):
@@ -355,24 +444,67 @@ def move_line(line, matrix):
     return dict(line, a=(float(a[0]), float(a[1])), b=(float(b[0]), float(b[1])))
 
 
+def _params(line):
+    """(slope, intercept, lo, hi): y = m*x + c for the touchline family, x = m*y + c for steep lines."""
+    (ax, ay), (bx, by) = line['a'], line['b']
+    if _horizontal(line['side']):
+        m = (by-ay)/(bx-ax) if abs(bx-ax) > 1e-9 else 0.0
+        return m, ay-m*ax, min(ax, bx), max(ax, bx)
+    m = (bx-ax)/(by-ay) if abs(by-ay) > 1e-9 else 0.0
+    return m, ax-m*ay, min(ay, by), max(ay, by)
+
+
+def _from_params(side, m, c, lo, hi, **extra):
+    if _horizontal(side):
+        a, b = (lo, m*lo+c), (hi, m*hi+c)
+    else:
+        a, b = (m*lo+c, lo), (m*hi+c, hi)
+    return dict(extra, a=(float(a[0]), float(a[1])), b=(float(b[0]), float(b[1])), side=side)
+
+
+def lines_close(l1, l2, tolerance=.025):
+    """Two lines of the same side agree within `tolerance` (normalized) across their common extent."""
+    m1, c1, lo1, hi1 = _params(l1)
+    m2, c2, lo2, hi2 = _params(l2)
+    lo, hi = max(lo1, lo2), min(hi1, hi2)
+    if hi < lo:
+        lo, hi = min(lo1, lo2), max(hi1, hi2)
+    return all(abs((m1*t+c1)-(m2*t+c2)) <= tolerance for t in (lo, (lo+hi)/2, hi))
+
+
+def blend_lines(old, new, weight=.5):
+    m1, c1, _, _ = _params(old)
+    m2, c2, lo, hi = _params(new)
+    return _from_params(new['side'], m1+(m2-m1)*weight, c1+(c2-c1)*weight, lo, hi, support=new['support'], age=0.0)
+
+
 class PitchDetector:
-    """Re-detects the playable region on every call; carries boundary lines across short gaps."""
+    """Re-detects the playable region on every call and tracks each side's boundary line over time:
+    a new detection close to the tracked line refines it (smoothing); a detection far from it must be
+    seen twice before the boundary moves (hysteresis); without a detection the line is carried with
+    the camera motion for a few seconds while it stays consistent with the grass."""
 
     def __init__(self):
         self.previous = None
+        self.tracked = {}   # side -> line
+        self.pending = {}   # side -> unconfirmed new position
 
     def reset(self):
         self.previous = None
+        self.tracked, self.pending = {}, {}
 
     def analyze(self, frame, time, motion=None, reliable=False, cut=False):
         """motion: normalized 3x3 transform from the previous analysed frame to this one."""
         h, w = frame.shape[:2]
         aspect = w/max(1, h)
         empty = PitchModel(time, False, aspect)
+        if cut:
+            self.tracked, self.pending = {}, {}
         if w < 16 or h < 16:
             self.previous = empty
             return empty
-        f = sample_frame(frame)
+        masks = line_masks(frame)
+        f = sample_frame(frame, masks)
         r = grass_region(f)
         if r['count'] < r['w']*r['h']*MIN_GRASS:
             self.previous = empty
@@ -385,29 +517,44 @@ class PitchDetector:
             y0, y1 = y*r['ch'], (y+1)*r['ch']
             corners += [(x0, y0), (x0, y1), (x1, y0), (x1, y1)]
         grass_polygon = convex_hull(corners)
-        found = choose_boundaries(detect_lines(f), r, aspect, f)
-        previous = self.previous
-        if previous is not None and previous.lines and not cut:
-            dt = max(0.0, time-previous.time)
-            max_age = LINE_MAX_AGE if reliable else LINE_MAX_AGE_LOOSE
-            for old in previous.lines:
-                if old['side'] in found or old['age']+dt > max_age:
-                    continue
-                moved = move_line(old, motion if reliable else None)
-                if side_of(moved, _horizontal(old['side']), (r['cx'], r['cy'])) != old['side']:
-                    continue
-                s = band_stats(moved, old['side'], r)
-                if s['beyond'] >= .35*s['inner']:
-                    continue  # no longer consistent with the grass
-                found[old['side']] = dict(moved, age=old['age']+dt)
-        lines = list(found.values())
-        polygon = grass_polygon
+        segs = detect_lines(masks)
+        found, goals = choose_boundaries(segs, r, aspect, masks)
+        dt = max(0.0, time-self.previous.time) if self.previous is not None else 0.0
+        max_age = LINE_MAX_AGE if reliable else LINE_MAX_AGE_LOOSE
         c = (r['cx'], r['cy'])
+        tracked = {}
+        for side in ('far', 'near', 'left', 'right'):
+            old = self.tracked.get(side)
+            if old is not None:
+                old = move_line(old, motion if reliable else None)
+                if side_of(old, _horizontal(side), c) != side:
+                    old = None
+            new = found.get(side)
+            pending = self.pending.pop(side, None)
+            if pending is not None:
+                pending = move_line(pending, motion if reliable else None)
+            if new is not None and old is not None and lines_close(old, new):
+                tracked[side] = blend_lines(old, new)
+            elif new is not None and (old is None or (pending is not None and lines_close(pending, new))):
+                tracked[side] = new
+            else:
+                if new is not None:
+                    self.pending[side] = new  # a jump: wait for confirmation
+                if old is not None and old['age']+dt <= max_age:
+                    stats = band_stats(old, side, r)
+                    if stats['count'] and stats['beyond'] < .35*stats['inner']:
+                        tracked[side] = dict(old, age=old['age']+dt)
+        self.tracked = tracked
+        lines = list(tracked.values())
+        polygon = grass_polygon
         for line in lines:
             clipped = clip_polygon(polygon, line['a'], line['b'], c)
             if len(clipped) >= 3:
                 polygon = clipped
-        model = PitchModel(time, len(polygon) >= 3, aspect, polygon, grass_polygon, lines, polygon_area(polygon) if len(polygon) >= 3 else 0.0, 'auto')
+        goal_hints = [g for g in goals if g['kind'] == 'box-front']
+        goal_hints += [{'side': l['side'], 'kind': 'goal-line', 'a': l['a'], 'b': l['b']} for l in lines if l['side'] in ('left', 'right')]
+        model = PitchModel(time, len(polygon) >= 3, aspect, polygon, grass_polygon, lines,
+                           polygon_area(polygon) if len(polygon) >= 3 else 0.0, 'auto', goal_hints, segs)
         self.previous = model
         return model
 
@@ -415,13 +562,15 @@ class PitchDetector:
 def warp_model(model, motion, time, reliable, cut):
     """Carry the last analysed model to the next frame with the camera motion (between analyses)."""
     if cut or not reliable or motion is None:
-        return PitchModel(time, False, model.aspect) if cut else PitchModel(time, model.reliable, model.aspect, model.polygon, model.grass_polygon, model.lines, model.coverage, model.source)
+        return PitchModel(time, False, model.aspect) if cut else PitchModel(time, model.reliable, model.aspect, model.polygon, model.grass_polygon, model.lines, model.coverage, model.source, model.goals, model.markings)
     move = lambda poly: clip_unit([(float(x), float(y)) for x, y in transform_points(motion, poly)]) if len(poly) >= 3 else []
     polygon = move(model.polygon)
     dt = max(0.0, time-model.time)
     lines = [dict(move_line(l, motion), age=l['age']+dt) for l in model.lines if l['age']+dt <= LINE_MAX_AGE]
+    goals = [move_line(g, motion) for g in model.goals]
+    markings = [move_line(m, motion) for m in model.markings]
     return PitchModel(time, model.reliable and len(polygon) >= 3, model.aspect, polygon, move(model.grass_polygon), lines,
-                      polygon_area(polygon) if len(polygon) >= 3 else 0.0, model.source)
+                      polygon_area(polygon) if len(polygon) >= 3 else 0.0, model.source, goals, markings)
 
 
 def calibrated_model(model, polygon):
@@ -429,7 +578,7 @@ def calibrated_model(model, polygon):
     polygon = clip_unit([tuple(p) for p in polygon]) if polygon is not None and len(polygon) >= 3 else []
     if len(polygon) < 3:
         return model
-    return PitchModel(model.time, True, model.aspect, polygon, model.grass_polygon, model.lines, polygon_area(polygon), 'calibration')
+    return PitchModel(model.time, True, model.aspect, polygon, model.grass_polygon, model.lines, polygon_area(polygon), 'calibration', model.goals, model.markings)
 
 
 def nearest_boundary(model, p):

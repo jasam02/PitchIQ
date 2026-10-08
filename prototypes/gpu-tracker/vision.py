@@ -1,4 +1,4 @@
-"""OSNet appearance descriptors and provisional ball selection."""
+"""OSNet appearance descriptors (the ball has its own tracker in soccer/ball.py)."""
 from pathlib import Path
 import cv2
 import numpy as np
@@ -36,35 +36,3 @@ class Appearance:
             result.extend(features)
         return result
 
-
-class Ball:
-    def __init__(self):
-        self.point = None
-        self.last = -100
-        self.support = 0
-
-    def update(self, candidates, timestamp, motion, reliable, width):
-        """motion: 3x3 pixel transform from the previous frame (camera compensation)."""
-        if self.point is not None and reliable:
-            p = motion @ np.array([self.point[0], self.point[1], 1.0])
-            self.point = p[:2]/p[2]
-        if timestamp-self.last > .4 or not reliable:
-            self.point = None
-            self.support = 0
-        ranked = []
-        for candidate in candidates:
-            box = candidate['pixels']
-            point = np.array([(box[0]+box[2])/2, (box[1]+box[3])/2])
-            displacement = np.linalg.norm(point-self.point) if self.point is not None else 0
-            if self.point is not None and displacement > width*.09:
-                continue
-            ranked.append((candidate['score']-displacement/(width*.18), candidate, point))
-        ranked.sort(key=lambda r: -r[0])
-        if not ranked or len(ranked) > 1 and ranked[0][0]-ranked[1][0] < .12:
-            return None
-        _, candidate, self.point = ranked[0]
-        self.last = timestamp
-        self.support += 1
-        if self.support < 2 or candidate['score'] < .12:
-            return None
-        return {k: v for k, v in candidate.items() if k != 'pixels'} | {'evidence': 'observed', 'identity': 'ball candidate'}

@@ -79,6 +79,11 @@ class CameraState:
         else:
             self.drift += 1
 
+    def stabilize_point(self, x, y):
+        """A normalized image point in normalized coordinates of the segment's first frame."""
+        (sx, sy), = transform_points(self.T, [(x*self.width, y*self.height)])
+        return sx/self.width, sy/self.height
+
     def stabilize(self, box):
         """Foot point and box height in normalized coordinates of the segment's first frame."""
         fx, fy = foot_point(box)
@@ -142,6 +147,11 @@ class Keyframes:
             return None
         fx, fy = foot_point(box)
         return calibration.to_pitch(self.H, (fx*self.width, fy*self.height))
+
+    def to_pitch_point(self, point):
+        if self.H is None:
+            return None
+        return calibration.to_pitch(self.H, (point[0]*self.width, point[1]*self.height))
 
     def pitch_outline(self):
         return calibration.pitch_outline(self.H, self.width, self.height) if self.H is not None else None

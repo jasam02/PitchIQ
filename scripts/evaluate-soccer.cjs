@@ -6,8 +6,9 @@ const {assignMinimum}=load('lib/persistent-tracker.ts'),{iou}=load('lib/detectio
 const [predFile,truthFile]=process.argv.slice(2);if(!predFile||!truthFile)throw Error('Provide exported tracking JSON and annotated ground-truth JSON.');
 const pred=JSON.parse(fs.readFileSync(predFile,'utf8')),truth=JSON.parse(fs.readFileSync(truthFile,'utf8'));
 // The local GPU prototype's result.json (prototypes/gpu-tracker) stores people per frame; flatten it.
+// Its label is the combined role (PLAYER_TEAM_A, GOALKEEPER_TEAM_B, REFEREE); role alone is PLAYER/GOALKEEPER/REFEREE.
 if(!pred.observations&&Array.isArray(pred.frames)){
- pred.observations=pred.frames.flatMap(f=>f.people.map(p=>({time:f.time,localId:p.track,globalId:p.id||undefined,box:{x:p.box[0],y:p.box[1],w:p.box[2],h:p.box[3]},role:p.role,identityConfidence:p.identity,uncertain:!p.id})));
+ pred.observations=pred.frames.flatMap(f=>f.people.map(p=>({time:f.time,localId:p.track,globalId:p.id||undefined,box:{x:p.box[0],y:p.box[1],w:p.box[2],h:p.box[3]},role:p.label||p.role,identityConfidence:p.identityConfidence??p.identity,uncertain:!p.id})));
  pred.reidEvents=(pred.events||[]).filter(e=>e.kind==='reid').map(e=>({accepted:true,localId:e.track,globalId:e.playerId,time:e.time}));
 }
 if(!Array.isArray(truth.frames)||!truth.frames.length)throw Error('Ground truth needs annotated frames; unlabeled detections cannot measure identity accuracy.');
@@ -20,7 +21,7 @@ for(const frame of [...truth.frames].sort((a,b)=>a.time-b.time)){
  const costs=people.map(p=>candidates.map(q=>1-iou(p.box,q.box))),assignment=assignMinimum(costs,.7),used=new Set();
  people.forEach((p,i)=>{
   const c=assignment[i]>=0?candidates[assignment[i]]:undefined;if(c)used.add(assignment[i]);
-  const tactical=c&&!!c.globalId&&!c.uncertain&&(/^(PLAYER|GOALKEEPER)_/.test(c.role));
+  const tactical=c&&!!c.globalId&&!c.uncertain&&(/^(PLAYER_|GOALKEEPER)/.test(c.role));
   if(p.role==='SPECTATOR'){if(tactical)metrics.falseSpectatorDetections++;return;}
   if(p.role==='REFEREE'){if(tactical)metrics.refereeAsPlayerErrors++;return;}
   visible++;const stat=metrics.perPlayer[p.id]??={visibleFrames:0,trackedFrames:0,coverage:0};stat.visibleFrames++;
@@ -33,7 +34,7 @@ for(const frame of [...truth.frames].sort((a,b)=>a.time-b.time)){
   }else previous.set(p.id,{...prior,gap:true});
   if(c)evaluated.set(c.localId+':'+c.time.toFixed(3),p.id);
  });
- candidates.forEach((p,i)=>{if(p.globalId&&!p.uncertain&&/^(PLAYER|GOALKEEPER)_/.test(p.role)&&!used.has(i))metrics.unmatchedPredictedPlayers++;});
+ candidates.forEach((p,i)=>{if(p.globalId&&!p.uncertain&&/^(PLAYER_|GOALKEEPER)/.test(p.role)&&!used.has(i))metrics.unmatchedPredictedPlayers++;});
 }
 // Map global IDs to their majority annotated identity before evaluating returns.
 const votes=new Map();for(const o of pred.observations||[]){const gt=evaluated.get(o.localId+':'+o.time.toFixed(3));if(gt&&o.globalId){const v=votes.get(o.globalId)||new Map();v.set(gt,(v.get(gt)||0)+1);votes.set(o.globalId,v);}}

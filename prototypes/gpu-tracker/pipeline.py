@@ -7,6 +7,7 @@ global identity manager that keeps one identity per real person across exits and
 import os
 import json
 import time
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -23,10 +24,12 @@ from download_model import get_model
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
-from vision import Appearance, Ball
+from vision import Appearance
 
 settings.update({'sync': False})
-COLORS = {'A': (255, 190, 90), 'B': (90, 170, 250), 'GOALKEEPER': (220, 120, 230), 'REFEREE': (40, 200, 255), 'UNCERTAIN': (170, 170, 170)}
+# BGR; the same colours as the review page.
+COLORS = {'A': (255, 140, 185), 'B': (100, 181, 246), 'GOALKEEPER': (162, 95, 255), 'REFEREE': (100, 225, 255), 'UNCERTAIN': (194, 180, 169),
+          'PITCH': (255, 200, 124), 'BALL': (61, 255, 198)}
 
 
 def metadata(path):
@@ -103,22 +106,20 @@ def detect(model, frame, detail):
 
 
 def _colour(person):
-    role = person['role']
-    if person['id'] is None:
-        return (255, 255, 255) if role == 'CANDIDATE' else COLORS['UNCERTAIN']
-    if role.startswith('GOALKEEPER'):
-        return COLORS['GOALKEEPER']
-    if role == 'REFEREE':
-        return COLORS['REFEREE']
-    return COLORS.get(person['team'], COLORS['UNCERTAIN'])
+    if person['state'] == 'candidate':
+        return (255, 255, 255)
+    if person['state'] in ('rejected', 'unknown'):
+        return COLORS['UNCERTAIN']
+    return COLORS.get(person['role'], COLORS.get(person['team'], COLORS['UNCERTAIN']))
 
 
-def preview(frame, observation, path):
+def preview(frame, observation, path, pitch=None, trail=()):
+    """Latest processed frame with the pitch boundary, people (display ID, local track, identity
+    confidence) and the ball, for the live progress view."""
     image = frame.copy()
     h, w = image.shape[:2]
-    polygon = (observation.get('pitch') or {}).get('polygon')
-    if polygon:
-        cv2.polylines(image, [np.int32(np.asarray(polygon)*[w, h])], True, (110, 220, 160), 2)
+    if pitch and pitch.get('reliable') and pitch.get('polygon'):
+        cv2.polylines(image, [np.int32(np.asarray(pitch['polygon'])*[w, h])], True, COLORS['PITCH'], 2)
     for rejected in observation['rejected']:
         x, y, bw, bh = rejected['box']
         cv2.rectangle(image, (int(x*w), int(y*h)), (int((x+bw)*w), int((y+bh)*h)), (80, 80, 235), 1)
@@ -126,13 +127,21 @@ def preview(frame, observation, path):
         x, y, bw, bh = person['box']
         color = _colour(person)
         a, b = (int(x*w), int(y*h)), (int((x+bw)*w), int((y+bh)*h))
-        cv2.rectangle(image, a, b, color, 2)
-        text = f"{person['label']} T{person['track']} {person['role'].replace('_TEAM_', ' ')} {round(person['identity']*100)}%"
+        cv2.rectangle(image, a, b, color, 2 if person['id'] else 1)
+        text = f"{person['display']} T{person['track']} {round(person['identityConfidence']*100)}%"
         cv2.putText(image, text, (a[0], max(16, a[1]-5)), cv2.FONT_HERSHEY_SIMPLEX, .45, color, 1)
-    if observation['ball']:
-        x, y, bw, bh = observation['ball']['box']
-        cv2.circle(image, (int((x+bw/2)*w), int((y+bh/2)*h)), max(7, int(bw*w)), (255, 230, 70), 2)
-    cv2.putText(image, f"{observation['time']:.2f}s | global ID, local track, role, identity confidence", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, .7, (255, 255, 255), 2)
+    points = [(int(x*w), int(y*h)) for _, x, y, _ in trail]
+    if len(points) > 1:
+        cv2.polylines(image, [np.int32(points)], False, COLORS['BALL'], 1)
+    ball = observation['ball']
+    if ball['state'] in ('TRACKED', 'MISSING'):
+        cx, cy = int(ball['center'][0]*w), int(ball['center'][1]*h)
+        cv2.circle(image, (cx, cy), max(7, int(ball['box'][2]*w)), COLORS['BALL'], 2 if ball['state'] == 'TRACKED' else 1)
+        label = f"BALL {ball['confidence']:.2f}" if ball['state'] == 'TRACKED' else f"BALL? hidden {ball['missingFor']:.1f}s"
+        cv2.putText(image, label, (cx+10, cy-10), cv2.FONT_HERSHEY_SIMPLEX, .5, COLORS['BALL'], 1)
+    else:
+        cv2.putText(image, 'BALL UNKNOWN', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, .6, COLORS['BALL'], 1)
+    cv2.putText(image, f"{observation['time']:.2f}s | ID, local track, identity confidence", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, .7, (255, 255, 255), 2)
     encoded = cv2.imencode('.jpg', cv2.resize(image, (960, round(h/w*960))))[1]
     temporary = path.with_suffix('.tmp')
     temporary.write_bytes(encoded.tobytes())
@@ -154,8 +163,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     if dict(model.names) != {0: 'ball', 1: 'goalkeeper', 2: 'player', 3: 'referee'}:
         raise RuntimeError(f'Unexpected detector classes: {model.names}')
     appearance = Appearance()
-    tracker = SoccerTracker(width, height, config_from(config), BotSortTracker(fps), appearance.embed, previous)
-    ball = Ball()
+    tracker = SoccerTracker(width, height, config_from(config), BotSortTracker(fps), appearance.embed, previous, fps)
     capture = cv2.VideoCapture(str(video_path))
     first_frame = int(round(start*fps))
     capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
@@ -163,7 +171,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     torch.cuda.reset_peak_memory_stats()
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
-    index, last_notice, logged = first_frame, -10, 0
+    index, last_notice, logged, pitch = first_frame, -10, 0, None
     try:
         while not cancelled():
             ok, frame = capture.read()
@@ -175,35 +183,27 @@ def run(video_path, output, config, progress, cancelled, previous=None):
             if stamp >= finish:
                 break
             rows = detect(model, frame, int(config.get('imageSize', 1280)))
-            observation, motion, reliable = tracker.step(frame, stamp, rows[rows[:, 5] != 0])
-            if observation['cut']:
-                ball = Ball()
             ball_rows = rows[rows[:, 5] == 0].tolist()
             if config.get('ballTiles', False) and (index-first_frame) % 2 == 0:
                 ball_rows += ball_tiles(model, frame)
             if ball_rows:
                 raw = torch.tensor(ball_rows, dtype=torch.float32)
-                ball_rows = raw[nms(raw[:, :4], raw[:, 4], .3)].numpy().tolist()
-            candidates = []
-            for x1, y1, x2, y2, score, _ in ball_rows:
-                if max(x2-x1, y2-y1) > max(width, height)*.035:
-                    continue
-                # Ball can be airborne: do not test its box against a ground polygon.
-                candidates.append({'box': normalized([x1, y1, x2, y2], width, height),
-                                   'score': round(score, 3), 'pixels': [x1, y1, x2, y2]})
-            chosen = ball.update(candidates, stamp, motion, reliable, width)
-            observation = {'time': round(stamp, 6), 'frame': index, **observation, 'ball': chosen,
-                           'ballCandidates': [{k: v for k, v in c.items() if k != 'pixels'} for c in candidates]}
+                ball_rows = raw[nms(raw[:, :4], raw[:, 4], .3)].numpy()
+                # Obviously huge boxes are never the ball; everything else is scored by the ball tracker.
+                ball_rows = ball_rows[np.maximum(ball_rows[:, 2]-ball_rows[:, 0], ball_rows[:, 3]-ball_rows[:, 1]) <= max(width, height)*.035]
+            observation, _, _ = tracker.step(frame, stamp, rows[rows[:, 5] != 0], np.asarray(ball_rows, np.float32).reshape(-1, 6))
+            observation = {'time': round(stamp, 6), 'frame': index, **observation}
             frames.append(observation)
-            # Every identity decision is logged; accepted re-identifications also go to the console.
+            pitch = observation['pitch'] or pitch
+            # Every identity, role and ball decision is logged; the key ones also go to the console.
             for event in tracker.events[logged:]:
                 log.write(f"[{event['time']:.2f}s] {event['kind'].upper()}\n{event['message']}\n\n")
-                if event['kind'] in ('reid', 'swap-corrected', 'sanity'):
+                if event['kind'] in ('reid', 'swap-corrected', 'sanity', 'role'):
                     print(f"[{event['time']:.2f}s] {event['message']}", flush=True)
             logged = len(tracker.events)
             elapsed = time.perf_counter()-started
             if elapsed-last_notice >= 1:
-                preview(frame, observation, output/'preview.jpg')
+                preview(frame, observation, output/'preview.jpg', pitch, tracker.ball.trajectory)
                 counts = tracker.ids.summary()
                 progress({'stage': 'Tracking match participants and global identities', 'progress': (stamp-start)/(finish-start),
                           'videoTime': stamp, 'elapsed': round(elapsed, 1), 'frames': len(frames),
@@ -239,26 +239,36 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                 identified += person['id'] is not None
     match = tracker.ids.summary()
     events = tracker.events
-    kinds = {}
-    for event in events:
-        kinds[event['kind']] = kinds.get(event['kind'], 0)+1
+    kinds = Counter(event['kind'] for event in events)
     count = lambda team: sum(1 for p in match['players'] if p['team'] == team)
+    states = Counter(f['ball']['state'] for f in frames)
+    seen = [f['ball']['confidence'] for f in frames if f['ball']['state'] == 'TRACKED']
+    share = lambda n: round(n/len(frames), 3)
+    ball = {'trackedShare': share(states['TRACKED']), 'missingShare': share(states['MISSING']), 'unknownShare': share(states['UNKNOWN']),
+            'meanConfidence': round(sum(seen)/len(seen), 3) if seen else None, 'tracks': tracker.ball.track,
+            'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
+    roles = {'refereeConversions': sum(1 for e in events if e['kind'] == 'role' and 'New role: REFEREE' in e['message']),
+             'goalkeepersIdentified': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER IDENTIFIED')),
+             'goalkeeperTeams': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER TEAM')),
+             'mergedIdentities': len(match['retired'])}
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
-               'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': len(match['goalkeepers']), 'referees': len(match['referees'])},
+               'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': len(match['goalkeepers']), 'referees': len(match['referees']),
+                                    'merged': len(match['retired'])},
                'reidentifications': kinds.get('reid', 0), 'deferredDecisions': kinds.get('deferred', 0), 'newIdentities': kinds.get('new-identity', 0),
                'swapCorrections': kinds.get('swap-corrected', 0), 'crossingWarnings': kinds.get('swap-uncertain', 0), 'sanityWarnings': kinds.get('sanity', 0),
                'identifiedShare': round(identified/people, 3) if people else 0.0, 'rejectedDetections': tracker.rejected_counts,
                'cameraCuts': tracker.cuts, 'meanVisiblePeople': round(sum(len(f['people']) for f in frames)/len(frames), 1),
-               'ballCandidateFrameFraction': round(sum(f['ball'] is not None for f in frames)/len(frames), 3),
+               'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(),
                'elapsedSeconds': round(elapsed, 2), 'processingFPS': round(len(frames)/elapsed, 2),
                'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2)}
-    return {'version': 2, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
+    return {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
             'events': events, 'issues': tracker.issues[-500:], 'teams': tracker.model.to_json(),
             'continuedFrom': (previous or {}).get('run'), 'status': 'cancelled' if cancelled else 'complete', 'summary': summary,
             'labels': {p['id']: long_id(p['id']) for group in match.values() for p in group},
-            'limitations': ['Global IDs (A-07, GK-1, REF-1) are tracking identities, not jersey numbers or names.',
+            'limitations': ['Global IDs (A-07, GK-1, REF-1) are tracking identities, not jersey numbers or names. Goalkeepers are shown by team (GK-A, GK-B).',
                             'Identity is kept only when the evidence is clear; uncertain people stay unidentified rather than guessed.',
+                            'Roles come from about ten seconds of detector, kit and position evidence; a player identity later found to be a referee is merged into a referee identity and its observations are relabelled.',
                             'OSNet is a general pedestrian model: same-kit teammates can look alike, so some returns stay unresolved.',
                             'Pitch coordinates exist only for frames carried from a calibration keyframe.',
                             'Off-screen positions are unknown; no missing observations are fabricated.',
-                            'Ball observations are provisional candidates, not verified ball accuracy.']}
+                            'The ball is one tracked object; while hidden its position is predicted briefly (MISSING), otherwise it is UNKNOWN rather than a guess. No ball accuracy is claimed.']}
