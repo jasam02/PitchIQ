@@ -36,9 +36,11 @@ def _px_per_m(P, x, y):
     return float(np.hypot(*(b-a)))
 
 
-def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.12, stands=True, spots=True, extra_white_dots=()):
+def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.12, stands=True, spots=True, extra_white_dots=(), size=None):
+    """size: (width, height) of the output image when it is not the standard frame (P must map into it)."""
+    w, h = size or (W, H)
     rng = np.random.default_rng(seed)
-    img = rng.integers(40, 200, size=(H, W, 3), dtype=np.uint8) if stands else np.full((H, W, 3), 90, np.uint8)
+    img = rng.integers(40, 200, size=(h, w, 3), dtype=np.uint8) if stands else np.full((h, w, 3), 90, np.uint8)
     # Grass including the run-off around the field, mowing stripes across the pitch.
     xs = np.arange(-goal_run_off, LENGTH+goal_run_off, 5.25)
     for i, x0 in enumerate(xs):
@@ -64,7 +66,7 @@ def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.1
             cv2.line(img, (int(x0+4), int(y0-height/2)), (int(x1-4), int(y1-height/2)), (40, 40, 40), 2)
     # Near side: a dark track below the near run-off.
     near_edge = _project(P, [(x, WIDTH+run_off) for x in np.linspace(-40, LENGTH+40, 60)])
-    pts = np.int32(np.vstack([near_edge, [[W*3, H*3], [-W*2, H*3]]]))
+    pts = np.int32(np.vstack([near_edge, [[w*3, h*3], [-w*2, h*3]]]))
     cv2.fillPoly(img, [pts], (70, 70, 80))
 
     def line(points, metres=line_m):

@@ -1,147 +1,145 @@
+"""The ball tracker on the rendered broadcast sequence of ball_eval.py: does it keep following the
+SAME ball past painted lines, static spots, a player's wrist tape, white boots, occlusions, a long
+shot and a panning camera?"""
 import math
 import unittest
 
-import cv2
-import numpy as np
+import ball_eval as E
 
-import broadcast as B
-from soccer.ball import BALL_DIAMETER, BallTracker
-from soccer.pitch import PitchDetector
-
-FPS = 25
-P = B.camera()
-P_INV = np.linalg.inv(P)
+W, H = E.W, E.H
 
 
-def px_per_m(x, y):
-    return B._px_per_m(P, x, y)
+def run(**kwargs):
+    records, tracker = E.Sequence(**kwargs).run()
+    return records, tracker, E.evaluate(records, tracker.events)
 
 
-def scale(y_norm):
-    """Expected player height (normalized) at image row y."""
-    p = P_INV @ np.array([B.W/2, y_norm*B.H, 1.0])
-    return 1.8*px_per_m(p[0]/p[2], p[1]/p[2])/B.H
+def near(out, truth, factor=1.5):
+    return out['state'] != 'UNKNOWN' and math.hypot(out['center'][0]*W-truth['ball'][0], out['center'][1]*H-truth['ball'][1]) <= max(factor*truth['d'], 6)
 
 
-def ball_row(x, y, conf):
-    cx, cy = B._project(P, [(x, y)])[0]
-    d = max(4.0, BALL_DIAMETER*px_per_m(x, y))
-    return [cx-d/2, cy-d/2, cx+d/2, cy+d/2, conf, 0], (cx, cy, d)
+def reasons_by_object(records):
+    """Rejection reasons given to the candidates at each distractor (frames where the ball itself rolls
+    over or past a distractor are left out)."""
+    out = {}
+    for r in records:
+        truth = r['truth']
+        for c in r['cands']:
+            cx, cy = (c['box'][0]+c['box'][2]/2)*W, (c['box'][1]+c['box'][3]/2)*H
+            for name, (ox, oy) in truth['objects'].items():
+                if math.hypot(cx-ox, cy-oy) <= 3 and math.hypot(truth['ball'][0]-ox, truth['ball'][1]-oy) > 2*truth['d']:
+                    out.setdefault(name, []).append((truth['time'], c['status'], c.get('reason')))
+    return out
 
 
-def person_box(x, y):
-    cx, cy = B._project(P, [(x, y)])[0]
-    h = 1.8*px_per_m(x, y)
-    return [(cx-h*.2)/B.W, (cy-h)/B.H, h*.4/B.W, h/B.H]
-
-
-class Scene:
-    """Ball rolling along the pitch at 8 m/s (hidden behind a player for 0.5 s), plus white things that
-    are not the ball: the centre spot, a piece of debris, the halfway line and a player's white sock."""
-
-    def __init__(self, ball_until=math.inf, spot_conf=.45):
-        self.base = B.render(P, extra_white_dots=[(45, 20)])
-        self.pitch = PitchDetector().analyze(self.base, 0.0)
-        self.tracker = BallTracker(B.W, B.H, FPS)
-        self.ball_until, self.spot_conf = ball_until, spot_conf
-        self.log = []
-
-    def ball_at(self, t):
-        return 30+8*t, 40.0
-
-    def frame(self, t):
-        img = self.base.copy()
-        rows, truth = [], None
-        occluded = 1.2 <= t < 1.7
-        bx, by = self.ball_at(t)
-        hider = person_box(30+8*1.45, 40.6)
-        sock_player = person_box(36, 47)
-        people = [(1, hider), (2, sock_player)]
-        if t < self.ball_until and not occluded:
-            row, (cx, cy, d) = ball_row(bx, by, .5)
-            cv2.circle(img, (int(cx), int(cy)), max(2, int(d/2)), (235, 235, 235), -1, cv2.LINE_AA)
-            rows.append(row)
-            truth = (cx, cy, d)
-        rows.append(ball_row(52.5, 34, self.spot_conf)[0])                  # centre spot
-        rows.append(ball_row(45, 20, self.spot_conf)[0])                    # debris
-        rows.append(ball_row(52.5, 50, .3)[0])                              # on the halfway line
-        sx, sy, sw, sh = sock_player
-        cx, cy, d = (sx+sw*.4)*B.W, (sy+sh*.85)*B.H, 6.0
-        cv2.rectangle(img, (int(cx-3), int(cy-4)), (int(cx+3), int(cy+4)), (240, 240, 240), -1)
-        rows.append([cx-d/2, cy-d/2, cx+d/2, cy+d/2, .3, 0])               # white sock
-        return img, np.asarray(rows, np.float32), people, truth
-
-    def run(self, seconds):
-        out = []
-        for i in range(int(seconds*FPS)):
-            t = i/FPS
-            img, rows, people, truth = self.frame(t)
-            ball, cands = self.tracker.step(img, t, rows, np.eye(3), True, False, self.pitch, people, scale,
-                                            lambda x, y: (x, y), 0)
-            out.append((t, ball, cands, truth))
-        return out
-
-
-class BallTests(unittest.TestCase):
+class BallTrackingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.scene = Scene()
-        cls.frames = cls.scene.run(3.0)
+        cls.records, cls.tracker, cls.stats = run()
 
-    def test_follows_the_moving_ball(self):
-        tracked = [(t, b, truth) for t, b, _, truth in self.frames if t >= .5 and truth is not None]
-        self.assertTrue(all(b['state'] == 'TRACKED' for _, b, _ in tracked), [(t, b['state']) for t, b, _ in tracked if b['state'] != 'TRACKED'][:5])
-        for _, b, (cx, cy, d) in tracked:
-            self.assertLess(math.hypot(b['center'][0]*B.W-cx, b['center'][1]*B.H-cy), 1.5*d)
-            self.assertGreaterEqual(b['confidence'], .5)
+    def test_follows_the_same_ball_through_the_sequence(self):
+        s, text = self.stats, E.report(self.stats)
+        self.assertGreaterEqual(s['accuracy'], .85, text)
+        self.assertEqual(s['falsePositives'], 0, text)
+        self.assertEqual(s['trackSwitches'], 0, text)
+        self.assertEqual(s['incorrectAcquisitions'], 0, text)
+        self.assertEqual(s['stolenBy'], {}, text)
+        self.assertEqual(s['trackIds'], [1], text)
+        self.assertGreaterEqual(s['meanContinuitySeconds'], 3.0, text)
+        # After the ball first moves (1.0 s) and the confirmation frames, every frame is the ball or its prediction.
+        late = [r for r in self.records if r['truth']['time'] >= 1.3]
+        bridged = lambda r: r['out']['state'] == 'MISSING' and math.hypot(r['out']['center'][0]*W-r['truth']['ball'][0], r['out']['center'][1]*H-r['truth']['ball'][1]) <= 2.0*r['truth']['px_m']
+        self.assertTrue(all(near(r['out'], r['truth']) or bridged(r) for r in late),
+                        [(r['truth']['time'], r['out']['state']) for r in late if not (near(r['out'], r['truth']) or bridged(r))][:5])
 
-    def test_white_spots_lines_and_socks_are_never_the_ball(self):
-        objects = {'centre spot': ball_row(52.5, 34, 0)[1], 'debris': ball_row(45, 20, 0)[1], 'halfway line': ball_row(52.5, 50, 0)[1]}
-        reasons = {name: set() for name in objects}
-        reasons['sock'] = set()
-        for t, _, cands, truth in self.frames:
-            for c in cands:
-                cx, cy = (c['box'][0]+c['box'][2]/2)*B.W, (c['box'][1]+c['box'][3]/2)*B.H
-                if truth is not None and math.hypot(cx-truth[0], cy-truth[1]) < 3:
-                    continue
-                self.assertNotEqual(c['status'], 'ball', (t, c))
-                name = next((n for n, (x, y, _) in objects.items() if math.hypot(cx-x, cy-y) < 3), 'sock')
-                reasons[name].add(c.get('reason'))
-        self.assertTrue({'STATIONARY', 'FIELD_LINE'} & reasons['centre spot'])  # the centre spot lies on the halfway line
-        self.assertIn('STATIONARY', reasons['debris'])
-        self.assertIn('FIELD_LINE', reasons['halfway line'])
-        self.assertTrue({'PLAYER_PART', 'STATIONARY'} & reasons['sock'])
+    def test_hidden_frames_are_bridged_by_prediction_not_rediscovery(self):
+        s = self.stats
+        self.assertEqual(s['bridged'], s['hiddenFrames'], E.report(s))
+        self.assertFalse([e for e in self.tracker.events if e['message'].startswith('BALL LOST')])
+        hidden = [r['out'] for r in self.records if not r['truth']['visible'] and r['truth']['inScene']]
+        self.assertTrue(hidden)
+        self.assertTrue(all(o['state'] == 'MISSING' and o['observed'] is False and o['phase'] in ('OCCLUDED', 'RECOVERING') for o in hidden))
 
-    def test_occlusion_keeps_the_same_ball(self):
-        hidden = [b for t, b, _, _ in self.frames if 1.25 <= t < 1.65]
-        self.assertTrue(all(b['state'] == 'MISSING' for b in hidden), [b['state'] for b in hidden])
-        after = [b for t, b, _, _ in self.frames if t >= 1.95]
-        self.assertTrue(all(b['state'] == 'TRACKED' for b in after))
-        tracks = {b['track'] for t, b, _, _ in self.frames if b['state'] != 'UNKNOWN'}
-        self.assertEqual(len(tracks), 1, 'one ball track, reconnected after the occlusion')
-        self.assertFalse([e for e in self.scene.tracker.events if e['message'].startswith('BALL LOST')])
+    def test_crossing_lines_and_the_centre_circle_keeps_the_track(self):
+        shot = [r for r in self.records if 4.25 <= r['truth']['time'] <= 5.4 and r['truth']['visible']]
+        correct = [r for r in shot if r['out']['state'] == 'TRACKED' and near(r['out'], r['truth'])]
+        self.assertGreaterEqual(len(correct)/len(shot), .9, [(r['truth']['time'], r['out']['state']) for r in shot if r not in correct])
 
-    def test_ball_becomes_unknown_after_it_is_gone(self):
-        scene = Scene(ball_until=1.0)
-        frames = scene.run(4.5)
-        self.assertEqual(frames[-1][1]['state'], 'UNKNOWN')
-        self.assertTrue(any(e['message'].startswith('BALL LOST') for e in scene.tracker.events))
-        # Static white spots are never adopted while the ball is gone, even with confident detections.
-        self.assertTrue(all(b['state'] == 'UNKNOWN' for t, b, _, _ in frames if t >= 3.6))
+    def test_markings_tape_boots_and_spots_are_rejected_for_the_right_reasons(self):
+        by = reasons_by_object(self.records)
+        self.assertTrue(all(status != 'ball' for name, items in by.items() for _, status, _ in items), 'a distractor was the ball')
+        tape = [reason for t, _, reason in by['wrist tape'] if t >= 1.0]
+        self.assertGreaterEqual(tape.count('PLAYER_ATTACHED')/len(tape), .6, set(tape))
+        self.assertTrue(set(tape) <= {'PLAYER_ATTACHED', 'OTHER_OBJECT', 'TRAJECTORY', 'LOW_SCORE', 'OUTSIDE_PITCH'}, set(tape))
+        boots = [reason for _, _, reason in by['boot 1']+by['boot 2']]
+        self.assertTrue({'PLAYER_ATTACHED', 'OTHER_OBJECT'} & set(boots), set(boots))
+        self.assertIn('FIELD_LINE', [reason for _, _, reason in by['halfway line']])
+        self.assertIn('FIELD_LINE', [reason for _, _, reason in by['circle 1']+by['circle 2']])
+        late = [reason for t, _, reason in by['debris'] if t >= 7.0]
+        self.assertTrue(late and all(reason in ('STATIC', 'OTHER_OBJECT') for reason in late), set(late))
+        self.assertTrue(all(reason in ('STATIC', 'OTHER_OBJECT', 'FIELD_LINE') for t, _, reason in by['centre spot'] if t >= 3.0))  # it lies on the halfway line
 
-    def test_confident_static_spot_is_not_adopted(self):
-        scene = Scene(ball_until=0.0, spot_conf=.75)
-        frames = scene.run(3.0)
-        self.assertTrue(all(b['state'] == 'UNKNOWN' for _, b, _, _ in frames))
-
-    def test_acquisition_is_logged_with_scores(self):
-        scene = Scene()
-        scene.run(2.5)
-        acquired = [e for e in scene.tracker.events if e['message'].startswith('BALL ACQUIRED')]
+    def test_event_log_explains_every_decision(self):
+        events = self.tracker.events
+        acquired = [e for e in events if e['message'].startswith('BALL ACQUIRED')]
         self.assertEqual(len(acquired), 1)
-        for line in ('Detector confidence', 'Shape score', 'Motion consistency', 'Final confidence'):
+        for line in ('Track BALL-1', 'BALL CANDIDATE #', 'Detector confidence', 'Independent motion', 'Field line overlap', 'Player attachment score', 'FINAL SCORE', 'ACCEPTED'):
             self.assertIn(line, acquired[0]['message'])
-        self.assertTrue(any(e['message'].startswith('BALL TRACK UPDATE') for e in scene.tracker.events))
+        rejected = [e for e in events if e['message'].startswith('BALL CANDIDATE REJECTED') and 'REJECTED: PLAYER_ATTACHED' in e['message']]
+        self.assertTrue(rejected, [e['message'][:80] for e in events if 'REJECTED' in e['message']][:5])
+        self.assertIn('same place on track 4', rejected[0]['message'])
+        updates = [e for e in events if e['message'].startswith('BALL TRACK UPDATE')]
+        self.assertGreaterEqual(len(updates), 8)
+        self.assertIn('Track BALL-1: LOCKED', updates[3]['message'])
+        self.assertIn('Trajectory consistency', updates[3]['message'])
+
+    def test_output_describes_the_persistent_ball(self):
+        locked = next(r['out'] for r in self.records if r['out']['state'] == 'TRACKED' and r['truth']['time'] > 2)
+        for key in ('phase', 'observed', 'track', 'age', 'missingFrames', 'predicted', 'velocity', 'speed', 'direction', 'acceleration', 'lastSeen', 'lastConfident'):
+            self.assertIn(key, locked)
+        self.assertEqual((locked['phase'], locked['observed']), ('LOCKED', True))
+        self.assertGreater(locked['speed'], 3)
+
+
+class BallTrackingVariantTests(unittest.TestCase):
+    def test_tape_with_higher_confidence_never_takes_over_while_the_ball_is_hidden(self):
+        t0 = E.Match().t_arrive3
+        records, tracker, s = run(tape_conf=.85, hidden=[(t0+.1, t0+1.3)], seconds=t0+2.0)
+        self.assertEqual((s['falsePositives'], s['trackSwitches'], s['stolenBy'], s['trackIds']), (0, 0, {}, [1]), E.report(s))
+        hidden = [r['out'] for r in records if t0+.2 <= r['truth']['time'] < t0+1.3]
+        self.assertTrue(all(o['state'] == 'MISSING' and o.get('nearTrack') == 4 for o in hidden), [(o['state'], o.get('nearTrack')) for o in hidden][:6])
+        back = [r for r in records if r['truth']['time'] >= t0+1.6]
+        self.assertTrue(all(r['out']['state'] == 'TRACKED' and near(r['out'], r['truth']) for r in back), [(r['truth']['time'], r['out']['state']) for r in back][:6])
+        self.assertTrue(any(e['message'].startswith('BALL REACQUIRED') for e in tracker.events))
+
+    def test_undetected_spell_reacquires_the_same_ball(self):
+        records, tracker, s = run(undetected=[(6.8, 8.8)], seconds=10.5)
+        self.assertEqual((s['falsePositives'], s['stolenBy'], s['trackIds']), (0, {}, [1]), E.report(s))
+        self.assertTrue(any(e['message'].startswith('BALL LOST') for e in tracker.events))
+        self.assertTrue(any(e['message'].startswith('BALL REACQUIRED') and e['time'] > 8.8 for e in tracker.events))
+        back = [r for r in records if r['truth']['time'] >= 9.5 and r['truth']['visible']]  # hidden behind player 4 until 9.3 s
+        self.assertTrue(all(r['out']['state'] == 'TRACKED' and near(r['out'], r['truth']) for r in back), [(r['truth']['time'], r['out']['state']) for r in back if r['out']['state'] != 'TRACKED'][:6])
+
+    def test_ball_gone_becomes_unknown_and_nothing_static_is_adopted(self):
+        # The ball vanishes at a dribbling player's feet: it is carried (MISSING) for at most 3 s, then LOST.
+        records, tracker, s = run(ball_until=4.0, seconds=9.0, spot_conf=.8)
+        self.assertTrue(any(e['message'].startswith('BALL LOST') for e in tracker.events))
+        after = [r['out'] for r in records if r['truth']['time'] >= 7.3]
+        self.assertTrue(all(o['state'] == 'UNKNOWN' for o in after), [o['state'] for o in after][:8])
+        self.assertEqual(s['falsePositives'], 0, E.report(s))
+
+    def test_confident_static_spots_never_start_a_track(self):
+        records, tracker, s = run(ball_until=0.0, seconds=4.0, spot_conf=.85)
+        self.assertTrue(all(r['out']['state'] == 'UNKNOWN' for r in records))
+        self.assertEqual(s['trackIds'], [])
+
+    def test_calibrated_pitch_marks_painted_spots_as_static_at_once(self):
+        records, tracker, s = run(calibrated=True, seconds=2.5)
+        by = reasons_by_object(records)
+        self.assertTrue(by['penalty spot left'] and all(reason in ('STATIC', 'OTHER_OBJECT') for _, _, reason in by['penalty spot left']), set(r for _, _, r in by['penalty spot left']))
+        self.assertEqual(by['penalty spot left'][0][2], 'STATIC')
+        self.assertTrue(all(reason in ('STATIC', 'FIELD_LINE') for _, _, reason in by['centre spot']))  # it lies on the halfway line
+        self.assertEqual(s['falsePositives'], 0)
 
 
 if __name__ == '__main__':

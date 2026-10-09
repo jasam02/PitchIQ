@@ -19,8 +19,10 @@ sees, and it does **not** treat a new tracker ID as a new player:
 - Identity, team and role are separate. Referees (`REF-1`, `REF-2`) are tracked
   separately and never counted as players; goalkeepers are recognised from
   position and kit and shown by team (`GK-A`, `GK-B`).
-- One match ball is tracked. White spots, painted lines and socks are rejected;
-  when the ball cannot be confirmed it is `BALL UNKNOWN`, never a guess.
+- One match ball is followed as a persistent track (`BALL-1`), never rediscovered
+  frame by frame. Painted lines, static spots and things fixed to players (wrist
+  tape, boots) are rejected; while hidden the ball is predicted; when it cannot
+  be confirmed it is `BALL UNKNOWN`, never a guess.
 
 ## Run from Command Prompt
 
@@ -250,32 +252,58 @@ appearance.
 
 ### 6. The ball
 
-The detector proposes ball candidates; most small white things on a pitch are
-not the ball. Every candidate is scored on several properties at once: detector
-confidence, size against the expected ball size at that depth (0.22 m, from the
-perspective player-size model), a compact round shape, grass all around it, and
-its location on the pitch. Candidates that are clearly something else are
-rejected with a reason:
+The ball tracker never asks "which white blob looks most like a ball in this
+frame?" but "which detection is the ball I am already following?". It is a
+state machine with one active ball:
 
-| Reason | Meaning |
+```
+SEARCHING ─(several consistent, moving detections)─▶ LOCKED ─(no detection)─▶ OCCLUDED
+   ▲                                                   ▲                         │ short gap: predicted,
+   │                                                   └───(reconnect)───────────┤ kept at the player
+   │                                                                             ▼ that hides it
+   └──────────── LOST ◀─(1.5 s free / 3 s at a player)─ RECOVERING (search area grows, confirmation needed)
+```
+
+Every frame the active ball is **predicted** with a constant-velocity Kalman
+filter that moves with the camera, a **search gate** is placed around the
+prediction, and the candidates inside it are scored with **trajectory
+consistency as the strongest term** (Mahalanobis distance from the prediction,
+proximity, appearance, minus penalties). The gate is tight while `LOCKED`
+(about 0.45 m plus a share of the speed), wider while `OCCLUDED`, grows with the
+gap while `RECOVERING`, and becomes physically wide (a kick's worth of travel)
+only when a player is within reach of the prediction, because a touch changes
+the velocity at once; the filter's uncertainty is inflated at the same moment.
+**Switching resistance**: the candidate on the predicted path keeps the track
+unless another one scores at least 0.15 higher; a candidate outside the tight
+gate, or one that reappears after a gap, needs a previous sighting in the same
+place (its tracklet) and independent motion — one lucky detection never moves
+the ball or brings it back. A ball hidden by a player is carried with that
+player (the track follows their feet, unless the ball was moving away from
+them) and reconnects when it reappears, keeping the same track id.
+
+Every candidate, not only the ball, is linked into a short **tracklet**, which
+gives temporal evidence:
+
+| Evidence | Meaning |
 |---|---|
-| `FIELD LINE` | part of a long thin white structure: touchline, halfway line, box lines, centre circle. A ball lying on a line makes a bulge and is not rejected. |
-| `STATIONARY` | a white spot that stays put in camera-compensated (or pitch) coordinates, such as the penalty and centre spots or debris, or a spot seen at the same time as the tracked ball |
-| `SIZE` | far too large or too small for a ball at that depth |
-| `OUTSIDE PITCH` | far outside the playable field |
-| `PLAYER PART` | inside a person's body: white socks, shoes, shorts |
-| `TRAJECTORY` | plausible, but off the tracked ball's path |
+| `FIELD_LINE` | part of a long thin bright structure (touchline, halfway line, box lines, circle) or on a fitted pitch marking while the bright structure is stretched; a ball lying on a line makes a bulge and is kept |
+| `STATIC` | standing still for 2 s in camera-compensated (or calibrated pitch) coordinates, at a spot anchored where it was first seen, or at a known painted spot; a track that never moved and rests on such a spot is dropped and the spot remembered as a false positive |
+| `PLAYER_ATTACHED` | the same place inside one person's box for many frames: wrist tape, gloves, boots, socks. Inside the upper body 0.8 s of stability is enough; at the feet, where the ball lives, 2 s. A single frame inside the upper body is only a prior, and a tracklet that was attached a moment ago stays attached while an arm swings outside the box |
+| `OTHER_OBJECT` | seen at the same time as the confidently tracked ball, elsewhere (there is one ball). The flag lapses when that track is lost, so a wrong lock cannot hide the real ball for long |
+| `SIZE`, `OUTSIDE_PITCH` | impossible for a ball at that depth (0.22 m scaled by the perspective player-size model), or far outside the playable field |
+| `TRAJECTORY`, `LOW_SCORE` | plausible but off the tracked ball's path, or in the gate with too weak a score |
 
-One ball track is kept with a constant-velocity Kalman filter that moves with
-the camera. A detection on its predicted path continues it. A new track (at the
-start, or after the ball was lost) needs several consistent hits with real
-movement within 0.6 s, so a static spot or a single confident detection never
-starts one. While the ball is hidden (a player in front of it) the track is
-`MISSING` and its position is predicted for up to 1 s, or 2.5 s when it
-disappeared at a player's feet (it then follows that player); when it reappears
-near the prediction it reconnects to the same track (`BALL REACQUIRED`). After
-that, or when its confidence drops below 0.35, the ball is `UNKNOWN` rather than
-a guess. Only one ball is ever shown.
+Independent motion is measured against the field (camera-compensated or pitch
+coordinates) and against the player a candidate sits on; shape and colour are
+only small terms, because the real ball is often blurred, elongated or a few
+pixels wide. `tests/ball_eval.py` renders a panning broadcast sequence with all
+of these distractors and prints the metrics that matter: frames the SAME ball
+was followed, false positives, track switches, hidden frames bridged by
+prediction, incorrect re-acquisitions and continuity:
+
+```bat
+.venv\Scripts\python prototypes\gpu-tracker\tests\ball_eval.py
+```
 
 ## Debug view (how to test)
 
@@ -291,11 +319,12 @@ a guess. Only one ball is ever shown.
   dashed when carried by camera motion), goal-end hints (orange dashed), the raw
   grass hull (dashed) and which source each edge uses (`line`, `carried line`,
   `grass edge`), plus your boundary keyframes.
-- The **ball** is drawn only once: `BALL` with `Confidence: 0.94` (dashed,
-  "hidden, predicted", while it is missing; with a 1 s trail in Identity debug),
-  or `BALL UNKNOWN` in the corner. **Ball debug** adds every rejected candidate
-  with its reason (`BALL REJECTED: FIELD LINE`, `BALL REJECTED: STATIONARY`,
-  `BALL REJECTED: SIZE`, `BALL REJECTED: TRAJECTORY`, …).
+- The **ball** is drawn only once: `BALL 0.94`, or `BALL PREDICTED` (dashed)
+  while it is hidden, with the track id, state and speed, the predicted next
+  position (a cross) and a 1 s trail in Identity debug; otherwise `BALL UNKNOWN`
+  in the corner. **Ball debug** adds every other candidate with its label and
+  score: `CANDIDATE`, `FIELD_LINE`, `STATIC`, `PLAYER_ATTACHED`, `OTHER_OBJECT`,
+  `TRAJECTORY_FAIL`, `LOW_SCORE`, `SIZE`, `OUTSIDE_PITCH`.
 - **Rejected detections** shows each rejected person with its reason
   (`REJECTED: AUDIENCE`, `REJECTED: OUTSIDE PITCH`, `REJECTED: SIZE`,
   `REJECTED: LOW PLAYER CONFIDENCE`).
@@ -345,14 +374,33 @@ Detector goalkeeper votes: 40%
 Temporal confidence: 0.81
 
 BALL TRACK UPDATE
-Candidate: x = 812, y = 466 px
-Detector confidence: 0.71
-Motion consistency: 0.88
-Shape score: 0.74
-Trajectory score: 0.91
-Final confidence: 0.86
-Rejected candidates since last update: STATIONARY 48, FIELD_LINE 12
+Track BALL-1: LOCKED, confidence 0.94, speed 7.8 m/s, age 12.0 s
+BALL CANDIDATE #1
+Detector confidence: 0.84
+Trajectory consistency: 0.93
+Distance from prediction: 12 px
+Independent motion: 0.88 (6.1 m/s)
+Field line overlap: 0.03
+Player attachment score: 0.04
+Static object score: 0.00
+Size / shape / isolation / on pitch: 0.95 / 0.80 / 1.00 / 1.00
+FINAL SCORE: 0.91
+ACCEPTED
+BALL CANDIDATE #4
+Detector confidence: 0.89
+Distance from prediction: 430 px
+Independent motion: 0.61 (1.8 m/s)
+Field line overlap: 0.00
+Player attachment score: 1.00 (same place on track 37 for 1.5 s)
+...
+REJECTED: PLAYER_ATTACHED
+Rejected candidates since the last update: STATIC 48, FIELD_LINE 12, PLAYER_ATTACHED 25
 ```
+
+  `BALL ACQUIRED`, `BALL REACQUIRED` (the same ball found again after a gap),
+  `BALL TRACK SWITCH`, `BALL RECOVERING`, `BALL LOST` and `BALL CANDIDATE
+  REJECTED` (a confident candidate in the gate turned down, with the same
+  breakdown) explain every change of the ball track.
 
   The same log is written to `events.log` in the run folder.
 - **Match identities** lists team A, team B, goalkeepers, referees and merged
@@ -388,19 +436,24 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   coordinates), optional `pitch`, `zone`, `cls` (detector class), `evidence`
   (`observed`, `reidentified` or `relabelled` after a role change), and `reason`
   while unresolved.
-- `ball`: `state` (`TRACKED`, `MISSING`, `UNKNOWN`), `confidence`, and unless
-  unknown `track`, `box`, `center`, `velocity`, optional `pitch`, `detector`,
-  and `missingFor` / `nearTrack` while missing. `ballCandidates[]`: every
-  candidate's `box`, `det`, `score`, `status` and rejection `reason` / `text`.
+- `ball`: `state` (`TRACKED`, `MISSING`, `UNKNOWN`), `phase` (`SEARCHING`,
+  `LOCKED`, `OCCLUDED`, `RECOVERING`), `confidence`, and unless unknown
+  `track` (`BALL-n`), `observed`, `box`, `center`, `predicted` (next frame),
+  `velocity`, `speed` (m/s), `direction`, `acceleration`, `age`, `lastSeen`,
+  `lastConfident`, optional `pitch`, `detector` and `score`, and `missingFrames`
+  / `missingFor` / `nearTrack` while hidden. `ballCandidates[]`: every
+  candidate's `box`, `det`, `score`, `status` (`ball`, `candidate`, `rejected`),
+  `reason` / `text`, and `scores` (detector, size, shape, isolation, field, line,
+  attachment, motion, static, trajectory, distance, penalty).
 - `match.players`, `match.goalkeepers`, `match.referees`, `match.retired`: the
   registry, separated. **Tactical analysis should use only people with an `id`
   whose role is `PLAYER` or `GOALKEEPER`, and treat low `identityConfidence`
   values with care.** Referees are never players.
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
-  share of on-pitch observations with an identity, ball coverage and rejected
-  ball candidates by reason, role conversions, which team defends which side,
-  speed).
+  share of on-pitch observations with an identity, ball coverage, ball tracks,
+  reconnections and losses, time per ball state, rejected ball candidates by
+  reason, role conversions, which team defends which side, speed).
 
 Score a run against hand-annotated frames with the existing evaluator (it reads
 this format directly):
@@ -422,9 +475,14 @@ renders (touchlines vs advertising boards, run-off, stands, green seats behind
 boards, goal lines vs penalty-box fronts, temporal stability, zoomed views,
 crowd close-ups), foot-point filtering and audience/size rejection, assistant
 referees at the touchline, part descriptors and galleries, team and role
-decisions, camera motion and cuts, landmark calibration, the ball tracker (a
-moving ball among the centre spot, debris, a painted line and a white sock;
-occlusion; loss), and the identity manager (promotion, exits and returns,
+decisions, camera motion and cuts, landmark calibration, the ball tracker (the
+rendered, panning sequence of `ball_eval.py`: a pass, a dribble, a long shot
+across the halfway line and the centre circle, players overlapping the ball, a
+wrist tape detected with a higher confidence than the ball, white boots, the
+centre and penalty spots, debris on the ball's path; occlusions, a long hide at
+the tape-wearer's feet, an undetected spell with re-acquisition of the same
+ball, the ball leaving the scene, confident static spots, a calibrated pitch),
+and the identity manager (promotion, exits and returns,
 deferral of look-alikes, referees, a referee first labelled as a team player,
 returning referees, assistant referees, goalkeepers found from position and
 kit, role locking, touchline candidates, team limits, crossings, goalkeeper
@@ -471,8 +529,12 @@ No global Python packages are changed.
 - Processing speed depends on the CPU too: OSNet embeddings run on the CPU for
   every on-pitch detection, as before.
 - Off-screen positions are unknown; no observations are fabricated. The ball
-  tracker is heuristic: a ball high in the air, a long hidden spell or a crowded
-  goalmouth can leave it `UNKNOWN`. No ball accuracy is claimed.
+  tracker is heuristic: it needs the ball to move before the first lock (a ball
+  at rest cannot be told from a painted spot), and a ball high in the air, a
+  long hidden spell or a crowded goalmouth can leave it `UNKNOWN`. Attachment to
+  a player needs the local tracker's person boxes; white boots on a player the
+  ball has not passed yet are told apart mainly by their short history. No ball
+  accuracy is claimed on real footage; the evaluation is synthetic.
 
 The server binds only to loopback. Environments, downloaded weights, settings,
 uploaded videos and generated runs are ignored by Git.

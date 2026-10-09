@@ -137,10 +137,13 @@ def preview(frame, observation, path, pitch=None, trail=()):
     if ball['state'] in ('TRACKED', 'MISSING'):
         cx, cy = int(ball['center'][0]*w), int(ball['center'][1]*h)
         cv2.circle(image, (cx, cy), max(7, int(ball['box'][2]*w)), COLORS['BALL'], 2 if ball['state'] == 'TRACKED' else 1)
-        label = f"BALL {ball['confidence']:.2f}" if ball['state'] == 'TRACKED' else f"BALL? hidden {ball['missingFor']:.1f}s"
+        if ball.get('predicted'):
+            px, py = int(ball['predicted'][0]*w), int(ball['predicted'][1]*h)
+            cv2.drawMarker(image, (px, py), COLORS['BALL'], cv2.MARKER_CROSS, 8, 1)
+        label = f"BALL {ball['confidence']:.2f}" if ball['state'] == 'TRACKED' else f"BALL PREDICTED {ball['confidence']:.2f} hidden {ball['missingFor']:.1f}s"
         cv2.putText(image, label, (cx+10, cy-10), cv2.FONT_HERSHEY_SIMPLEX, .5, COLORS['BALL'], 1)
     else:
-        cv2.putText(image, 'BALL UNKNOWN', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, .6, COLORS['BALL'], 1)
+        cv2.putText(image, f"BALL UNKNOWN ({ball.get('phase', 'SEARCHING').lower()})", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, .6, COLORS['BALL'], 1)
     cv2.putText(image, f"{observation['time']:.2f}s | ID, local track, identity confidence", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, .7, (255, 255, 255), 2)
     encoded = cv2.imencode('.jpg', cv2.resize(image, (960, round(h/w*960))))[1]
     temporary = path.with_suffix('.tmp')
@@ -244,9 +247,12 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
     states = Counter(f['ball']['state'] for f in frames)
     seen = [f['ball']['confidence'] for f in frames if f['ball']['state'] == 'TRACKED']
     share = lambda n: round(n/len(frames), 3)
+    phases = Counter(f['ball'].get('phase', 'SEARCHING') for f in frames)
     ball = {'trackedShare': share(states['TRACKED']), 'missingShare': share(states['MISSING']), 'unknownShare': share(states['UNKNOWN']),
             'meanConfidence': round(sum(seen)/len(seen), 3) if seen else None, 'tracks': tracker.ball.track,
-            'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
+            'reacquisitions': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL REACQUIRED')),
+            'lost': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL LOST')),
+            'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
     roles = {'refereeConversions': sum(1 for e in events if e['kind'] == 'role' and 'New role: REFEREE' in e['message']),
              'goalkeepersIdentified': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER IDENTIFIED')),
              'goalkeeperTeams': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER TEAM')),
@@ -271,4 +277,4 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                             'OSNet is a general pedestrian model: same-kit teammates can look alike, so some returns stay unresolved.',
                             'Pitch coordinates exist only for frames carried from a calibration keyframe.',
                             'Off-screen positions are unknown; no missing observations are fabricated.',
-                            'The ball is one tracked object; while hidden its position is predicted briefly (MISSING), otherwise it is UNKNOWN rather than a guess. No ball accuracy is claimed.']}
+                            'The ball is one persistent track followed through time (BALL-1); while hidden its position is predicted (MISSING), and when it cannot be confirmed it is UNKNOWN rather than a guess. No ball accuracy is claimed.']}

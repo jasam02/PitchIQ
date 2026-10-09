@@ -1,21 +1,27 @@
-"""One persistent match ball.
+"""One persistent match ball, followed through time.
 
-The detector proposes ball candidates; most small white things on a pitch are not the ball. Each
-candidate is scored on several properties at once (detector confidence, size against the expected
-ball size at that depth, compact round shape, isolation on the grass, location on the pitch) and
-hard-rejected when it is clearly something else:
+The tracker never asks "which white blob looks most like a ball in this frame?" but "which detection
+is the ball I am already following?". Each frame:
 
-- FIELD_LINE   part of a long thin white structure (touchline, halfway line, box lines, circle)
-- STATIONARY   a white spot that stays at the same camera-compensated (or pitch) position
-- SIZE         far too large or too small for a ball at that depth
-- OUTSIDE_PITCH far outside the playable field
-- PLAYER_PART  white socks, shoes or kit inside a person's body (only when no track explains it)
+    detector ball candidates
+    -> evidence per candidate: size for that depth, compact shape, grass around it, location on
+       the pitch, overlap with the painted lines, position inside a person's body
+    -> candidate TRACKLETS (every candidate, not only the ball) add temporal evidence: independent
+       motion in camera-compensated or pitch coordinates, attachment to a player (the same place
+       inside one person's box for many frames: wrist tape, gloves, boots, socks), standing still
+       for seconds (penalty spot, debris) and having been seen at the same time as the confidently
+       tracked ball (there is only one ball)
+    -> the ACTIVE BALL: predict with a camera-compensated Kalman filter, gate around the prediction
+       (tight while LOCKED, wider while OCCLUDED, growing while RECOVERING, physically wide when a
+       player is within reach because a kick changes the velocity), score the candidates with
+       trajectory consistency as the strongest term, and resist switching to another object
+    -> only when the ball is genuinely lost does a tracklet that stayed plausible for several frames
+       become the (re)acquired ball
 
-A single Kalman-filtered track (constant velocity, camera-compensated) follows the ball. Detections
-close to its predicted path are preferred; a detection elsewhere has to build its own evidence as a
-tentative track (several hits, real motion) before it can replace a lost ball. When the ball is
-hidden the track is MISSING and its position is predicted for a short time (following the player it
-disappeared next to); after that the ball is UNKNOWN rather than a guess.
+States: SEARCHING (no ball) -> LOCKED (observed this frame) -> OCCLUDED (short gap: predicted, kept
+at the player that hides it) -> RECOVERING (longer gap: expanding search, confirmation required)
+-> LOST -> SEARCHING. The output keeps one ball with one track id; while hidden the position is
+predicted (state MISSING); without a confident ball it is UNKNOWN, never a guess.
 """
 import math
 from collections import Counter, deque
@@ -29,15 +35,27 @@ from .geometry import clamp, signed_distance
 BALL_DIAMETER = .22      # metres
 PLAYER_HEIGHT = 1.8      # metres
 MAX_SPEED = 40.0         # m/s: a hard shot; faster jumps are not the same ball
-ACCEL_NOISE = 25.0       # m/s^2 process noise for the Kalman filter (kicks, bounces)
-MAX_MISSING = 1.0        # seconds a free ball is predicted while unseen
-MAX_CARRIED = 2.5        # ... while it is next to (hidden by) a player
-STATIC_SECONDS = 2.0     # a candidate seen this long at one spot without moving is a painted/static spot
+KICK_SPEED = 15.0        # m/s: velocity change allowed while a player is within reach (kick, deflection)
+ACCEL_NOISE = 30.0       # m/s^2 process noise of the Kalman filter (bounces, friction, spin)
+GATE_FLOOR = .45         # metres: the gate around the prediction is never tighter than this
+CONTACT_REACH = 1.5      # metres from a player's feet within which a touch, deflection or occlusion can happen
+OCCLUDED_MAX = .4        # seconds of a short gap with immediate reconnection near the prediction
+MAX_MISSING = 1.5        # seconds a free ball is predicted before it is LOST
+MAX_CARRIED = 3.0        # ... while it is at (hidden by) a player
+PARKED_MAX = 8.0         # seconds a ball may rest before the track waits for motion again
+STATIC_SECONDS = 2.0     # a candidate seen this long at one spot without moving is a static false positive
 STATIC_RADIUS = .6       # metres
+LINE_RUN = .4            # seconds a moving track may be supported by candidates lying on a painted line
 SHOW_CONFIDENCE = .35    # below this the ball is reported UNKNOWN
-REASONS = {'FIELD_LINE': 'BALL REJECTED: FIELD LINE', 'STATIONARY': 'BALL REJECTED: STATIONARY', 'SIZE': 'BALL REJECTED: SIZE',
-           'OUTSIDE_PITCH': 'BALL REJECTED: OUTSIDE PITCH', 'PLAYER_PART': 'BALL REJECTED: PLAYER PART',
-           'TRAJECTORY': 'BALL REJECTED: TRAJECTORY', 'LOW_SCORE': 'BALL REJECTED: LOW CONFIDENCE'}
+SWITCH_MARGIN = .15      # another candidate must beat the one on the predicted path by this much
+FLAG_SECONDS = 1.5       # how long "seen at the same time as the ball" stays with a moving tracklet
+ACCEPT = {'LOCKED': .45, 'OCCLUDED': .5, 'RECOVERING': .55}
+HARD = ('SIZE', 'OUTSIDE_PITCH', 'OTHER_OBJECT', 'PLAYER_ATTACHED')
+REASONS = {'FIELD_LINE': 'BALL REJECTED: FIELD LINE', 'STATIC': 'BALL REJECTED: STATIC FALSE POSITIVE',
+           'PLAYER_ATTACHED': 'BALL REJECTED: PLAYER ATTACHED OBJECT', 'OTHER_OBJECT': 'BALL REJECTED: SEEN WHILE THE BALL WAS ELSEWHERE',
+           'SIZE': 'BALL REJECTED: SIZE', 'OUTSIDE_PITCH': 'BALL REJECTED: OUTSIDE PITCH',
+           'TRAJECTORY': 'BALL REJECTED: TRAJECTORY', 'LOW_SCORE': 'BALL REJECTED: LOW SCORE'}
+OUTPUT_STATE = {'LOCKED': 'TRACKED', 'OCCLUDED': 'MISSING', 'RECOVERING': 'MISSING', 'SEARCHING': 'UNKNOWN'}
 
 
 class Kalman:
@@ -46,7 +64,7 @@ class Kalman:
     def __init__(self, x, y, size_px, px_per_m):
         self.x = np.array([x, y, 0.0, 0.0])
         vel = 10*px_per_m
-        self.P = np.diag([size_px**2, size_px**2, vel**2, vel**2])
+        self.P = np.diag([size_px**2, size_px**2, vel**2, vel**2]).astype(float)
         self.px_per_m = px_per_m
 
     def compensate(self, M):
@@ -67,6 +85,13 @@ class Kalman:
         self.x = F @ self.x
         self.P = F @ self.P @ F.T+G @ G.T*q
 
+    def inflate(self, pos_px=None, vel_px=None):
+        """Floor the uncertainty: an unknown position while hidden, a possible kick for the velocity."""
+        if pos_px:
+            self.P[0, 0], self.P[1, 1] = max(self.P[0, 0], pos_px**2), max(self.P[1, 1], pos_px**2)
+        if vel_px:
+            self.P[2, 2], self.P[3, 3] = max(self.P[2, 2], vel_px**2), max(self.P[3, 3], vel_px**2)
+
     def innovation(self, z, sigma):
         H = np.eye(2, 4)
         y = np.asarray(z)-H @ self.x
@@ -86,27 +111,61 @@ class Kalman:
 
 
 @dataclass
+class Contact:
+    """A candidate's relation to the nearest person: where it lies inside their box (u, v in box
+    units) and how far it is from their feet."""
+    pid: object
+    u: float
+    v: float
+    box: tuple
+    foot_m: float
+    inside: bool
+
+    @property
+    def upper_body(self):
+        return self.inside and .05 <= self.v <= .72
+
+
+@dataclass
 class Candidate:
+    index: int
     box: list            # pixels [x1, y1, x2, y2]
     det: float
     cx: float
     cy: float
     d: float             # diameter, px
+    px_m: float          # pixels per metre at this depth
+    stab: tuple          # camera-compensated normalized position
+    pitch: tuple | None  # calibrated pitch position
+    person: Contact | None
+    segment: int = 0
     scores: dict = field(default_factory=dict)
-    base: float = 0.0
-    reason: str = ''     # hard rejection
-    status: str = 'candidate'
-    stab: tuple = None
-    traj: float = None
-    final: float = 0.0
+    visual: float = 0.0  # appearance-only quality (no temporal evidence)
+    penalty: float = 0.0
+    reason: str = ''
+    status: str = 'candidate'    # ball | candidate | rejected
+    tracklet: object = None
+    own_spot: bool = False
+    err: float | None = None     # pixels from the ball prediction
+    m2: float | None = None      # Mahalanobis distance from the ball prediction
+    traj: float | None = None
+    final: float | None = None
 
 
-@dataclass
-class Tentative:
-    kf: Kalman
-    first: float
-    last: float
-    hits: deque = field(default_factory=lambda: deque(maxlen=12))   # (time, base, det, stab)
+class Tracklet:
+    """A short-lived chain of candidate detections (any white thing, not only the ball)."""
+
+    def __init__(self, tid, kf, time, c, fps):
+        self.id, self.kf, self.first, self.last, self.last_d = tid, kf, time, time, c.d
+        self.hits = deque(maxlen=int(fps*3))
+        self.unreliable = 0
+        self.flag_until, self.flag_track = -math.inf, None
+
+    def flagged(self, time):
+        return time < self.flag_until
+
+    def window(self, time, seconds):
+        return [h for h in self.hits if time-h[0] <= seconds]
 
 
 def _component_stats(mask, cx, cy, d):
@@ -153,7 +212,7 @@ def analyse_patch(frame, cx, cy, d):
     x0, y0, x1, y1 = max(0, int(cx)-R), max(0, int(cy)-R), min(W, int(cx)+R+1), min(H, int(cy)+R+1)
     patch = frame[y0:y1, x0:x1]
     if patch.size == 0:
-        return {'shape': .5, 'isolation': .5, 'line': 0.0, 'large': False}
+        return {'shape': .5, 'isolation': .5, 'line': 0.0, 'large': False, 'bulge': False, 'stretch': 1.0}
     s = patch.astype(np.int16)
     b, g, r = s[..., 0], s[..., 1], s[..., 2]
     grass = (g > 30) & (g > r*.95) & (g > b*1.12) & (g-b > 12)
@@ -168,7 +227,9 @@ def analyse_patch(frame, cx, cy, d):
     comp = _component_stats(bright, lx, ly, d)
     line = 0.0
     large = False
+    stretch = 1.0
     if comp is not None:
+        stretch = comp['major']/max(d, 3)
         elongation = comp['major']/max(comp['minor'], 1.0)
         # A long thin bright structure through the candidate: painted line or arc (or a ball on one: bulge).
         if comp['major'] >= 2.5*max(d, 3) and elongation >= 3:
@@ -181,30 +242,60 @@ def analyse_patch(frame, cx, cy, d):
     else:
         aspect = comp['minor']/max(comp['major'], 1e-6)
         shape = clamp((comp['circularity']-.35)/.5)*clamp((aspect-.35)/.4)
-    return {'shape': round(shape, 3), 'isolation': round(isolation, 3), 'line': line, 'large': large}
+    if large:
+        isolation = min(isolation, .3)  # part of a big white blob (kit, boards): not a ball on the grass
+    return {'shape': round(shape, 3), 'isolation': round(isolation, 3), 'line': line, 'large': large,
+            'bulge': bool(comp and comp['bulge']), 'stretch': round(stretch, 2)}
+
+
+PAINTED_SPOTS = ((11/105, .5), (94/105, .5), (.5, .5))
+
+
+def _painted_spot(p):
+    """Within ~1 m of a penalty spot or the centre spot on the calibrated pitch."""
+    return p is not None and any(math.hypot((p[0]-x)*105, (p[1]-y)*68) <= 1.0 for x, y in PAINTED_SPOTS)
+
+
+def _segment_px_distance(px, py, a, b):
+    ax, ay, bx, by = a[0], a[1], b[0], b[1]
+    dx, dy = bx-ax, by-ay
+    length2 = dx*dx+dy*dy
+    t = 0.0 if length2 <= 1e-9 else clamp(((px-ax)*dx+(py-ay)*dy)/length2)
+    return math.hypot(px-(ax+t*dx), py-(ay+t*dy))
 
 
 class BallTracker:
     def __init__(self, width, height, fps):
         self.W, self.H, self.fps = width, height, max(1.0, fps)
+        self.confirm = max(3, int(round(self.fps*.14)))   # consecutive plausible frames before (re)acquisition
+        # The active ball.
         self.kf = None
-        self.state = 'UNKNOWN'
-        self.confidence = 0.0
+        self.phase = 'SEARCHING'
         self.track = 0
+        self.confidence = 0.0
+        self.born = -math.inf
         self.last_seen = -math.inf
         self.last_time = None
         self.last_d = 8.0
-        self.carrier = None          # (person track id, offset) when lost next to a player
-        self.lost_at = None          # (time, x, y) of the last lost ball, for re-acquisition
-        self.trajectory = deque(maxlen=int(self.fps*2))   # (time, x, y, state) of the shown ball, for previews
-        self.path = deque(maxlen=int(self.fps*4))   # (time, stabilized point) of the active track
-        self.started = -math.inf
-        self.recent = deque(maxlen=int(self.fps))   # trajectory scores of recent updates
-        self.tentative = []
-        self.spots = []              # static-spot memory: [{'x','y','first','last','hits','segment'}]
+        self.missing_frames = 0
+        self.carrier = None          # {'id', 'offset', 'foot'}: the player the ball disappeared at
+        self.lost_at = None          # {'time', 'x', 'y', 'track'} of the last lost ball, for re-acquisition
+        self.last_confident = None   # (time, x, y) of the last observation with a high score
+        self.history = deque(maxlen=int(self.fps*3))  # (time, x, y, observed, stab, pitch, px_m)
+        self.trajectory = deque(maxlen=int(self.fps*2))  # (time, x, y, state) of the shown ball, for previews
+        self.speeds = deque(maxlen=int(self.fps*.3))     # (time, m/s) recent speeds, for the acceleration estimate
+        self.line_run = 0.0
+        self.parked_since = None
+        self.occluded_at = None
+        self.own_tracklet = None     # the tracklet the ball's own detections continue
+        # Everything else that was ever a candidate.
+        self.tracklets = []
+        self.next_tracklet = 1
+        self.spots = []              # static-spot memory: [{'stab','pitch','r','first','last','hits','segment', ...}]
         self.rejections = Counter()
         self.since_log = Counter()
         self.last_log = -math.inf
+        self.limits = {}
         self.events = []
 
     # ---------- helpers ----------
@@ -216,313 +307,594 @@ class BallTracker:
 
     def _event(self, time, title, lines):
         self.events.append({'time': round(float(time), 3), 'kind': 'ball', 'track': None, 'playerId': None,
-                            'message': '\n'.join([title]+lines)})
+                            'message': '\n'.join([title]+list(lines))})
 
-    def _spot(self, stab, segment):
-        aspect = self.W/self.H
+    def _allow(self, key, time, every):
+        last = self.limits.get(key)
+        if last is not None and time-last < every and time >= last:
+            return False
+        self.limits[key] = time
+        return True
+
+    def _metres(self, a, b):
+        """Distance in metres between two candidates / hits (pitch coordinates when both are calibrated,
+        else camera-compensated image coordinates at their depth)."""
+        if a.pitch is not None and b.pitch is not None:
+            return math.hypot((a.pitch[0]-b.pitch[0])*105, (a.pitch[1]-b.pitch[1])*68)
+        px_m = max(1e-3, (a.px_m+b.px_m)/2)
+        return math.hypot((a.stab[0]-b.stab[0])*self.W, (a.stab[1]-b.stab[1])*self.H)/px_m
+
+    def _spot(self, c):
         for s in self.spots:
-            if s['segment'] == segment and math.hypot((stab[0]-s['x'])*aspect, stab[1]-s['y']) <= s['r']:
+            if c.pitch is not None and s['pitch'] is not None:
+                if math.hypot((c.pitch[0]-s['pitch'][0])*105, (c.pitch[1]-s['pitch'][1])*68) <= STATIC_RADIUS:
+                    return s
+            elif s['segment'] == c.segment and math.hypot((c.stab[0]-s['stab'][0])*self.W, (c.stab[1]-s['stab'][1])*self.H)/c.px_m <= STATIC_RADIUS:
                 return s
         return None
 
-    def _static(self, spot):
-        return spot is not None and spot['hits'] >= 6 and spot['last']-spot['first'] >= STATIC_SECONDS
+    @staticmethod
+    def _static(spot):
+        return spot is not None and (spot['false_positive'] or (spot['hits'] >= 6 and spot['last']-spot['first'] >= STATIC_SECONDS))
+
+    def _nearest_person(self, nx, ny, people, px_m):
+        best = None
+        for pid, (bx, by, bw, bh) in people:
+            if bw <= 0 or bh <= 0:
+                continue
+            foot_m = math.hypot((nx-bx-bw/2)*self.W, 2.0*(ny-by-bh)*self.H)/px_m  # image rows are foreshortened along the pitch
+            inside = bx-.25*bw <= nx <= bx+1.25*bw and by-.05*bh <= ny <= by+1.05*bh  # arms swing beyond the torso box
+            if inside or foot_m <= CONTACT_REACH:
+                key = (0 if inside else 1, foot_m)
+                if best is None or key < best[0]:
+                    best = (key, Contact(pid, (nx-bx)/bw, (ny-by)/bh, (bx, by, bw, bh), foot_m, inside))
+        return best[1] if best else None
+
+    def _contact(self, x, y, people, px_m):
+        """The player within reach of an image point (a touch, deflection or occlusion is possible)."""
+        return self._nearest_person(x/self.W, y/self.H, people, px_m)
 
     # ---------- main ----------
     def step(self, frame, time, rows, M, reliable, cut, pitch, people, scale, stabilize, segment, to_pitch=None):
-        """rows: (N, 6) ball detections in pixels. people: [(track id, normalized box)].
+        """rows: (N, 6) ball detections in pixels. people: [(track id or None, normalized box)].
         scale(y) -> expected player height (normalized) at foot height y, or None.
         stabilize(x, y) -> camera-compensated normalized point. Returns the frame's ball dict and
         debug candidates."""
         dt = 1/self.fps if self.last_time is None else max(1e-3, time-self.last_time)
         self.last_time = time
-        if cut and self.kf is not None:
-            self._lose(time, 'camera cut')
         if cut:
-            self.tentative = []
-        for kf in ([self.kf] if self.kf is not None else [])+[t.kf for t in self.tentative]:
+            if self.kf is not None:
+                self._lose(time, 'camera cut')
+            self.tracklets = []
+        for kf in ([self.kf] if self.kf is not None else [])+[t.kf for t in self.tracklets]:
             if reliable:
                 kf.compensate(M)
             else:
                 kf.P[:2, :2] += np.eye(2)*(self.last_d*3)**2
-        if self.kf is not None:
-            self.kf.predict(dt)
-        cands = self._candidates(frame, rows, pitch, people, scale, stabilize, segment, to_pitch, time)
-        chosen = self._associate(cands, time, scale)
-        promoted = self._tentatives(cands, chosen, time, dt, scale)
-        chosen = chosen or promoted
-        if chosen is None and self.kf is not None:
-            self._missing(time, people, scale)
-        elif chosen is not None:
-            self._check_parked(chosen, time, segment)
-        self._remember_spots(cands, chosen, time, segment, scale)
+            kf.predict(dt)
+        cands = self._candidates(frame, rows, pitch, people, scale, stabilize, segment, to_pitch)
+        self._prelink(cands, time)
+        for c in cands:
+            self._classify(c, time, reliable)
+        chosen = self._associate(cands, time, dt, people) if self.kf is not None else None
+        if chosen is not None:
+            self._update(chosen, time, dt)
+        elif self.kf is not None:
+            self._missing(time, dt, people)
+        self._link(cands, time, reliable)
+        if chosen is not None:
+            self.own_tracklet = chosen.tracklet
+        if self.kf is None:
+            chosen = self._promote(time)
+        self._remember_spots(cands, chosen, time, segment)
+        self._mark_others(cands, chosen, time)
         for c in cands:
             if c.reason and c.status != 'ball':
+                c.status = 'rejected'
                 self.rejections[c.reason] += 1
                 self.since_log[c.reason] += 1
-        self._log(time, chosen)
+        self._log(time, cands, chosen)
         out = self._output(time, chosen, to_pitch)
         if out['state'] in ('TRACKED', 'MISSING'):
             self.trajectory.append((round(time, 3), out['center'][0], out['center'][1], out['state']))
         return out, [self._debug(c) for c in cands[:12]]
 
-    def _candidates(self, frame, rows, pitch, people, scale, stabilize, segment, to_pitch, time):
+    # ---------- per-frame evidence ----------
+    def _candidates(self, frame, rows, pitch, people, scale, stabilize, segment, to_pitch):
         cands = []
+        markings = []
+        if pitch is not None and pitch.reliable:
+            markings = [((m['a'][0]*self.W, m['a'][1]*self.H), (m['b'][0]*self.W, m['b'][1]*self.H)) for m in pitch.markings]
         for x1, y1, x2, y2, conf, _ in np.asarray(rows, np.float64).reshape(-1, 6):
             w, h = x2-x1, y2-y1
             if w <= 0 or h <= 0:
                 continue
-            c = Candidate([x1, y1, x2, y2], float(conf), (x1+x2)/2, (y1+y2)/2, math.sqrt(w*h))
-            ground = (c.cy+c.d/2)/self.H
+            cx, cy, d = (x1+x2)/2, (y1+y2)/2, math.sqrt(w*h)
+            ground = (cy+d/2)/self.H
             px_m = self._px_per_m(ground, scale)
-            expected = BALL_DIAMETER*px_m
-            ratio = c.d/max(expected, 1e-6)
+            ratio = d/max(BALL_DIAMETER*px_m, 1e-6)
             size = math.exp(-.5*(math.log(max(ratio, 1e-3))/math.log(1.9))**2)
-            patch = analyse_patch(frame, c.cx, c.cy, c.d)
-            nx, ny = c.cx/self.W, c.cy/self.H
+            patch = analyse_patch(frame, cx, cy, d)
+            nx, ny = cx/self.W, cy/self.H
             # Field location (the ball can fly above the pitch in the image, so only far-away is rejected).
             if pitch is not None and pitch.reliable and len(pitch.polygon) >= 3:
                 out = signed_distance((nx, ny), pitch.polygon, pitch.aspect)
                 fieldscore = 1.0 if out <= 0 else math.exp(-out/.04)
             else:
                 out, fieldscore = 0.0, .7
-            # Inside a person's body (not at the feet): white socks, shoes, shorts, sleeves.
-            body = any(bx+.15*bw < nx < bx+.85*bw and by+.05*bh < ny < by+.88*bh for _, (bx, by, bw, bh) in people)
-            c.stab = stabilize(nx, ny)
+            # On a fitted painted line of the pitch model: counts when the bright structure here is itself
+            # stretched along something (a fit may run through a ball and a player's socks), and a ball
+            # lying on a line makes a bulge.
+            nearest = min((_segment_px_distance(cx, cy, a, b) for a, b in markings), default=math.inf)
+            marking = clamp(1-(nearest-.5*d)/max(d, 2.0))*clamp((patch['stretch']-1.2)/1.3)
+            line = max(patch['line'], marking*(.3 if patch['bulge'] else 1.0))
+            c = Candidate(0, [x1, y1, x2, y2], float(conf), cx, cy, d, px_m, stabilize(nx, ny),
+                          to_pitch((nx, ground)) if to_pitch is not None else None, self._nearest_person(nx, ny, people, px_m))
+            c.segment = segment
             c.scores = {'det': round(clamp((c.det-.08)/.45), 3), 'size': round(size, 3), 'shape': patch['shape'],
-                        'isolation': patch['isolation'], 'field': round(fieldscore, 3), 'line': patch['line']}
-            c.base = round((.35*c.scores['det']+.2*size+.15*patch['shape']+.15*patch['isolation']+.15*fieldscore)
-                           * (.5 if body else 1.0)*(1-.5*patch['line']), 3)
-            if patch['line'] >= 1.0:
-                c.reason = 'FIELD_LINE'
-            elif ratio > 3.0 or ratio < .3 or patch['large']:
+                        'isolation': patch['isolation'], 'field': round(fieldscore, 3), 'line': round(line, 3)}
+            c.visual = round(.4*c.scores['det']+.2*size+.15*patch['shape']+.15*patch['isolation']+.1*fieldscore, 3)
+            if ratio > 3.0 or ratio < .3:
                 c.reason = 'SIZE'
             elif out > .12:
                 c.reason = 'OUTSIDE_PITCH'
-            else:
-                spot = self._spot(c.stab, segment)
-                known = to_pitch is not None and _painted_spot(to_pitch((nx, ny+c.d/2/self.H)))
-                # A white spot that was visible at the same time as the tracked ball, elsewhere, is not the ball.
-                if self._static(spot) or known or (spot is not None and spot['coexisted'] and spot['hits'] >= 3):
-                    c.reason = 'STATIONARY'
-                elif body:
-                    c.reason = 'PLAYER_PART'
             cands.append(c)
-        cands.sort(key=lambda c: -c.base)
+        cands.sort(key=lambda c: -c.visual)
+        for k, c in enumerate(cands):
+            c.index = k+1
         return cands
 
-    def _associate(self, cands, time, scale):
-        """Best candidate on the active track's predicted path, or None."""
-        if self.kf is None:
-            return None
-        px_m = self._px_per_m(self.kf.x[1]/self.H, scale)
-        gap = max(1/self.fps, time-self.last_seen) if self.last_seen > -math.inf else 1/self.fps
-        if self.state == 'MISSING':
-            # Reappearing near the predicted position only; a ball that travelled far while hidden is found
-            # again by a tentative track with real motion, never by jumping to whatever is nearby.
-            allowed = (1.5+12*gap)*px_m+1.5*self.last_d
-        else:
-            allowed = MAX_SPEED*gap*px_m+1.5*self.last_d
-        best = None
-        recent = time-self.last_seen <= max(3/self.fps, .15)
+    def _link_gate(self, t, c, gap, time):
+        """Pixels within which candidate c may continue tracklet t. A young tracklet (velocity unknown)
+        reaches as far as a fast ball moves in two frames; an established one predicts its position;
+        one flagged as another object never reaches far (it must not swallow the reappearing ball)."""
+        if len(t.hits) < 3 and not t.flagged(time):
+            return MAX_SPEED*min(gap, 2/self.fps)*c.px_m+2*max(c.d, t.last_d)
+        speed = math.hypot(t.kf.x[2], t.kf.x[3])
+        return max(.7*c.px_m, 2.5*max(c.d, t.last_d))+.5*speed*gap+2*c.d
+
+    def _prelink(self, cands, time):
+        """Which tracklet each candidate would continue (greedy, nearest prediction first): its
+        temporal evidence is read before the ball decides."""
+        pairs = []
         for c in cands:
-            # A track that is following the ball may follow it across a painted line or to rest, but only
-            # right on its predicted path; sizes never fit, and lines or spots never feed a lost track.
-            if c.reason == 'SIZE':
+            if c.reason:
                 continue
-            if c.reason in ('FIELD_LINE', 'STATIONARY') and not recent:
-                continue
-            err = math.hypot(c.cx-self.kf.x[0], c.cy-self.kf.x[1])
-            if err > allowed:
-                if c.base >= .45 and not c.reason:
-                    c.reason = 'TRAJECTORY'
-                continue
-            m2 = self.kf.mahalanobis((c.cx, c.cy), max(1.0, c.d/4))
-            c.traj = round(math.exp(-m2/18), 3)
-            if c.reason in ('FIELD_LINE', 'STATIONARY') and (c.traj < .6 or err > 1.5*max(c.d, self.last_d)+.5*MAX_SPEED*gap*px_m*.25):
-                continue
-            c.final = round(.55*c.base+.45*c.traj+(.1 if c.reason == 'PLAYER_PART' else 0), 3)
-            if c.final >= .3 and (best is None or c.final > best.final):
-                best = c
-        if best is not None:
-            for c in cands:
-                if c is not best and not c.reason and c.base >= .3:
-                    c.reason = 'TRAJECTORY'
-            best.reason, best.status = '', 'ball'
-            self.kf.update((best.cx, best.cy), max(1.0, best.d/4))
-            self.state, self.last_seen, self.last_d = 'TRACKED', time, best.d
-            self.confidence = clamp(.6*self.confidence+.4*best.final, 0, .99)
-            self.recent.append(best.traj)
-            self.carrier = None
-        return best
-
-    def _tentatives(self, cands, chosen, time, dt, scale):
-        """Unexplained, plausible candidates build tentative tracks; one may become the ball when the
-        active track is lost (or missing for a while)."""
-        for t in self.tentative:
-            t.kf.predict(dt)
-        free = [c for c in cands if c is not chosen and c.reason in ('', 'TRAJECTORY') and c.base >= .3]
-        for c in free:
-            best, best_err = None, math.inf
-            for t in self.tentative:
-                allowed = MAX_SPEED*max(dt, time-t.last)*t.kf.px_per_m+1.5*c.d
+            for t in self.tracklets:
                 err = math.hypot(c.cx-t.kf.x[0], c.cy-t.kf.x[1])
-                if err <= allowed and err < best_err:
-                    best, best_err = t, err
-            if best is None:
-                if len(self.tentative) >= 6:
-                    self.tentative.sort(key=lambda t: (len(t.hits), t.last))
-                    self.tentative.pop(0)
-                best = Tentative(Kalman(c.cx, c.cy, max(c.d, 4), self._px_per_m(c.cy/self.H, scale)), time, time)
-                self.tentative.append(best)
-            else:
-                best.kf.update((c.cx, c.cy), max(1.0, c.d/4))
-            best.last = time
-            best.hits.append((time, c.base, c.det, c.stab, c))
-        self.tentative = [t for t in self.tentative if time-t.last <= .4]
-        if self.kf is not None and not (self.state == 'MISSING' and time-self.last_seen > .3):
-            return None
-        ready = []
-        for t in self.tentative:
-            hits = [h for h in t.hits if time-h[0] <= .6]
-            if len(hits) < min(3, max(2, int(self.fps*.12))):
+                if err <= self._link_gate(t, c, time-t.last, time):
+                    pairs.append((err, c, t))
+        taken_c, taken_t = set(), set()
+        for err, c, t in sorted(pairs, key=lambda p: p[0]):
+            if id(c) in taken_c or t.id in taken_t:
                 continue
-            mean = sum(h[1] for h in hits)/len(hits)
-            moved = math.hypot(hits[-1][3][0]-hits[0][3][0], hits[-1][3][1]-hits[0][3][1])
-            px_m = t.kf.px_per_m
-            moved_m = moved*self.H/px_m if px_m > 0 else 0
-            near_lost = self.lost_at is not None and time-self.lost_at[0] <= 4 and \
-                math.hypot(t.kf.x[0]-self.lost_at[1], t.kf.x[1]-self.lost_at[2]) <= (2+MAX_SPEED*(time-self.lost_at[0])*.5)*px_m
-            if mean >= .45 and (moved_m >= .6 or (near_lost and mean >= .5)):
-                ready.append((mean*len(hits), t, hits, moved_m, near_lost))
-        if not ready:
-            return None
-        _, t, hits, moved_m, near_lost = max(ready, key=lambda r: r[0])
-        title = 'BALL REACQUIRED' if near_lost else 'BALL TRACK SWITCH' if self.kf is not None else 'BALL ACQUIRED'
-        self.kf = t.kf
-        self.tentative.remove(t)
-        last = hits[-1][4]
-        self.state, self.last_seen, self.last_d = 'TRACKED', time, last.d
-        self.confidence = clamp(sum(h[1] for h in hits)/len(hits), 0, .99)
-        if title != 'BALL REACQUIRED':
-            self.track += 1
-            self.trajectory.clear()
-        self.started = time
-        self.last_log = time
-        self.path.clear()
-        self.recent.clear()
-        self.carrier = None
-        self.lost_at = None
-        last.status, last.reason = 'ball', ''
-        last.traj, last.final = 1.0, round(self.confidence, 3)
-        self._event(time, title, [f'Candidate: x = {last.cx:.0f}, y = {last.cy:.0f} px', f'Detector confidence: {last.det:.2f}',
-                                  f"Size score: {last.scores['size']:.2f}", f"Shape score: {last.scores['shape']:.2f}",
-                                  f'Motion consistency: {len(hits)} hits in {hits[-1][0]-hits[0][0]:.2f} s, moved {moved_m:.1f} m',
-                                  f'Final confidence: {self.confidence:.2f}'])
-        return last
+            c.tracklet = t
+            taken_c.add(id(c))
+            taken_t.add(t.id)
 
-    def _missing(self, time, people, scale):
-        """No detection on the predicted path: the ball is hidden (or gone)."""
-        x, y = self.kf.x[0], self.kf.x[1]
-        if self.state == 'TRACKED':
-            # Lost right next to a player: it is probably at their feet, hidden by their body.
-            px_m = self._px_per_m(y/self.H, scale)
-            best = None
-            for pid, (bx, by, bw, bh) in people:
+    def _attachment(self, c, time):
+        """How much the candidate behaves like something fixed to a player's body (wrist tape, gloves,
+        boots, socks): the same place inside one person's box for many frames. A single frame inside
+        the upper body is only a prior; the ball lives at the feet and passes through bodies in flight."""
+        p, t = c.person, c.tracklet
+        prior = .5 if p is not None and p.upper_body else 0.0
+        if t is None and (p is None or p.pid is None):
+            return prior, 0.0, None
+        pid = p.pid if p is not None else None
+        if pid is None and t is not None:
+            # Outside every box this frame (an arm swing): still the person it was attached to just before.
+            recent = [h.person.pid for _, h in t.window(time, .6) if h.person is not None and h.person.pid is not None]
+            if len(recent) >= 3 and recent.count(recent[-1]) >= .8*len(recent):
+                pid = recent[-1]
+        if pid is None or t is None:
+            return prior, 0.0, None
+        hits = [(when, h.person) for when, h in t.hits if time-when <= 1.5 and h.person is not None and h.person.pid == pid]
+        if p is not None and p.pid == pid:
+            hits.append((time, p))
+        if len(hits) < 3:
+            return prior, 0.0, None
+        us, vs = np.array([q.u for _, q in hits]), np.array([q.v for _, q in hits])
+        span = time-hits[0][0]
+        if vs.mean() <= .75:
+            stable = us.std() <= .22 and vs.std() <= .12
+            temporal = clamp((span-.2)/.6) if stable else 0.0
+        else:
+            stable = us.std() <= .2 and vs.std() <= .06   # at the feet the ball is plausible: needs long stability
+            temporal = clamp((span-1.0)/1.0) if stable else 0.0
+        return max(prior, temporal), round(float(span), 2), pid
+
+    def _classify(self, c, time, reliable):
+        t = c.tracklet
+        attach, attached_for, attached_to = self._attachment(c, time)
+        speed = moved = span = 0.0
+        settled = 0.0
+        if t is not None:
+            hits = t.window(time, .6)
+            if hits:
+                first = hits[0][1]
+                moved, span = self._metres(first, c), time-hits[0][0]
+                speed = moved/span if span > 1e-3 else 0.0
+            long = t.window(time, STATIC_SECONDS+.5)
+            if len(long) >= 3:
+                drift = max(self._metres(h[1], c) for h in long)
+                age = time-long[0][0]
+                if drift <= STATIC_RADIUS and t.unreliable <= .2*len(t.hits):
+                    settled = clamp(age/STATIC_SECONDS)
+        spot = self._spot(c)
+        # The tracked ball came to rest here: its own spot (and its own stillness) is not a false positive.
+        c.own_spot = self.kf is not None and ((spot is not None and spot['ball_track'] == self.track) or (spot is None and t is not None and t is self.own_tracklet))
+        known = _painted_spot(c.pitch)
+        static = 0.0 if c.own_spot else 1.0 if self._static(spot) or known or settled >= 1.0 else 0.0
+        still = t is not None and len(t.hits) >= 3 and speed < 1.0
+        flagged = (t is not None and t.flagged(time)) or (spot is not None and time < spot['flag_until'] and still)
+        c.scores.update(attach=round(attach, 3), attachedFor=attached_for, attachedTo=attached_to, motion=round(clamp(speed/3), 3), speed=round(speed, 2),
+                        static=static, settled=round(settled, 2), otherObject=bool(flagged),
+                        person=None if c.person is None else {'track': c.person.pid, 'u': round(c.person.u, 2), 'v': round(c.person.v, 2), 'feet': round(c.person.foot_m, 2)},
+                        tracklet=None if t is None else t.id)
+        c.penalty = round(min(1.0, .5*c.scores['line']+.6*attach+.5*static+.3*settled*(1-static)), 3)
+        if c.reason:
+            return
+        if c.scores['line'] >= .99:
+            c.reason = 'FIELD_LINE'
+        elif attach >= .7:
+            c.reason = 'PLAYER_ATTACHED'
+        elif flagged:
+            c.reason = 'OTHER_OBJECT'
+        elif static:
+            c.reason = 'STATIC'
+
+    # ---------- the active ball ----------
+    def _associate(self, cands, time, dt, people):
+        """The candidate that is the ball already being followed, or None."""
+        kf, phase = self.kf, self.phase
+        x, y = kf.x[0], kf.x[1]
+        px_m = kf.px_per_m
+        gap = max(dt, time-self.last_seen)
+        speed_px = math.hypot(kf.x[2], kf.x[3])
+        contact = self._contact(x, y, people, px_m)
+        if contact is not None:
+            kf.inflate(pos_px=.2*px_m, vel_px=.7*KICK_SPEED*px_m)   # a touch may change the velocity at once
+        r_tight = max(GATE_FLOOR*px_m, 2*self.last_d)+.3*speed_px*dt
+        if phase != 'LOCKED':
+            r_tight = max(r_tight, (GATE_FLOOR+6*gap)*px_m)
+        r_wide = MAX_SPEED*(min(gap, OCCLUDED_MAX) if contact is not None else gap)*px_m+2*self.last_d
+        moving = speed_px/px_m >= 1.5
+        threshold = max(ACCEPT[phase], .5 if contact is not None else 0)
+        eligible = []
+        for c in cands:
+            c.err = err = math.hypot(c.cx-x, c.cy-y)
+            c.m2 = m2 = kf.mahalanobis((c.cx, c.cy), max(1.0, c.d/4))
+            if c.reason in HARD:
+                continue
+            near = err <= r_tight or m2 <= 9
+            previous = c.tracklet.window(time, .3) if c.tracklet is not None else []  # the same thing seen just before
+            if phase == 'RECOVERING':
+                # Far from the last sighting: only a chain of consistent detections can be the ball again.
+                ok = err <= r_wide and len(previous) >= max(2, self.confirm-1) and sum(h[1].visual for h in previous)/len(previous) >= .45
+            else:
+                ok = near or (contact is not None and err <= r_wide)
+            if not ok:
+                if c.visual >= .45 and not c.reason:
+                    c.reason = 'TRAJECTORY'
+                continue
+            # One detection is never enough to move the ball off its predicted path or to bring it back
+            # after a gap: outside the tight gate it must have been seen there the frame before; after a
+            # gap it needs a confident detector or that previous sighting.
+            on_body = c.person is not None and c.person.inside and c.person.v <= .72
+            if (err > r_tight and (not previous or c.scores['motion'] < .3 or on_body)) or (self.missing_frames >= 3 and c.det < .3 and not previous):
+                if not c.reason:
+                    c.reason = 'LOW_SCORE'
+                continue
+            if c.reason in ('FIELD_LINE', 'STATIC') and not c.own_spot:
+                # A moving track may cross a line or a spot, right on its predicted path, briefly.
+                if not (phase == 'LOCKED' and moving and m2 <= 6 and self.line_run < LINE_RUN):
+                    continue
+            if c.person is not None and c.person.upper_body and m2 > 2:
+                continue  # inside a body: only exactly where the ball was predicted (a flight through, a chest trap)
+            traj = math.exp(-m2/18)*(.7 if err > r_tight else 1.0)
+            prox = math.exp(-(err/max(r_tight, 1.0))**2)
+            interaction = 1.0 if c.person is not None and not c.person.upper_body and c.person.foot_m <= .8 else 0.0
+            penalty = c.penalty-.35*c.scores['line']-.4*c.scores['static'] if moving and m2 <= 6 else c.penalty  # the track explains the paint or spot under it
+            c.traj = round(traj, 3)
+            c.final = round(.5*traj+.1*prox+.4*c.visual+.05*interaction-max(0.0, penalty), 3)
+            c.scores['interaction'] = interaction
+            eligible.append(c)
+        if not eligible:
+            return None
+        incumbent = min(eligible, key=lambda c: c.m2)
+        best = max(eligible, key=lambda c: c.final)
+        chosen = best
+        if best is not incumbent and incumbent.final >= threshold-.1 and best.final < incumbent.final+SWITCH_MARGIN:
+            chosen = incumbent  # switching resistance: stay on the predicted path unless clearly better
+        need = threshold if chosen.err <= r_tight else max(threshold, .6)
+        if chosen.final < need:
+            for c in eligible:
+                if not c.reason:
+                    c.reason = 'LOW_SCORE'
+            return None
+        if chosen is not incumbent and self._allow('switch', time, 2):
+            self._event(time, 'BALL CANDIDATE PREFERRED', [f'The candidate on the predicted path scored {incumbent.final:.2f}; candidate #{chosen.index} scored {chosen.final:.2f} and was taken instead.']
+                        + self._lines(incumbent) + self._lines(chosen))
+        return chosen
+
+    def _update(self, chosen, time, dt):
+        kf = self.kf
+        chosen.status, chosen.reason = 'ball', ''
+        kf.update((chosen.cx, chosen.cy), max(1.0, chosen.d/4))
+        kf.px_per_m = chosen.px_m
+        gap = time-self.last_seen
+        if self.phase != 'LOCKED' and gap >= 3/self.fps-1e-6:
+            self._event(time, 'BALL REACQUIRED', [f'Hidden for {gap:.2f} s ({self.missing_frames} frames), found again {chosen.err:.0f} px from the predicted position.'] + self._lines(chosen))
+        if self.phase != 'LOCKED':
+            self.confidence = max(self.confidence, min(chosen.final, .6))
+        self.phase, self.last_seen, self.last_d, self.missing_frames, self.carrier = 'LOCKED', time, chosen.d, 0, None
+        self.confidence = clamp(.7*self.confidence+.3*chosen.final, 0, .99)
+        if chosen.final >= .6:
+            self.last_confident = (time, chosen.cx, chosen.cy)
+        on_paint = chosen.scores['line'] >= .99 or (chosen.scores['static'] and not chosen.own_spot)
+        self.line_run = self.line_run+dt if on_paint else 0.0
+        self.history.append((time, chosen.cx, chosen.cy, True, chosen.stab, chosen.pitch, chosen.px_m))
+        self.speeds.append((time, math.hypot(kf.x[2], kf.x[3])/kf.px_per_m))
+        self._check_parked(chosen, time)
+
+    def _missing(self, time, dt, people):
+        """No detection is the ball: it is hidden (behind or under a player), or gone."""
+        kf = self.kf
+        self.missing_frames += 1
+        px_m = kf.px_per_m
+        x, y = kf.x[0], kf.x[1]
+        if self.phase == 'LOCKED':
+            self.phase, self.occluded_at = 'OCCLUDED', time
+            contact = self._contact(x, y, people, px_m)
+            if contact is not None and contact.pid is not None and (contact.inside or not self._receding(contact, px_m)):  # this player hides it or has it
+                bx, by, bw, bh = contact.box
                 fx, fy = (bx+bw/2)*self.W, (by+bh)*self.H
-                dist = math.hypot(fx-x, fy-y)
-                if dist <= 1.2*px_m+bw*self.W/2 and (best is None or dist < best[0]):
-                    best = (dist, pid, (x-fx, y-fy))
-            self.carrier = (best[1], best[2]) if best else None
-            self.state = 'MISSING'
+                self.carrier = {'id': contact.pid, 'offset': (x-fx, y-fy), 'foot': (fx, fy)}
         if self.carrier is not None:
-            box = next((b for pid, b in people if pid == self.carrier[0]), None)
+            box = next((b for pid, b in people if pid == self.carrier['id']), None)
             if box is not None:
                 fx, fy = (box[0]+box[2]/2)*self.W, (box[1]+box[3])*self.H
-                self.kf.x[:2] = (fx+self.carrier[1][0]*.8, fy+self.carrier[1][1]*.8)
-                self.kf.x[2:] *= .5
+                ox, oy = self.carrier['offset'][0]*.85, self.carrier['offset'][1]*.85
+                vx, vy = (fx-self.carrier['foot'][0])/dt, (fy-self.carrier['foot'][1])/dt
+                kf.x[:2] = (fx+ox, fy+oy)
+                kf.x[2:] = (.6*kf.x[2]+.4*vx, .6*kf.x[3]+.4*vy)  # it moves with the player that has it
+                kf.inflate(pos_px=.5*px_m, vel_px=.7*KICK_SPEED*px_m)
+                self.carrier.update(offset=(ox, oy), foot=(fx, fy))
             else:
                 self.carrier = None
         elif time-self.last_seen > .2:
-            self.kf.x[2:] *= .9  # rolling friction while unseen
-        missing = time-self.last_seen
-        self.confidence *= math.exp(-(1/self.fps)/.8)
-        limit = MAX_CARRIED if self.carrier is not None else MAX_MISSING
-        if missing > limit:
-            self._lose(time, f'not seen for {missing:.1f} s')
+            kf.x[2:] *= .9  # rolling friction while unseen
+        gap = time-self.last_seen
+        self.confidence *= math.exp(-dt/(2.5 if self.carrier is not None else .8))  # known to be at a player: it is still there
+        if self.phase == 'OCCLUDED' and self.carrier is None and gap > OCCLUDED_MAX:
+            self.phase = 'RECOVERING'
+            if self._allow('recovering', time, 2):
+                self._event(time, 'BALL RECOVERING', [f'Not seen for {gap:.2f} s near x = {x:.0f}, y = {y:.0f} px; the search area grows with time and a candidate must stay plausible for {self.confirm} frames.'])
+        self.history.append((time, kf.x[0], kf.x[1], False, None, None, px_m))
+        if gap > (MAX_CARRIED if self.carrier is not None else MAX_MISSING):
+            self._lose(time, f'not seen for {gap:.1f} s')
 
-    def _check_parked(self, chosen, time, segment):
-        """A track that never moves and sits on a white spot known from before it started has latched
-        onto paint (a penalty or centre spot), not the ball: let it go. A ball that comes to rest after
-        being followed (a free kick) keeps its track."""
-        self.path.append((time, chosen.stab))
-        if time-self.path[0][0] < 3:
+    def _receding(self, contact, px_m):
+        """The ball has been moving away from this player's feet over the last observed frames: kicked
+        away or rolling past, not dribbled or trapped."""
+        observed = [h for h in self.history if h[3]]
+        if len(observed) < 4:
+            return False
+        fx, fy = (contact.box[0]+contact.box[2]/2)*self.W, (contact.box[1]+contact.box[3])*self.H
+        metres = lambda h: math.hypot(h[1]-fx, 2.0*(h[2]-fy))/px_m
+        return metres(observed[-1])-metres(observed[-4]) > .3
+
+    def _check_parked(self, chosen, time):
+        """A ball that stops is kept (a free kick is coming) with lower confidence; a track that never
+        moved and rests on a spot known from before it started had latched onto paint or debris."""
+        old = next((h for h in self.history if h[3] and time-h[0] >= 2.5), None)
+        if old is None:
             return
-        old = next((p for t, p in self.path if time-t <= 3), self.path[0][1])
-        spread = math.hypot(chosen.stab[0]-old[0], chosen.stab[1]-old[1])
-        spot = self._spot(chosen.stab, segment)
-        if spot is not None and spot['first'] < self.started-.5 and spread <= spot['r']:
-            self._lose(time, 'stationary on a white spot that was there before the track started')
+        moved = self._metres(Candidate(0, [], 0, old[1], old[2], 1, old[6], old[4], old[5], None), chosen)
+        if moved > STATIC_RADIUS:
+            self.parked_since = None
+            return
+        if self.parked_since is None:
+            self.parked_since = time
+        self.confidence = min(self.confidence, .5)
+        spot = self._spot(chosen)
+        if spot is not None and (spot['first'] < self.born-.5 or spot['false_positive']):
+            spot['false_positive'] = True
+            self._lose(time, 'never moved, on a white spot that was there before the track started (static false positive)')
+        elif time-self.parked_since > PARKED_MAX:
+            self._lose(time, f'at rest for {time-self.parked_since:.0f} s; the track waits for motion')
 
     def _lose(self, time, why):
         if self.kf is not None:
-            self.lost_at = (time, float(self.kf.x[0]), float(self.kf.x[1]))
+            self.lost_at = {'time': time, 'x': float(self.kf.x[0]), 'y': float(self.kf.x[1]), 'track': self.track}
             self._event(time, 'BALL LOST', [f'Last position: x = {self.kf.x[0]:.0f}, y = {self.kf.x[1]:.0f} px', f'Reason: {why}',
                                              'The ball is UNKNOWN until a candidate shows consistent motion again.'])
-        self.kf, self.state, self.confidence, self.carrier = None, 'UNKNOWN', 0.0, None
-        self.recent.clear()
-        self.path.clear()
+        for t in self.tracklets:
+            if t.flag_track == self.track:
+                t.flag_until = -math.inf  # the lock may have been wrong: reconsider everything it excluded
+        for s in self.spots:
+            if s['flag_track'] == self.track:
+                s['flag_until'] = -math.inf
+        self.kf, self.phase, self.confidence, self.carrier = None, 'SEARCHING', 0.0, None
+        self.line_run, self.parked_since, self.missing_frames = 0.0, None, 0
+        self.history.clear()
+        self.speeds.clear()
         self.trajectory.clear()
 
-    def _remember_spots(self, cands, chosen, time, segment, scale):
-        """White spots that do not move are remembered (penalty and centre spots, debris, stickers)."""
-        moving = chosen is not None and self.kf is not None and math.hypot(*self.kf.x[2:]) > 1.5*self.kf.px_per_m
-        seen_with_ball = chosen is not None and self.state == 'TRACKED'
+    # ---------- tracklets and (re)acquisition ----------
+    def _link(self, cands, time, reliable):
+        """Continue tracklets with this frame's candidates (the ball's own candidate included) and
+        start new ones; stale tracklets expire."""
         for c in cands:
-            if c is chosen and moving:
+            if c.reason in ('SIZE', 'OUTSIDE_PITCH'):
                 continue
-            spot = self._spot(c.stab, segment)
+            t = c.tracklet
+            if t is None:
+                t = Tracklet(self.next_tracklet, Kalman(c.cx, c.cy, max(c.d, 4), c.px_m), time, c, self.fps)
+                self.next_tracklet += 1
+                self.tracklets.append(t)
+                c.tracklet = t
+                c.scores['fit'] = 0.0
+            else:
+                c.scores['fit'] = round(t.kf.mahalanobis((c.cx, c.cy), max(1.0, c.d/4)), 1)  # consistency with the tracklet's motion
+                t.kf.update((c.cx, c.cy), max(1.0, c.d/4))
+                t.kf.px_per_m = c.px_m
+            t.hits.append((time, c))
+            t.last, t.last_d = time, c.d
+            t.unreliable += not reliable
+        self.tracklets = [t for t in self.tracklets if time-t.last <= .5][-40:]
+
+    def _promote(self, time):
+        """SEARCHING: a tracklet that stayed plausible for several frames and moved like a ball becomes
+        the ball (with the old track id again when it reappears near where the ball was lost). A ball
+        at rest is acquired once it moves: without motion nothing tells it from a painted spot."""
+        ready = []
+        for t in self.tracklets:
+            if t.flagged(time) or t.hits[-1][0] < time-1e-6:
+                continue
+            hits = t.window(time, .6)
+            if len(hits) < self.confirm:
+                continue
+            cs = [h[1] for h in hits]
+            visual = sum(c.visual for c in cs)/len(cs)
+            bad = sum(1 for c in cs if c.reason in ('FIELD_LINE', 'STATIC', 'PLAYER_ATTACHED', 'OTHER_OBJECT'))
+            if visual < .45 or bad > len(cs)//4 or max(c.scores['attach'] for c in cs) >= .35:
+                continue
+            moved = self._metres(cs[0], cs[-1])
+            fit = sum(c.scores.get('fit', 0.0) for c in cs[1:])/max(1, len(cs)-1)
+            calibrated = all(c.pitch is not None for c in cs)
+            if moved >= .5 and fit <= 16 and (calibrated or t.unreliable <= .2*len(t.hits)):
+                ready.append((visual*len(hits), t, hits, moved))
+        if not ready:
+            return None
+        _, t, hits, moved = max(ready, key=lambda r: r[0])
+        cs = [h[1] for h in hits]
+        last = cs[-1]
+        lost = self.lost_at
+        reacquired = lost is not None and time-lost['time'] <= 4 and \
+            math.hypot(t.kf.x[0]-lost['x'], t.kf.x[1]-lost['y']) <= (2+.5*MAX_SPEED*(time-lost['time']))*last.px_m
+        self.kf = t.kf
+        self.tracklets.remove(t)
+        if reacquired:
+            self.track = lost['track']
+        else:
+            self.track += 1
+            self.trajectory.clear()
+        self.phase, self.born, self.last_seen, self.last_d, self.missing_frames, self.carrier = 'LOCKED', time, time, last.d, 0, None
+        self.confidence = clamp(sum(c.visual for c in cs)/len(cs), 0, .99)
+        self.line_run, self.parked_since, self.lost_at = 0.0, None, None
+        self.last_log = time
+        self.history.clear()
+        for when, c in hits:
+            self.history.append((when, c.cx, c.cy, True, c.stab, c.pitch, c.px_m))
+        last.status, last.reason, last.traj, last.final = 'ball', '', 1.0, round(self.confidence, 3)
+        title = 'BALL REACQUIRED' if reacquired else 'BALL TRACK SWITCH' if lost is not None and time-lost['time'] <= 4 else 'BALL ACQUIRED'
+        self._event(time, title, [f'Track BALL-{self.track}: {len(cs)} consistent detections in {time-hits[0][0]:.2f} s, moved {moved:.1f} m',
+                                  f'Final confidence: {self.confidence:.2f}'] + self._lines(last))
+        return last
+
+    # ---------- memories ----------
+    def _remember_spots(self, cands, chosen, time, segment):
+        """White things that do not move are remembered (penalty and centre spots, debris, stickers). A spot
+        is anchored where it was first seen, so something that slides along (tape on a running player)
+        never becomes a static spot."""
+        moving = chosen is not None and self.kf is not None and math.hypot(*self.kf.x[2:]) > 1.5*self.kf.px_per_m
+        for c in cands:
+            if c.reason in ('SIZE', 'OUTSIDE_PITCH') or (c is chosen and moving):
+                continue
+            spot = self._spot(c)
             if spot is None:
-                r = STATIC_RADIUS*self._px_per_m((c.cy+c.d/2)/self.H, scale)/self.H
-                spot = {'x': c.stab[0], 'y': c.stab[1], 'r': max(.004, r), 'first': time, 'last': time, 'hits': 1, 'segment': segment, 'coexisted': False}
+                spot = {'stab': c.stab, 'pitch': c.pitch, 'first': time, 'last': time, 'hits': 1, 'segment': segment,
+                        'false_positive': False, 'flag_until': -math.inf, 'flag_track': None, 'ball_track': self.track if c is chosen else None}
                 self.spots.append(spot)
             else:
+                if c is chosen:
+                    spot['ball_track'] = self.track
                 spot['hits'] += 1
                 spot['last'] = time
-            if spot['hits'] > 1:
-                spot['x'] += (c.stab[0]-spot['x'])*.2
-                spot['y'] += (c.stab[1]-spot['y'])*.2
-            if seen_with_ball and c is not chosen:
-                spot['coexisted'] = True
-        self.spots = [s for s in self.spots if time-s['last'] <= 10 and s['segment'] == segment][-200:]
+        self.spots = [s for s in self.spots if time-s['last'] <= 60 and (s['segment'] == segment or s['pitch'] is not None)][-300:]
 
-    def _log(self, time, chosen):
-        if chosen is not None and time-self.last_log >= 2:
-            rejected = ', '.join(f'{k} {v}' for k, v in self.since_log.most_common()) or 'none'
-            motion = sum(self.recent)/len(self.recent) if self.recent else 0.0
-            self._event(time, 'BALL TRACK UPDATE', [f'Candidate: x = {chosen.cx:.0f}, y = {chosen.cy:.0f} px',
-                                                     f'Detector confidence: {chosen.det:.2f}', f'Motion consistency: {motion:.2f}',
-                                                     f"Shape score: {chosen.scores['shape']:.2f}", f'Trajectory score: {chosen.traj:.2f}',
-                                                     f'Final confidence: {self.confidence:.2f}', f'Rejected candidates since last update: {rejected}'])
-            self.last_log = time
-            self.since_log.clear()
+    def _mark_others(self, cands, chosen, time):
+        """There is one ball: whatever is seen elsewhere while it is confidently tracked is not it."""
+        if chosen is None or self.phase != 'LOCKED' or self.confidence < .5:
+            return
+        for c in cands:
+            if c is chosen or math.hypot(c.cx-chosen.cx, c.cy-chosen.cy) <= 3*max(c.d, chosen.d):
+                continue
+            if c.tracklet is not None:
+                c.tracklet.flag_until, c.tracklet.flag_track = time+FLAG_SECONDS, self.track
+            spot = self._spot(c)
+            if spot is not None:
+                spot['flag_until'], spot['flag_track'] = time+10, self.track
+
+    # ---------- logging and output ----------
+    def _lines(self, c):
+        s = c.scores
+        lines = [f'BALL CANDIDATE #{c.index}', f'Detector confidence: {c.det:.2f}']
+        if c.traj is not None:
+            lines.append(f'Trajectory consistency: {c.traj:.2f}')
+        if c.err is not None:
+            lines.append(f'Distance from prediction: {c.err:.0f} px')
+        lines += [f"Independent motion: {s['motion']:.2f} ({s['speed']:.1f} m/s)", f"Field line overlap: {s['line']:.2f}",
+                  f"Player attachment score: {s['attach']:.2f}" + (f" (same place on track {s['attachedTo']} for {s['attachedFor']:.1f} s)" if s['attachedFor'] else ''),
+                  f"Static object score: {s['static']:.2f}", f"Size / shape / isolation / on pitch: {s['size']:.2f} / {s['shape']:.2f} / {s['isolation']:.2f} / {s['field']:.2f}",
+                  f'FINAL SCORE: {c.final if c.final is not None else c.visual:.2f}',
+                  'ACCEPTED' if c.status == 'ball' else f'REJECTED: {c.reason}' if c.reason else 'CANDIDATE']
+        return lines
+
+    def _log(self, time, cands, chosen):
+        if self.kf is None:
+            return
+        for c in cands:
+            if c.status != 'ball' and c.det >= .6 and c.err is not None and c.reason in ('FIELD_LINE', 'STATIC', 'PLAYER_ATTACHED', 'OTHER_OBJECT') and \
+                    self._allow('reject-'+c.reason, time, 3):
+                self._event(time, 'BALL CANDIDATE REJECTED', self._lines(c))
+        if time-self.last_log < 1:
+            return
+        self.last_log = time
+        rejected = ', '.join(f'{k} {v}' for k, v in self.since_log.most_common()) or 'none'
+        self.since_log.clear()
+        lines = [f'Track BALL-{self.track}: {self.phase}, confidence {self.confidence:.2f}, speed {self._speed():.1f} m/s, age {time-self.born:.1f} s'
+                 + (f', hidden for {time-self.last_seen:.2f} s' if self.phase != 'LOCKED' else '')]
+        if chosen is not None:
+            lines += self._lines(chosen)
+        others = sorted((c for c in cands if c is not chosen and c.det >= .4), key=lambda c: -c.visual)[:2]
+        for c in others:
+            lines += self._lines(c)
+        lines.append(f'Rejected candidates since the last update: {rejected}')
+        self._event(time, 'BALL TRACK UPDATE', lines)
+
+    def _speed(self):
+        return math.hypot(self.kf.x[2], self.kf.x[3])/self.kf.px_per_m if self.kf is not None else 0.0
 
     def _output(self, time, chosen, to_pitch):
-        if self.kf is None or self.state == 'UNKNOWN' or self.confidence < SHOW_CONFIDENCE:
-            return {'state': 'UNKNOWN', 'confidence': round(self.confidence, 3)}
-        x, y = self.kf.x[0], self.kf.x[1]
+        if self.kf is None or self.confidence < (SHOW_CONFIDENCE if self.phase == 'LOCKED' else .25):
+            return {'state': 'UNKNOWN', 'phase': self.phase, 'confidence': round(self.confidence, 3)}
+        kf = self.kf
+        x, y = kf.x[0], kf.x[1]
         d = chosen.d if chosen is not None else self.last_d
         box = [x-d/2, y-d/2, x+d/2, y+d/2] if chosen is None else chosen.box
-        out = {'state': self.state, 'confidence': round(self.confidence, 3), 'track': self.track,
+        speed = self._speed()
+        accel = 0.0
+        if len(self.speeds) >= 2 and self.speeds[-1][0] > self.speeds[0][0]:
+            accel = (self.speeds[-1][1]-self.speeds[0][1])/(self.speeds[-1][0]-self.speeds[0][0])
+        out = {'state': OUTPUT_STATE[self.phase], 'phase': self.phase, 'observed': chosen is not None, 'confidence': round(self.confidence, 3),
+               'track': self.track, 'age': round(time-self.born, 2), 'missingFrames': self.missing_frames,
                'box': [round(box[0]/self.W, 5), round(box[1]/self.H, 5), round((box[2]-box[0])/self.W, 5), round((box[3]-box[1])/self.H, 5)],
                'center': [round(x/self.W, 5), round(y/self.H, 5)],
-               'velocity': [round(self.kf.x[2]/self.W, 4), round(self.kf.x[3]/self.H, 4)]}
-        if self.state == 'MISSING':
+               'predicted': [round((x+kf.x[2]/self.fps)/self.W, 5), round((y+kf.x[3]/self.fps)/self.H, 5)],
+               'velocity': [round(kf.x[2]/self.W, 4), round(kf.x[3]/self.H, 4)], 'speed': round(speed, 2),
+               'direction': round(math.degrees(math.atan2(kf.x[3], kf.x[2])), 1) if speed >= .5 else None,
+               'acceleration': round(accel, 2), 'lastSeen': round(self.last_seen, 3)}
+        if self.last_confident is not None:
+            out['lastConfident'] = [round(self.last_confident[1]/self.W, 5), round(self.last_confident[2]/self.H, 5)]
+        if self.phase != 'LOCKED':
             out['missingFor'] = round(time-self.last_seen, 2)
             if self.carrier is not None:
-                out['nearTrack'] = self.carrier[0]
+                out['nearTrack'] = self.carrier['id']
         if chosen is not None:
             out['detector'] = round(chosen.det, 3)
+            out['score'] = chosen.final
         if to_pitch is not None:
             p = to_pitch((x/self.W, (y+d/2)/self.H))
             if p is not None:
@@ -530,19 +902,15 @@ class BallTracker:
         return out
 
     def _debug(self, c):
-        out = {'box': [round(c.box[0]/self.W, 5), round(c.box[1]/self.H, 5), round((c.box[2]-c.box[0])/self.W, 5), round((c.box[3]-c.box[1])/self.H, 5)],
-               'det': round(c.det, 3), 'score': c.final if c.status == 'ball' else c.base, 'status': c.status}
+        s = {k: v for k, v in c.scores.items() if k not in ('person', 'tracklet', 'attachedFor', 'attachedTo')}
+        s['penalty'] = c.penalty
+        if c.traj is not None:
+            s['trajectory'] = c.traj
+        if c.err is not None:
+            s['distance'] = round(c.err, 1)
+        out = {'index': c.index, 'box': [round(c.box[0]/self.W, 5), round(c.box[1]/self.H, 5), round((c.box[2]-c.box[0])/self.W, 5), round((c.box[3]-c.box[1])/self.H, 5)],
+               'det': round(c.det, 3), 'score': c.final if c.final is not None else c.visual, 'status': c.status, 'scores': s}
         if c.reason and c.status != 'ball':
             out['reason'] = c.reason
             out['text'] = REASONS[c.reason]
         return out
-
-
-PAINTED_SPOTS = ((11/105, .5), (94/105, .5), (.5, .5))
-
-
-def _painted_spot(p):
-    """Within ~1 m of a penalty spot or the centre spot on the calibrated pitch."""
-    return p is not None and any(math.hypot((p[0]-x)*105, (p[1]-y)*68) <= 1.0 for x, y in PAINTED_SPOTS)
-
-
