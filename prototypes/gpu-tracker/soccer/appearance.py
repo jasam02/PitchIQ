@@ -269,7 +269,8 @@ def _diversity(a, b):
 def add_to_gallery(gallery, d, time, max_size=6, trusted=False):
     """Quality- and diversity-aware update. Low-quality samples are ignored; samples stay >= .8 s
     apart (a much better one may replace a close one); when full, the sample with the lowest
-    quality + diversity value is dropped."""
+    quality + diversity value is dropped, except the oldest one: it records who the identity was
+    when it was created, which tells a track that switched people from the person it always was."""
     g = list(gallery)
     quality = max(d.quality, MIN_GALLERY_QUALITY) if trusted and d.quality >= .2 else d.quality
     if quality >= MIN_GALLERY_QUALITY and math.isfinite(time):
@@ -284,7 +285,8 @@ def add_to_gallery(gallery, d, time, max_size=6, trusted=False):
         for i, s in enumerate(g):
             m = min((_diversity(s, o) for j, o in enumerate(g) if j != i), default=1.0)
             values.append(s.d.quality+1.5*min(m, .3))
-        worst = min(range(len(g)), key=lambda i: (values[i], g[i].time))
+        oldest = min(range(len(g)), key=lambda i: g[i].time)
+        worst = min((i for i in range(len(g)) if i != oldest), key=lambda i: (values[i], g[i].time))
         g.pop(worst)
     return sorted(g, key=lambda s: s.time)
 
@@ -308,6 +310,60 @@ def compare(gallery, probes):
     else:
         out['appearance'] = None
     return out
+
+
+# ---------- batch comparison: galleries of several people against several probe crops ----------
+def _stack(descs, key, floor=None):
+    rows = [np.asarray(getattr(d, key), np.float64) for d in descs]
+    return np.stack([r if floor is None else np.maximum(r, floor) for r in rows])
+
+
+def _batch_hellinger(A, B):
+    """(N, K) x (M, K) histograms -> (N, M) Hellinger distances; NaN where either histogram is empty."""
+    sa, sb = A.sum(axis=1), B.sum(axis=1)
+    bc = (np.sqrt(A) @ np.sqrt(B).T)/np.sqrt(np.maximum(np.outer(sa, sb), 1e-18))
+    d = np.sqrt(np.clip(1-bc, 0, 1))
+    d[(sa <= 1e-9)[:, None] | (sb <= 1e-9)[None, :]] = np.nan
+    return d
+
+
+def _batch_layout(A, B):
+    """(N, 24) x (M, 24) body layouts -> (N, M) layout distances over the cells both know; NaN with none."""
+    a, b = A.reshape(len(A), -1, 3), B.reshape(len(B), -1, 3)
+    ok = (a[:, None, :, 0] >= 0) & (b[None, :, :, 0] >= 0)
+    diff = np.minimum(1, np.linalg.norm(a[:, None]-b[None, :], axis=3)/.5)
+    count = ok.sum(axis=2)
+    return np.where(count > 0, (diff*ok).sum(axis=2)/np.maximum(count, 1), np.nan)
+
+
+def batch_similarity(samples, probes):
+    """(N, M) whole-appearance similarity of N gallery descriptors to M probe descriptors: the learned
+    appearance (OSNet) blended with the whole-uniform colour distance (jersey, shorts, socks and body
+    layout, weighted as in descriptor_distance); colour alone where an embedding is missing. Used to ask
+    whether a person looks more like the known referees or like one team's players."""
+    if not samples or not probes:
+        return np.zeros((len(samples), len(probes)))
+    parts, weights = [], []
+    for key, w in PART_WEIGHTS.items():
+        if key == 'layout':
+            parts.append(_batch_layout(_stack(samples, key), _stack(probes, key)))
+        else:
+            parts.append(_batch_hellinger(_stack(samples, key, 0), _stack(probes, key, 0)))
+        weights.append(w)
+    D = np.stack(parts)
+    W = np.asarray(weights)[:, None, None]*~np.isnan(D)
+    known = W.sum(axis=0)
+    total = np.where(known > 0, (np.nan_to_num(D)*W).sum(axis=0)/np.maximum(known, 1e-9), .5)
+    colour = np.clip(1-total/.6, 0, 1)
+    ea, eb = [d.embedding for d in samples], [d.embedding for d in probes]
+    size = next((len(e) for e in ea+eb if e is not None), 0)
+    usable = lambda e: e is not None and len(e) == size
+    if not size or not any(usable(e) for e in ea) or not any(usable(e) for e in eb):
+        return colour
+    E = lambda es: np.stack([np.asarray(e, np.float64) if usable(e) else np.zeros(size) for e in es])
+    both = np.outer([usable(e) for e in ea], [usable(e) for e in eb])
+    appearance = np.clip((E(ea) @ E(eb).T-COS_LOW)/(COS_HIGH-COS_LOW), 0, 1)
+    return np.where(both, .7*appearance+.3*colour, colour)
 
 
 # ---------- persistence ----------

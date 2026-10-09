@@ -605,7 +605,7 @@ def nearest_boundary(model, p):
         label = f'{side} pitch edge'
     else:
         label = f'{side} grass edge'
-    return {'distance': -best if point_in_polygon(p, poly) else best, 'side': side, 'label': label, 'line': line}
+    return {'distance': -best if point_in_polygon(p, poly) else best, 'side': side, 'label': label, 'line': line, 'a': a, 'b': b}
 
 
 def zone_of(model, box, config):

@@ -26,7 +26,9 @@ import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
 
-from .appearance import Sample, add_to_gallery, compare, decode_descriptor, encode_descriptor
+import numpy as np
+
+from .appearance import Sample, add_to_gallery, batch_similarity, compare, decode_descriptor, encode_descriptor
 from .geometry import clamp, edge_of, iou
 from .roles import RoleDecision, RoleEvidence, decide_role
 from .teams import role_label
@@ -46,6 +48,8 @@ KIT_WINDOW = 4.0
 MAX_EVENTS_PER_STEP = 60
 ROLE_LOCK = .7           # role confidence that converts and locks a referee / goalkeeper role
 ROLE_OUT = {'player': 'PLAYER', 'goalkeeper': 'GOALKEEPER', 'referee': 'REFEREE'}
+OFFICIAL_OUT = {'assistant': 'ASSISTANT_REFEREE', 'centre': 'CENTER_REFEREE', '': 'UNKNOWN_OFFICIAL'}
+LOOKS_PROBES = 3         # recent clean crops compared with the referee and team appearance galleries
 
 
 def r3(v):
@@ -138,6 +142,8 @@ class GlobalPlayer:
     role_history: list = field(default_factory=list)      # [(time, role, reason)]
     emitted_all: list = field(default_factory=list)       # every person dict labelled with this identity
     retired_into: str | None = None
+    official: str = ''                                   # referees: assistant | centre | '' (kind unknown)
+    role_scores: dict = field(default_factory=dict)      # the latest role decision's evidence scores
 
     @property
     def role_label(self):
@@ -210,6 +216,9 @@ class TrackState:
     reason: str = ''
     blind: list = field(default_factory=list)
     released: tuple | None = None
+    looks: tuple | None = None                      # (pool version, time, {'referee', 'A', 'B', 'probes'})
+    role_streak: int = 0                            # consecutive role checks asking for the same new role
+    role_wanted: str | None = None
 
 
 class IdentityManager:
@@ -227,6 +236,7 @@ class IdentityManager:
         self.started = None
         self.last_tick = -math.inf
         self.events_log = []
+        self.pools, self.pools_at = None, -math.inf
         if saved:
             self.restore(saved)
 
@@ -242,7 +252,7 @@ class IdentityManager:
                         'teamConfidence': r3(g.team_confidence), 'roleConfidence': r3(g.role_confidence),
                         'observations': g.observations, 'gkVotes': dict(g.gk_votes), 'roleLocked': g.role_locked,
                         'refereeConfidence': r3(g.referee_confidence), 'goalkeeperConfidence': r3(g.goalkeeper_confidence),
-                        'retiredInto': g.retired_into})
+                        'retiredInto': g.retired_into, 'official': g.official})
         return {'version': 1, 'identities': out, 'counters': dict(self.counters)}
 
     def restore(self, saved):
@@ -266,7 +276,7 @@ class IdentityManager:
                                  team_confidence=clamp(float(v.get('teamConfidence', 0))), role_confidence=clamp(float(v.get('roleConfidence', 0))),
                                  restored=True, gk_votes=Counter(v.get('gkVotes', {})), role_locked=bool(v.get('roleLocked')),
                                  referee_confidence=clamp(float(v.get('refereeConfidence', 0))), goalkeeper_confidence=clamp(float(v.get('goalkeeperConfidence', 0))),
-                                 retired_into=v.get('retiredInto'))
+                                 retired_into=v.get('retiredInto'), official=v.get('official') if v.get('official') in ('assistant', 'centre') else '')
                 self.registry[pid] = g
             except (KeyError, TypeError, ValueError):
                 continue
@@ -294,12 +304,13 @@ class IdentityManager:
             seen.add(s['id'])
         live = sorted((self.tracks[i] for i in seen if i in self.tracks), key=lambda x: x.id)
         if tick:
+            self._behaviour_cues(live, ctx)
             for tr in live:
                 self._check_team(tr, ctx, out)
             self._check_roles(live, ctx, out)
             waiting = [tr for tr in live if tr.state not in ('confirmed', 'uncertain')]
             for tr in waiting:
-                tr.decision = decide_role(tr.evidence, ctx['model'], self.o.min_hits)
+                tr.decision = self._decide(tr, ctx)
             for tr in waiting:
                 self._promote(tr, ctx, out)
             self._resolve([tr for tr in live if tr.state == 'uncertain'], ctx, out)
@@ -362,10 +373,6 @@ class IdentityManager:
                     tr.descs.append((d, t, s['occluded']))
                     if not s['occluded'] and len(tr.first) < 2:
                         tr.first.append(d)
-            vote = s.get('vote')
-            tr.evidence.add(s['cls'], s['score'], vote, dict(s.get('cues', {}), zone=tr.zone))
-            if vote is not None and vote.valid:
-                tr.team_votes.append(vote.team or ('x' if vote.outlier else '-'))
             if tr.hist:
                 prev = tr.hist[-1]
                 dt = t-prev[0]
@@ -373,6 +380,12 @@ class IdentityManager:
                     vx, vy = (tr.stab.x-prev[1])/dt, (tr.stab.y-prev[2])/dt
                     tr.velocity = (.6*tr.velocity[0]+.4*vx, .6*tr.velocity[1]+.4*vy) if len(tr.hist) > 1 else (vx, vy)
             tr.hist.append((t, tr.stab.x, tr.stab.y))
+            vote = s.get('vote')
+            h = max(tr.stab.h, .005)
+            motion = (tr.velocity[0]*ctx['aspect']/h*PLAYER_HEIGHT, tr.velocity[1]/h*PLAYER_HEIGHT)  # metres per second
+            tr.evidence.add(s['cls'], s['score'], vote, dict(s.get('cues', {}), zone=tr.zone, v=motion))
+            if vote is not None and vote.valid:
+                tr.team_votes.append(vote.team or ('x' if vote.outlier else '-'))
             if tr.pitch is not None and tr.last_pitch is not None and 1e-3 < t-tr.last_time <= 1.5:
                 dt = t-tr.last_time
                 vx, vy = (tr.pitch[0]-tr.last_pitch[0])/dt, (tr.pitch[1]-tr.last_pitch[1])/dt
@@ -456,7 +469,7 @@ class IdentityManager:
         for tr in live:
             if tr.state == 'uncertain' and t-tr.role_checked >= 1.0 and len(tr.evidence.records) >= 2*self.o.min_hits and not tr.retired:
                 tr.role_checked = t
-                d = tr.decision = decide_role(tr.evidence, ctx['model'], self.o.min_hits)
+                d = tr.decision = self._decide(tr, ctx)
                 confidence = d.referee_confidence if d.role == 'referee' else d.goalkeeper_confidence if d.role == 'goalkeeper' else 0
                 if d.role in ('referee', 'goalkeeper') and d.role != tr.role and confidence >= ROLE_LOCK:
                     old = self._describe(tr.role, tr.team)
@@ -471,12 +484,15 @@ class IdentityManager:
             if g is None or g.track != tr.id:
                 continue
             tr.role_checked = t
-            d = tr.decision = decide_role(tr.evidence, ctx['model'], self.o.min_hits)
+            d = tr.decision = self._decide(tr, ctx)
             g.referee_confidence, g.goalkeeper_confidence = d.referee_confidence, d.goalkeeper_confidence
+            g.role_scores = d.scores
             if d.role == g.role:
                 current = d.referee_confidence if g.role == 'referee' else d.goalkeeper_confidence if g.role == 'goalkeeper' else d.role_confidence
                 g.role_confidence = r3(max(current, g.role_confidence) if g.role_locked else current)
             if g.role in ('referee', 'goalkeeper'):
+                if g.role == 'referee' and d.role == 'referee' and d.official:
+                    g.official = d.official
                 confidence = d.referee_confidence if g.role == 'referee' else d.goalkeeper_confidence
                 if not g.role_locked and confidence >= ROLE_LOCK:
                     g.role_locked, g.role_confidence = True, max(g.role_confidence, confidence)
@@ -490,18 +506,44 @@ class IdentityManager:
                 continue
             if g.role_locked:
                 continue
-            if d.role == 'referee' and d.referee_confidence >= ROLE_LOCK:
+            # A confirmed player changes role only after two checks in a row (about 2 s) ask for the same
+            # new role: the evidence accumulates, and the label never flips back and forth.
+            want = 'referee' if d.role == 'referee' and d.referee_confidence >= ROLE_LOCK else \
+                'goalkeeper' if d.role == 'goalkeeper' and d.goalkeeper_confidence >= ROLE_LOCK else None
+            tr.role_streak = tr.role_streak+1 if want is not None and want == tr.role_wanted else (1 if want else 0)
+            tr.role_wanted = want
+            if want is None or tr.role_streak < 2:
+                continue
+            if want == 'referee':
                 self._to_referee(tr, g, d, ctx, out)
-            elif d.role == 'goalkeeper' and d.goalkeeper_confidence >= ROLE_LOCK:
+            else:
                 self._to_goalkeeper(tr, g, d, ctx, out)
 
     def _role_lines(self, d):
+        """The evidence behind a role decision, one line each (kit colour, whole appearance against the known
+        referees and each team, detector votes, touchline and central-referee behaviour, team count)."""
         s = d.scores
         lines = []
         if s.get('teamA') is not None:
             lines += [f"Team A similarity: {s['teamA']:.2f}", f"Team B similarity: {s['teamB']:.2f}"]
+        if s.get('refereeAppearance') is not None or s.get('teamAAppearance') is not None or s.get('teamBAppearance') is not None:
+            f = lambda key: 'n/a' if s.get(key) is None else f"{s[key]:.2f}"
+            lines.append(f"Appearance vs known referees / team A / team B: {f('refereeAppearance')} / {f('teamAAppearance')} / {f('teamBAppearance')}")
         lines += [f"Kit matches neither team: {s['neitherTeam']:.0%} of observations", f"Referee kit: {s['refereeKit']:.0%}",
                   f"Detector referee / goalkeeper votes: {s['detectorReferee']:.0%} / {s['detectorGoalkeeper']:.0%}"]
+        if s.get('touchlineTime'):
+            lines.append(f"Time on or outside the touchline: {s['touchlineTime']:.0%}" +
+                         (f", movement along it: {s['parallelMovement']:.2f}" if s.get('parallelMovement') is not None else ''))
+        if s.get('formationConsistency') is not None:
+            lines.append(f"Team formation consistency: {s['formationConsistency']:.2f}")
+        if s.get('ballFollowing') is not None:
+            lines.append(f"Ball-following behaviour: {s['ballFollowing']:.2f}")
+        if s.get('refereeBehaviour') is not None:
+            lines.append(f"Referee movement behaviour: {s['refereeBehaviour']:.2f}")
+        if s.get('teamCrowded'):
+            lines.append('Team already has its full count of identities')
+        if s.get('final'):
+            lines.append(f"Final: {s['final']}")
         return lines
 
     @staticmethod
@@ -600,6 +642,9 @@ class IdentityManager:
         self._bind(tr, target, t, max(.6, g.identity_confidence))
         target.role_locked, target.role_confidence, target.referee_confidence = True, d.referee_confidence, d.referee_confidence
         target.role_history.append((r3(t), 'referee', f'from {g.pid}'))
+        target.role_scores = d.scores
+        if d.official:
+            target.official = d.official
         lines = ['ROLE UPDATE', f'Global ID: {g.pid} -> {target.pid}' + (f' ({g.pid} retired: it was this referee)' if born_here else ''),
                  f'Local Track: {tr.id}', f'Old role: {old}', 'New role: REFEREE'] + self._role_lines(d) + [f'Referee confidence: {d.referee_confidence:.2f}']
         out['events'].append(self._event('role', tr.id, target.pid, '\n'.join(lines), {'referee': d.referee_confidence, **d.scores}))
@@ -653,6 +698,107 @@ class IdentityManager:
         self._restyle(g)
         out['events'].append(self._event('role', tr.id, g.pid, '\n'.join(['GOALKEEPER IDENTIFIED', f'Global ID: {g.pid} (shown as {g.display})', f'Team: {g.team}',
                                                                             'Old role: PLAYER', 'New role: GOALKEEPER'] + lines), {'goalkeeper': d.goalkeeper_confidence, **s}))
+
+    # ---------- evidence for the role decision ----------
+    def _decide(self, tr, ctx):
+        """The temporal role decision with this person's whole-appearance similarity to the known referees
+        and to each team's players, and whether the kit's team already has its full count of identities."""
+        return decide_role(tr.evidence, ctx['model'], self.o.min_hits, self._looks(tr, ctx['time']), self._crowded(tr))
+
+    def _crowded(self, tr):
+        """{team: True} where that team already has max_per_team identities other than this track's own."""
+        own = self.registry.get(tr.player_id) if tr.player_id else None
+        out = {}
+        for team in ('A', 'B'):
+            n = self._count(team)-(1 if own is not None and own.role == 'player' and own.team == team else 0)
+            out[team] = n >= self.o.max_per_team
+        return out
+
+    def _pools(self, t):
+        """Reference appearance galleries, refreshed once a second: every locked referee with all its crops
+        (the referee appearance gallery) and the confident players of each team."""
+        if self.pools is not None and 0 <= t-self.pools_at < 1.0:
+            return self.pools
+        pools = {'referee': [], 'A': [], 'B': []}
+        for g in self.registry.values():
+            if g.status in ('retired', 'substituted', 'unknown') or not g.gallery:
+                continue
+            if g.role == 'referee' and g.role_locked:
+                pools['referee'].append((g.pid, [x.d for x in g.gallery]))
+            elif g.role == 'player' and g.team in ('A', 'B') and g.observations >= 5 and g.team_confidence >= .5:
+                pools[g.team].append((g.pid, [x.d for x in g.gallery[-3:]]))
+        self.pools, self.pools_at = pools, t
+        return pools
+
+    def _looks(self, tr, t):
+        """Whole-appearance similarity of this person to the known referees (the most similar one) and to
+        each team's players (the median player, so a few mislabelled identities cannot define a team's
+        look): learned appearance plus the whole uniform, from the last few clean crops. A track's own
+        identity is never its own evidence. Cached for a second."""
+        pools = self._pools(t)
+        if tr.looks is not None and tr.looks[0] == self.pools_at and 0 <= t-tr.looks[1] < 1.0:
+            return tr.looks[2]
+        probes = [d for d, _, occluded in tr.descs if not occluded and d.quality >= .3][-LOOKS_PROBES:] or [d for d, _, _ in tr.descs][-LOOKS_PROBES:]
+        out = {'referee': None, 'A': None, 'B': None, 'probes': len(probes)}
+        for group, members in pools.items():
+            members = [(pid, descs) for pid, descs in members if pid != tr.player_id]
+            if not probes or not members:
+                continue
+            sim = batch_similarity([d for _, descs in members for d in descs], probes)
+            values, i = [], 0
+            for _, descs in members:
+                block = np.sort(sim[i:i+len(descs)].ravel())
+                values.append(float(block[-2:].mean()))
+                i += len(descs)
+            out[group] = round(max(values) if group == 'referee' else float(np.median(values)), 3)
+        tr.looks = (self.pools_at, t, out)
+        return out
+
+    def _behaviour_cues(self, live, ctx):
+        """Per evidence tick, for everyone seen now: metres to the ball, where
+        they sit in each team's shape (distance from that team's centroid in units of its spread, from the
+        confirmed players of the team other than themselves) and whether they move with that team. Written
+        onto the tick's evidence record; the role decision reads them over its window."""
+        t, aspect = ctx['time'], ctx['aspect']
+        seen = [tr for tr in live if tr.seen_at == t and tr.state != 'rejected' and tr.evidence.records]
+        if not seen:
+            return
+        point = lambda tr: (tr.stab.x*aspect, tr.stab.y, max(tr.stab.h, .005))
+        ball = ctx.get('ball')
+        distances = {}
+        if ball is not None:
+            bx, by = ball['stab'][0]*aspect, ball['stab'][1]
+            for tr in seen:
+                if ball.get('pitch') is not None and tr.pitch is not None:
+                    distances[tr.id] = math.hypot((tr.pitch[0]-ball['pitch'][0])*PITCH_LENGTH, (tr.pitch[1]-ball['pitch'][1])*PITCH_WIDTH)
+                else:
+                    x, y, h = point(tr)
+                    distances[tr.id] = math.hypot(x-bx, y-by)/h*PLAYER_HEIGHT
+        teams = {}
+        for tr in seen:
+            g = self.registry.get(tr.player_id) if tr.state == 'confirmed' and tr.player_id else None
+            if g is not None and g.role == 'player' and g.team in ('A', 'B'):
+                teams.setdefault(g.team, []).append(tr)
+        for tr in seen:
+            rec = tr.evidence.records[-1]
+            if tr.id in distances:
+                rec['ball_m'] = round(distances[tr.id], 1)
+            x, y, h = point(tr)
+            own = (tr.velocity[0]*aspect/h*PLAYER_HEIGHT, tr.velocity[1]/h*PLAYER_HEIGHT)
+            formation, move = {}, {}
+            for team, members in teams.items():
+                members = [m for m in members if m is not tr]
+                if len(members) < 3:
+                    continue
+                pts = [point(m) for m in members]
+                cx, cy, ch = (sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts), sum(p[2] for p in pts)/len(pts))
+                spread = sum(math.hypot(p[0]-cx, p[1]-cy) for p in pts)/len(pts)/ch*PLAYER_HEIGHT
+                formation[team] = round(math.hypot(x-cx, y-cy)/((h+ch)/2)*PLAYER_HEIGHT/max(spread, 5.0), 2)
+                vx = sum(m.velocity[0] for m in members)/len(members)*aspect/ch*PLAYER_HEIGHT
+                vy = sum(m.velocity[1] for m in members)/len(members)/ch*PLAYER_HEIGHT
+                if math.hypot(vx, vy) >= 1.0 and math.hypot(*own) >= 1.0:
+                    move[team] = round((own[0]*vx+own[1]*vy)/(math.hypot(*own)*math.hypot(vx, vy)), 2)
+            rec['formation'], rec['move'] = formation or None, move or None
 
     # ---------- re-identification ----------
     def _lost_for(self, g):
@@ -992,6 +1138,7 @@ class IdentityManager:
             g.role_history.append((r3(ctx['time']), role, f'created with role confidence {tr.role_confidence:.2f}'))
             if tr.decision is not None:
                 g.referee_confidence, g.goalkeeper_confidence = tr.decision.referee_confidence, tr.decision.goalkeeper_confidence
+                g.role_scores, g.official = tr.decision.scores, (tr.decision.official if role == 'referee' else '')
         self.registry[pid] = g
         for d, t, occluded in tr.descs:
             if not occluded:
@@ -1338,6 +1485,8 @@ class IdentityManager:
                       'cls': tr.cls, 'zone': tr.zone, 'evidence': 'observed'}
             if tr.pitch is not None:
                 person['pitch'] = [round(float(tr.pitch[0]), 4), round(float(tr.pitch[1]), 4)]
+            if tick and tr.decision is not None and tr.decision.why:
+                person['why'] = tr.decision.why
             if g is not None and tick:
                 self._check_mismatch(tr, g, ctx, out)
                 if tr.player_id != g.pid:
@@ -1561,7 +1710,8 @@ class IdentityManager:
                      'lastBox': [round(float(v), 4) for v in g.last_box],
                      'lastPitch': None if g.last_pitch is None else [r3(g.last_pitch[0]), r3(g.last_pitch[1])],
                      'velocity': [round(float(g.velocity[0]), 4), round(float(g.velocity[1]), 4)], 'exitEdge': g.exit_edge,
-                     'restored': g.restored, 'history': list(g.history)[-10:]}
+                     'restored': g.restored, 'history': list(g.history)[-10:],
+                     'official': OFFICIAL_OUT.get(g.official, '') if g.role == 'referee' else None, 'roleEvidence': g.role_scores}
             if g.status == 'retired':
                 entry['retiredInto'] = g.retired_into
                 groups['retired'].append(entry)

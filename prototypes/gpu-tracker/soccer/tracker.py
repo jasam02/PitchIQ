@@ -13,9 +13,9 @@ import numpy as np
 from . import appearance as app
 from .ball import BallTracker
 from .camera import CameraMotion, CameraState, Keyframes
-from .geometry import iou
-from .identity import IdentityManager, Options, Stab
-from .pitch import FieldFilter, PitchDetector, calibrated_model, warp_model
+from .geometry import foot_point, iou
+from .identity import PLAYER_HEIGHT, IdentityManager, Options, Stab
+from .pitch import FieldFilter, PitchDetector, calibrated_model, nearest_boundary, warp_model
 from .relevance import REJECT_TEXT, assess
 from .goals import GoalMemory, position_cues
 from .teams import TeamModel, fit_team_model, kit_vote, with_keepers, with_referee
@@ -74,6 +74,7 @@ class SoccerTracker:
         self.events = []
         self.issues = []
         self.cuts = 0
+        self.last_ball = None   # the previous frame's ball position, a role cue for everyone
 
     def _scale(self, boxes):
         """Expected person height (normalized) at a foot row: the perspective size model, else the median
@@ -175,13 +176,22 @@ class SoccerTracker:
         if tick:
             self.goals.update(pitch.goals, self.state.stabilize_point, self.state.segment, time)
             cues = position_cues(samples, self.goals, self.aspect)
+            edges = pitch.reliable and len(pitch.polygon) >= 3
             for sample in samples:
                 sample['cues'] = cues[sample['id']]
+                edge = nearest_boundary(pitch, foot_point(sample['box'])) if edges else None
+                if edge is not None:
+                    # The nearest pitch edge: how far beyond it (metres, negative inside) and which way it runs.
+                    dx, dy = (edge['b'][0]-edge['a'][0])*self.aspect, edge['b'][1]-edge['a'][1]
+                    length = math.hypot(dx, dy) or 1.0
+                    sample['cues']['edge'] = {'side': edge['side'], 'metres': round(edge['distance']/max(sample['box'][3], 1e-3)*PLAYER_HEIGHT, 2),
+                                              'dir': (dx/length, dy/length)}
         # 6. Global identity manager.
         result = self.ids.update({'time': time, 'tick': tick, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                   'model': self.model, 'pitch_reliable': pitch.reliable or self.keyframes.boundary() is not None,
                                   'filter_enabled': self.config.field_filter.enabled, 'aspect': self.aspect,
-                                  'segment': self.state.segment, 'drift': self.state.drift})
+                                  'segment': self.state.segment, 'drift': self.state.drift,
+                                  'ball': self.last_ball if self.last_ball is not None and self.last_ball['segment'] == self.state.segment else None})
         for ghost in result['drop']:
             self.local.forget(ghost)
         # 7. The single match ball (its own tracker, separate from people).
@@ -191,6 +201,12 @@ class SoccerTracker:
         ball, ball_candidates = self.ball.step(frame, time, ball_rows if ball_rows is not None else np.zeros((0, 6)), M, reliable, cut,
                                                pitch, people, self._scale(boxes), self.state.stabilize_point, self.state.segment,
                                                self.keyframes.to_pitch_point if calibrated else None)
+        if ball['state'] in ('TRACKED', 'MISSING') and ball['confidence'] >= .4:
+            cx, cy = ball['center']
+            self.last_ball = {'stab': self.state.stabilize_point(cx, min(1.0, cy+ball['box'][3]/2)), 'segment': self.state.segment,
+                              'pitch': tuple(ball['pitch']) if ball.get('pitch') else None}
+        else:
+            self.last_ball = None
         self.events += result['events']+self.ball.events
         self.ball.events = []
         self.issues += result['issues']

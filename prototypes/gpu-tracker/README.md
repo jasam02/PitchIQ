@@ -139,16 +139,31 @@ jersey like one team's but with black shorts matches neither) and where the
 person stands (in or near a penalty area, the deepest person towards a goal,
 isolated from everyone, on the touchline):
 
-- `PLAYER_TEAM_A/B`: at least 70% of kit votes for one team.
-- `REFEREE`: the detector's referee votes; or a kit like the learned referee
-  kit while following play away from the goals; or a kit matching neither team
-  running the touchline (an assistant referee). A kit matching neither team is
-  not a referee by itself (a team kit in shadow does that too): the detector
-  must agree at least sometimes, or the person must look like a known referee.
-  A kit that matches a team holds a referee decision back unless the detector's
-  votes are a clear majority; a loose match near the edge of that team's colour
-  spread (a pink referee next to a garnet kit) holds it back less, and such a
-  person the detector mostly calls a referee also seeds the referee kit.
+- `PLAYER_TEAM_A/B`: at least 70% of kit votes for one team, and the person does
+  not look more like the known referees than like that team's players (then they
+  stay a candidate rather than becoming a wrong player).
+- `REFEREE`, by the strongest of four routes: the detector's referee votes; the
+  person's **whole appearance** (OSNet embedding plus jersey, shorts, socks and
+  body-layout colours, over the last few clean crops) looking more like the
+  known referees than like either team's players; **touchline behaviour** (time
+  on or up to 4 m outside one pitch edge, moving along it) together with
+  referee appearance, the referee kit or detector votes (an assistant referee);
+  or a kit like the learned referee kit, or matching neither team and backed by
+  detector votes or referee appearance, while following play away from the
+  goals. A kit matching neither team is never a referee by itself, on the pitch
+  or on the touchline (a team kit in shadow, a coach pacing the line). A kit
+  that matches a team holds the detector and position routes back unless the
+  detector's votes are a clear majority or the match is loose (near the edge of
+  that team's colour spread: a pink referee next to a garnet kit); it never
+  holds back the appearance and touchline routes, which already weigh the
+  person against that team's players. When that team already has its full
+  count of identities, another "team player" is doubted and the referee
+  threshold drops. Once a referee is locked, every crop in its gallery joins
+  the referee appearance gallery, so the other officials in the same uniform
+  are found by looking like them; a person the detector mostly calls a referee
+  also seeds the referee kit. Central-referee behaviour (following the ball
+  without playing it, sitting outside the supposed team's shape, moving with
+  neither team) adds to the appearance route; it never decides alone.
 - `GOALKEEPER`: the detector's goalkeeper votes; or time in or near a penalty
   area in a kit unlike the outfield kits (or like a known goalkeeper kit) while
   being the deepest or most isolated person. At least one strong cue (detector,
@@ -159,7 +174,9 @@ isolated from everyone, on the touchline):
 Roles keep being re-evaluated after promotion, about once a second. A referee or
 goalkeeper role with a role confidence of at least 0.7 is **locked**: it
 survives leaving the goal area, odd frames or a detector that changes its mind,
-and is never turned back into a team player. A player identity whose evidence
+and is never turned back into a team player. A confirmed player changes role
+only after two consecutive checks (about 2 s) ask for the same new role, so a
+label never flips back and forth. A player identity whose evidence
 becomes clearly referee is converted: a matching missing referee identity, or a
 new `REF-n`, takes over the track; if the player identity only ever followed
 this person it is merged into the referee (`RETIRED`) and every observation
@@ -168,7 +185,14 @@ player identity that turns out to be the goalkeeper keeps its ID, gets the
 locked goalkeeper role and is shown as `GK-A` / `GK-B`, earlier observations
 included. A returning referee or goalkeeper is matched by their own appearance
 even when the detector or the kit vote calls them a player. Every change is
-logged (`ROLE UPDATE`, `GOALKEEPER IDENTIFIED`, `GOALKEEPER TEAM`). An
+logged (`ROLE UPDATE`, `GOALKEEPER IDENTIFIED`, `GOALKEEPER TEAM`), with the
+evidence behind it: appearance against the known referees and both teams,
+detector votes, touchline time and movement along the line, formation
+consistency, ball-following behaviour, team count. The same evidence is kept
+as `roleEvidence` on every identity and shown as a one-line `why` under each
+person in the debug overlay. Referees also carry the kind of official the
+evidence suggests (`ASSISTANT_REFEREE` on the touchline, `CENTER_REFEREE`
+inside the pitch, `UNKNOWN_OFFICIAL`); all are shown as `REF-n`. An
 established team only changes after 80% of the last 15 votes point to the other
 kit (the identity is then released and re-identified).
 
@@ -197,6 +221,7 @@ them. The **global identity manager** keeps a registry of real people:
 | `team`, `role`, `label` | `A` / `B` / none; `PLAYER`, `GOALKEEPER`, `REFEREE`; combined `PLAYER_TEAM_A`, `GOALKEEPER_TEAM_B`, `REFEREE` |
 | `status` | `ACTIVE`, `MISSING`, `OFF_SCREEN` (left at an image edge), `RETIRED` (merged into the referee or goalkeeper it really was) |
 | `roleLocked`, `roleHistory` | whether the referee / goalkeeper role is locked, and when and why the role changed |
+| `official`, `roleEvidence` | referees: `ASSISTANT_REFEREE` / `CENTER_REFEREE` / `UNKNOWN_OFFICIAL`; the latest role decision's evidence scores |
 | gallery | up to 6 diverse, high-quality samples (OSNet embedding + kit colours) |
 | last seen | time, image box, pitch position, camera-compensated velocity, exit edge |
 | confidences | identity, team, role, referee and goalkeeper confidence; recent history |
@@ -320,7 +345,8 @@ prediction, incorrect re-acquisitions and continuity:
 - **Identity debug** labels every tracked person, e.g. `A-07 · Track 91 · Team A ·
   Role: PLAYER 92% · Identity: 94%`; goalkeepers `GK-A (GK-1)`, referees
   `REF-1`; unresolved people `A-?`, `REF-?`, `GK-?`, `UNK-3`, with the reason they
-  are not yet identified. Colours: violet team A, orange team B, pink goalkeepers,
+  are not yet identified; and under each person the role evidence in one line
+  (`looks ref 0.84 A 0.16 B 0.72 | touchline 94% along 0.91 | ASSISTANT REFEREE 0.98`). Colours: violet team A, orange team B, pink goalkeepers,
   yellow referees, dotted while the identity is uncertain, grey for unknown,
   white dashed for candidates, red dashed for people rejected outside the field.
 - **Pitch boundary** shows the detected playable region in light blue (teal when
@@ -366,9 +392,14 @@ Old role: PLAYER (team B)
 New role: REFEREE
 Team A similarity: 0.08
 Team B similarity: 0.61
+Appearance vs known referees / team A / team B: 0.84 / 0.16 / 0.52
 Kit matches neither team: 74% of observations
 Referee kit: 70%
 Detector referee / goalkeeper votes: 74% / 0%
+Team formation consistency: 0.31
+Ball-following behaviour: 0.79
+Referee movement behaviour: 0.68
+Final: CENTRE REFEREE 0.83
 Referee confidence: 0.83
 
 GOALKEEPER IDENTIFIED
@@ -444,8 +475,8 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `CANDIDATE`, …), `state` (`candidate`, `uncertain`, `confirmed`, `unknown`,
   `rejected`), `identityConfidence`, `roleConfidence`, `box` (normalized screen
   coordinates), optional `pitch`, `zone`, `cls` (detector class), `evidence`
-  (`observed`, `reidentified` or `relabelled` after a role change), and `reason`
-  while unresolved.
+  (`observed`, `reidentified` or `relabelled` after a role change), `reason`
+  while unresolved, and `why` (the role evidence in one line) on evidence ticks.
 - `ball`: `state` (`TRACKED`, `MISSING`, `UNKNOWN`), `phase` (`SEARCHING`,
   `LOCKED`, `OCCLUDED`, `RECOVERING`), `confidence`, and unless unknown
   `track` (`BALL-n`), `observed`, `box`, `center`, `predicted` (next frame),
@@ -456,14 +487,16 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `reason` / `text`, and `scores` (detector, size, shape, isolation, field, line,
   attachment, motion, static, trajectory, distance, penalty).
 - `match.players`, `match.goalkeepers`, `match.referees`, `match.retired`: the
-  registry, separated. **Tactical analysis should use only people with an `id`
+  registry, separated (referees with `official`, every identity with
+  `roleEvidence`). **Tactical analysis should use only people with an `id`
   whose role is `PLAYER` or `GOALKEEPER`, and treat low `identityConfidence`
   values with care.** Referees are never players.
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
   share of on-pitch observations with an identity, ball coverage, ball tracks,
   reconnections and losses, time per ball state, rejected ball candidates by
-  reason, role conversions, which team defends which side, speed).
+  reason, role conversions, assistant and centre referees, which team defends
+  which side, speed).
 
 Score a run against hand-annotated frames with the existing evaluator (it reads
 this format directly):

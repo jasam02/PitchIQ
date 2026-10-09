@@ -256,7 +256,9 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
     roles = {'refereeConversions': sum(1 for e in events if e['kind'] == 'role' and 'New role: REFEREE' in e['message']),
              'goalkeepersIdentified': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER IDENTIFIED')),
              'goalkeeperTeams': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER TEAM')),
-             'mergedIdentities': len(match['retired'])}
+             'mergedIdentities': len(match['retired']),
+             'assistantReferees': sum(1 for p in match['referees'] if p.get('official') == 'ASSISTANT_REFEREE'),
+             'centreReferees': sum(1 for p in match['referees'] if p.get('official') == 'CENTER_REFEREE')}
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
                'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': len(match['goalkeepers']), 'referees': len(match['referees']),
                                     'merged': len(match['retired'])},

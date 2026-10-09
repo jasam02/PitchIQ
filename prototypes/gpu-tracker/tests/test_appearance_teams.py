@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 
 from scene import H, W, draw_person, person_box, pitch_frame
-from soccer.appearance import (Descriptor, add_to_gallery, compare, decode_descriptor, describe, descriptor_distance,
-                               encode_descriptor, grass_reference)
+from soccer.appearance import (Descriptor, add_to_gallery, batch_similarity, compare, cosine_similarity, decode_descriptor, describe,
+                               descriptor_distance, embedding_cosine, encode_descriptor, grass_reference)
 from soccer.roles import RoleEvidence, decide_role
 from soccer.teams import TeamModel, fit_team_model, kit_vote, with_referee
 
@@ -22,6 +22,27 @@ class AppearanceTests(unittest.TestCase):
         box = person_box(*foot, height)
         draw_person(self.frame, box, kit)
         return describe(self.frame, px(box), [px(b) for b in others], None, self.ref)
+
+    def test_batch_similarity_matches_the_pairwise_comparison(self):
+        rng = np.random.default_rng(3)
+        unit = lambda: (lambda v: v/np.linalg.norm(v))(rng.normal(size=512))
+
+        def desc(embedding=None, jersey=True):
+            j, sh, so = rng.random(24), rng.random(12), rng.random(8)
+            layout = rng.random((8, 3))
+            layout[rng.random(8) < .25] = -1
+            return Descriptor(j/j.sum() if jersey else np.zeros(24), sh/sh.sum(), so/so.sum(), layout.ravel(), .8, embedding)
+        gallery = [desc(unit()) for _ in range(3)]+[desc(), desc(unit(), jersey=False)]
+        probes = [desc(unit()), desc()]
+        sim = batch_similarity(gallery, probes)
+        self.assertEqual(sim.shape, (5, 2))
+        for i, g in enumerate(gallery):
+            for j, p in enumerate(probes):
+                colour = max(0.0, 1-descriptor_distance(g, p)['total']/.6)
+                cos = embedding_cosine(g.embedding, p.embedding)
+                expected = colour if cos is None else .7*cosine_similarity(cos)+.3*colour
+                self.assertAlmostEqual(float(sim[i, j]), expected, delta=.003, msg=(i, j))  # descriptor_distance rounds its parts
+        self.assertEqual(batch_similarity([], probes).shape, (0, 2))
 
     def test_part_descriptor_separates_kits_and_ignores_grass(self):
         a1, a2, b = self.describe('A', (.3, .6)), self.describe('A', (.5, .7)), self.describe('B', (.7, .6))

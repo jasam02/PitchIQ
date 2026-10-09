@@ -1,3 +1,4 @@
+import contextlib
 import unittest
 
 import numpy as np
@@ -57,6 +58,30 @@ class Person:
         return Descriptor(JERSEY[self.kit].copy(), shorts, shorts[:8].copy(), np.full(24, .5), quality, self.embedding())
 
 
+@contextlib.contextmanager
+def pink_kit(shorts='B'):
+    """A 'PINK' kit: a jersey inside team B's colour spread but near its edge (a pink referee next to a
+    garnet kit), the given shorts, and the referees' learned appearance."""
+    limit = min(.5, 2.5*MODEL.team_spread('B')+.1)
+    for w in np.linspace(.05, .95, 91):
+        jersey = (1-w)*JERSEY['B']+w*JERSEY['REF']
+        if .85*limit <= hellinger(jersey, MODEL.b) < .97*limit and hellinger(jersey, MODEL.a) > limit:
+            break
+    else:
+        raise AssertionError('no blend lands near the edge of the team spread')
+    JERSEY['PINK'], SHORTS['PINK'], TEAM_BASE['PINK'] = jersey, SHORTS[shorts], TEAM_BASE['REF']
+    try:
+        yield
+    finally:
+        for table in (JERSEY, SHORTS, TEAM_BASE):
+            table.pop('PINK', None)
+
+
+def same_uniform(other):
+    """An OSNet appearance close to another person's: the officials wear one uniform."""
+    return unit(other.unique+.3*unit(RNG.normal(size=512)))
+
+
 def box_at(x, y, h=.12):
     w = h*.38*9/16
     return [x-w/2, y-h, w, h]
@@ -70,8 +95,9 @@ class Driver:
         self.events = []
         self.people = []
 
-    def step(self, visible, ended=(), zone='inside', segment=0, dt=.2, cues=None):
-        """visible: {local id: (Person, x, y)}; zone and cues: a value or a function of the local id."""
+    def step(self, visible, ended=(), zone='inside', segment=0, dt=.2, cues=None, ball=None):
+        """visible: {local id: (Person, x, y)}; zone and cues: a value or a function of the local id; ball: its
+        camera-stabilized (x, y) when known."""
         samples = []
         boxes = {tid: box_at(x, y) for tid, (_, x, y) in visible.items()}
         for tid, (p, x, y) in visible.items():
@@ -84,7 +110,7 @@ class Driver:
                             'stab': Stab(x, y, .12), 'descriptor': d, 'vote': kit_vote(self.model, d.jersey, d.shorts), 'cues': c or {}})
         out = self.ids.update({'time': self.t, 'tick': True, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                'model': self.model, 'pitch_reliable': True, 'filter_enabled': True, 'aspect': 16/9,
-                               'segment': segment, 'drift': 0})
+                               'segment': segment, 'drift': 0, 'ball': {'stab': ball, 'pitch': None} if ball else None})
         self.events += out['events']
         self.people.append(out['people'])
         self.t += dt
@@ -337,16 +363,7 @@ class IdentityTests(unittest.TestCase):
     def test_loosely_matching_kit_with_detector_referee_votes_is_a_referee(self):
         # A referee kit close to team B's colours (inside B's spread, but near its edge) and a detector
         # that calls them a referee most of the time: the detector is not held back by the loose match.
-        limit = min(.5, 2.5*MODEL.team_spread('B')+.1)
-        for w in np.linspace(.05, .95, 91):
-            jersey = (1-w)*JERSEY['B']+w*JERSEY['REF']
-            if .85*limit <= hellinger(jersey, MODEL.b) < .97*limit and hellinger(jersey, MODEL.a) > limit:
-                break
-        else:
-            self.fail('no blend lands near the edge of the team spread')
-        JERSEY['PINK'], SHORTS['PINK'] = jersey, SHORTS['B']
-        TEAM_BASE['PINK'] = TEAM_BASE['REF']
-        try:
+        with pink_kit():
             d = Driver()
             ref = Person('PINK', cls='referee')
             ref.cycle = ['referee', 'referee', 'player', 'referee', 'referee', 'referee', 'player', 'referee', 'referee', 'referee']
@@ -361,9 +378,101 @@ class IdentityTests(unittest.TestCase):
             out = d.run(6, {1: (ref, .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)})
             self.assertEqual((out[1]['team'], out[1]['role']), ('B', 'PLAYER'), out[1])
             self.assertEqual(d.ids.referee_samples(MODEL), [])
-        finally:
-            for table in (JERSEY, SHORTS, TEAM_BASE):
-                table.pop('PINK', None)
+
+    def test_referee_in_a_team_like_kit_is_corrected_by_the_known_referees_appearance(self):
+        # The centre referee in a kit near team B's colours, the detector calling them a player: with no
+        # referee known they become a team B player. Once the other official (REF-1) is confirmed, their
+        # whole appearance says "like the known referees, not like team B's players" (the officials wear one
+        # uniform), the player identity is converted into REF-2 and retired, and its observations follow.
+        with pink_kit():
+            d = Driver()
+            ref1 = Person('REF')
+            centre = Person('PINK', cls='player', unique=same_uniform(ref1))
+            team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+            out = d.run(3, {1: (centre, .5, .45), **team})
+            pid = out[1]['id']
+            self.assertTrue(pid and pid.startswith('B-'), out[1])
+            view = {1: (centre, .5, .45), 2: (ref1, .35, .4), **team}
+            out = d.run(8, view, ball=(.56, .55))  # the ball a couple of metres from the referee, never at their feet
+            self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team']), ('REF-2', 'REFEREE', None), out[1])
+            self.assertEqual(out[2]['id'], 'REF-1')
+            self.assertEqual((d.ids.registry[pid].status, d.ids.registry[pid].retired_into), ('retired', 'REF-2'))
+            self.assertEqual({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'REF-2'})
+            update = [e for e in d.kinds('role') if 'New role: REFEREE' in e['message'] and f'Global ID: {pid} -> REF-2' in e['message']]
+            self.assertEqual(len(update), 1, [e['message'] for e in d.kinds('role')])
+            for line in ('Appearance vs known referees / team A / team B:', 'Ball-following behaviour:', 'Team formation consistency:', 'Final: '):
+                self.assertIn(line, update[0]['message'])
+            players = d.ids.summary()['players']
+            self.assertEqual(sum(1 for g in players if g['team'] == 'B'), 3)
+            self.assertNotIn(pid, [g['id'] for g in players])
+            referee = next(g for g in d.ids.summary()['referees'] if g['id'] == 'REF-2')
+            self.assertIsNotNone(referee['roleEvidence'].get('refereeAppearance'))
+            self.assertIn('looks ref', out[1]['why'])
+            # Settled: the detector calling them a player for a long while never makes them B-04 again.
+            out = d.run(12, {**view, 1: (centre, .55, .5)})
+            self.assertEqual((out[1]['id'], out[1]['role']), ('REF-2', 'REFEREE'))
+            self.assertEqual(len(d.ids.summary()['referees']), 2)
+
+    def test_touchline_official_in_a_team_like_kit_is_an_assistant_referee(self):
+        # The officials at the near touchline: a kit near team B's colours, the detector calling them a
+        # player, on or just outside the line and moving along it. With REF-1 known, the whole appearance
+        # and the touchline behaviour make them an ASSISTANT REFEREE, never a team B player.
+        with pink_kit():
+            d = Driver()
+            ref1 = Person('REF')
+            official = Person('PINK', cls='player', unique=same_uniform(ref1))
+            team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+            d.run(2, {2: (ref1, .35, .4), **team})
+            self.assertEqual(d.ids.tracks[2].player_id, 'REF-1')
+            edge = {'edge': {'side': 'near', 'metres': 1.0, 'dir': (1.0, 0.0)}}
+            x = .3
+            for _ in range(25):  # 5 s walking along the near touchline, a metre outside it
+                x += .006
+                out = d.step({1: (official, x, .93), 2: (ref1, .35, .4), **team}, zone=lambda tid: 'boundary' if tid == 1 else 'inside',
+                             cues=lambda tid: edge if tid == 1 else {})
+            self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team']), ('REF-2', 'REFEREE', None), out[1])
+            self.assertEqual(d.ids.registry['REF-2'].official, 'assistant')
+            self.assertEqual(next(g for g in d.ids.summary()['referees'] if g['id'] == 'REF-2')['official'], 'ASSISTANT_REFEREE')
+            found = [e for e in d.kinds('role') if e['message'].startswith('REFEREE IDENTIFIED') and 'Global ID: REF-2' in e['message']]
+            self.assertEqual(len(found), 1, [e['message'] for e in d.kinds('role')])
+            for line in ('Appearance vs known referees / team A / team B:', 'Time on or outside the touchline: 100%', 'movement along it: 1.00',
+                         'Final: ASSISTANT REFEREE'):
+                self.assertIn(line, found[0]['message'])
+            self.assertIn('ASSISTANT REFEREE', out[1]['why'])
+            self.assertEqual(sum(1 for g in d.ids.summary()['players'] if g['team'] == 'B'), 3)
+
+    def test_staff_pacing_the_touchline_without_referee_evidence_stay_unidentified(self):
+        # A coach in clothes matching neither team walks along the touchline. Touchline behaviour alone is
+        # not a referee: with no referee look, no referee kit and no detector votes, nobody is promoted.
+        d = Driver()
+        coach = Person('GK', cls='player')
+        visible = {2: (Person('REF'), .35, .4), **{10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}}
+        d.run(2, visible)
+        edge = {'edge': {'side': 'near', 'metres': 2.0, 'dir': (1.0, 0.0)}}
+        x = .3
+        for _ in range(30):
+            x += .005
+            out = d.step({1: (coach, x, .93), **visible}, zone=lambda tid: 'boundary' if tid == 1 else 'inside', cues=lambda tid: edge if tid == 1 else {})
+        self.assertIsNone(out[1]['id'], out[1])
+        self.assertEqual(out[1]['role'], 'UNKNOWN')
+        self.assertEqual(len(d.ids.summary()['referees']), 1)
+
+    def test_full_team_doubts_another_team_kit_player_the_detector_calls_a_referee(self):
+        # Team B already has its full count of identities. Another person in team B's kit whom the detector
+        # calls a referee more often than not is then a referee, not one more B player; with room in the
+        # team the same evidence, held back by the team kit, leaves them a team B player.
+        for cap, expected in ((3, ('REF', 'REFEREE', None)), (11, ('B-', 'PLAYER', 'B'))):
+            with self.subTest(cap=cap):
+                d = Driver(Options(max_per_team=cap))
+                team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+                d.run(2, team)
+                extra = Person('B', cls='player')
+                extra.cycle = ['referee', 'referee', 'player', 'referee', 'player']
+                out = d.run(4, {1: (extra, .5, .45), **team})
+                self.assertTrue(out[1]['id'] and out[1]['id'].startswith(expected[0]), out[1])
+                self.assertEqual((out[1]['role'], out[1]['team']), expected[1:], out[1])
+                if cap == 3:
+                    self.assertIn('Team already has its full count of identities', [e for e in d.kinds('role') if 'REFEREE IDENTIFIED' in e['message']][0]['message'])
 
     def test_locked_referee_is_never_turned_into_a_player(self):
         d = Driver()
