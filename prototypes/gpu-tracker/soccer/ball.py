@@ -40,7 +40,7 @@ ACCEL_NOISE = 30.0       # m/s^2 process noise of the Kalman filter (bounces, fr
 GATE_FLOOR = .45         # metres: the gate around the prediction is never tighter than this
 CONTACT_REACH = 1.5      # metres from a player's feet within which a touch, deflection or occlusion can happen
 OCCLUDED_MAX = .4        # seconds of a short gap with immediate reconnection near the prediction
-MAX_MISSING = 1.5        # seconds a free ball is predicted before it is LOST
+MAX_MISSING = 2.5        # seconds a free ball is predicted before it is LOST (detectors miss a rolling ball for a while)
 MAX_CARRIED = 3.0        # ... while it is at (hidden by) a player
 PARKED_MAX = 8.0         # seconds a ball may rest before the track waits for motion again
 STATIC_SECONDS = 2.0     # a candidate seen this long at one spot without moving is a static false positive
@@ -323,6 +323,10 @@ class BallTracker:
             return math.hypot((a.pitch[0]-b.pitch[0])*105, (a.pitch[1]-b.pitch[1])*68)
         px_m = max(1e-3, (a.px_m+b.px_m)/2)
         return math.hypot((a.stab[0]-b.stab[0])*self.W, (a.stab[1]-b.stab[1])*self.H)/px_m
+
+    def _metres_since(self, entry, c):
+        """Metres between an observed history entry (time, x, y, observed, stab, pitch, px_m) and a candidate."""
+        return self._metres(Candidate(0, [], 0, entry[1], entry[2], 1, entry[6], entry[4], entry[5], None), c)
 
     def _spot(self, c):
         for s in self.spots:
@@ -690,8 +694,7 @@ class BallTracker:
         old = next((h for h in self.history if h[3] and time-h[0] >= 2.5), None)
         if old is None:
             return
-        moved = self._metres(Candidate(0, [], 0, old[1], old[2], 1, old[6], old[4], old[5], None), chosen)
-        if moved > STATIC_RADIUS:
+        if self._metres_since(old, chosen) > STATIC_RADIUS:
             self.parked_since = None
             return
         if self.parked_since is None:
@@ -752,7 +755,7 @@ class BallTracker:
         for t in self.tracklets:
             if t.flagged(time) or t.hits[-1][0] < time-1e-6:
                 continue
-            hits = t.window(time, .6)
+            hits = t.window(time, .8)
             if len(hits) < self.confirm:
                 continue
             cs = [h[1] for h in hits]
@@ -763,7 +766,12 @@ class BallTracker:
             moved = self._metres(cs[0], cs[-1])
             fit = sum(c.scores.get('fit', 0.0) for c in cs[1:])/max(1, len(cs)-1)
             calibrated = all(c.pitch is not None for c in cs)
-            if moved >= .5 and fit <= 16 and (calibrated or t.unreliable <= .2*len(t.hits)):
+            # Every detection inside one person's lower box moves with that person: boots, socks, or a ball
+            # glued to the feet. Only a long history (the attachment test) tells them apart; a dribbled
+            # ball pops in and out of the box and qualifies at once.
+            on_feet = all(c.person is not None and c.person.inside and c.person.v >= .7 for c in cs) and \
+                len({c.person.pid for c in cs}) == 1 and (time-t.first < 1.5 or len(hits) < 2*self.confirm)
+            if moved >= .5 and fit <= 16 and not on_feet and (calibrated or t.unreliable <= .2*len(t.hits)):
                 ready.append((visual*len(hits), t, hits, moved))
         if not ready:
             return None
@@ -815,11 +823,16 @@ class BallTracker:
         self.spots = [s for s in self.spots if time-s['last'] <= 60 and (s['segment'] == segment or s['pitch'] is not None)][-300:]
 
     def _mark_others(self, cands, chosen, time):
-        """There is one ball: whatever is seen elsewhere while it is confidently tracked is not it."""
-        if chosen is None or self.phase != 'LOCKED' or self.confidence < .5:
+        """There is one ball: whatever is seen elsewhere while it is confidently tracked is not it. Only a
+        mature lock may say so (old enough, confident, and it has moved like a ball), and never about
+        things close to the ball: a wrong lock on a boot must not disqualify the real ball next to it."""
+        if chosen is None or self.phase != 'LOCKED' or self.confidence < .6 or time-self.born < .5:
+            return
+        observed = [h for h in self.history if h[3]]
+        if len(observed) < 3 or self._metres_since(observed[0], chosen) < 1.0:
             return
         for c in cands:
-            if c is chosen or math.hypot(c.cx-chosen.cx, c.cy-chosen.cy) <= 3*max(c.d, chosen.d):
+            if c is chosen or math.hypot(c.cx-chosen.cx, c.cy-chosen.cy) <= max(3*max(c.d, chosen.d), 1.5*chosen.px_m):
                 continue
             if c.tracklet is not None:
                 c.tracklet.flag_until, c.tracklet.flag_track = time+FLAG_SECONDS, self.track

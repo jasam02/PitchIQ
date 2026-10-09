@@ -103,15 +103,23 @@ def decide_role(e, model, min_votes=5):
     deep = clamp((extreme-.3)/.4)  # consistently the deepest person (now and then is normal for anyone)
     # Two routes each: the soccer detector's class votes, or position plus appearance.
     consistent = clamp((outlier-.5)/.4)  # how consistently the kit matches neither team (needs > 50%)
+    # A kit that matches neither team is not a referee by itself (a team kit in shadow does that too):
+    # the detector must agree at least sometimes, unless the kit matches the learned referee kit.
+    backed = max(ref_like, clamp(shares['referee']/.3))
     ref = max(.85*shares['referee']+.15*max(ref_like, outlier),
-              .55*ref_like+(.35*(1-near_goal)+.25*central)*consistent*(1-.6*deep))
+              .55*ref_like+(.35*(1-near_goal)+.25*central)*consistent*backed*(1-.6*deep))
     if boundary >= .5 and outlier >= .6 and shares['goalkeeper'] < .5:
         ref = max(ref, .55+.3*ref_like)  # an outlier kit running the touchline: an assistant referee
     gk = max(.85*shares['goalkeeper']+.15*max(near_goal, keeper_like, plain),
              .4*near_goal+.3*max(plain, keeper_like)+.3*extreme+.1*isolated)
     if team is not None:
-        # The kit clearly matches a team: a referee or keeper decision needs a clear detector majority.
-        ref *= .35+.65*clamp((shares['referee']-.5)/.35)
+        # The kit matches a team: a referee or keeper decision needs a clear detector majority. A loose
+        # match (near the edge of that team's colour spread, e.g. a pink referee next to a garnet kit)
+        # holds the detector back less.
+        mine = [v.dist_a if team == 'A' else v.dist_b for v in kits if v.team == team]
+        limit = min(.5, 2.5*model.team_spread(team)+.1)
+        loose = clamp((float(np.mean(mine))-.7*limit)/(.3*limit)) if mine else 0.0
+        ref *= max(.35+.65*clamp((shares['referee']-.5)/.35), loose*clamp(shares['referee']/.5))
         gk *= .5+.5*clamp((shares['goalkeeper']-.4)/.3)
     strong_gk = shares['goalkeeper'] >= .5 or near_goal >= .6 or keeper_like >= .5 or (deep >= .75 and plain >= .6)
     keeper_teams = Counter(v.keeper_team for v in kits if v.keeper_like and v.keeper_team)
@@ -120,7 +128,8 @@ def decide_role(e, model, min_votes=5):
               'teamB': r3(np.mean([_similarity(v.dist_b) for v in kits])) if nk else None,
               'refereeKit': r3(ref_like), 'neitherTeam': r3(outlier), 'keeperKit': r3(keeper_like),
               'detectorReferee': r3(shares['referee']), 'detectorGoalkeeper': r3(shares['goalkeeper']),
-              'nearGoal': r3(near_goal), 'deepest': r3(extreme), 'isolated': r3(isolated), 'touchline': r3(boundary)}
+              'nearGoal': r3(near_goal), 'deepest': r3(extreme), 'isolated': r3(isolated), 'touchline': r3(boundary),
+              'teamFit': None if team is None else r3(1-loose)}
     common = {'referee_confidence': r3(clamp(ref)*support), 'goalkeeper_confidence': r3(clamp(gk)*support), 'scores': scores}
 
     def candidate(why):

@@ -140,11 +140,15 @@ person stands (in or near a penalty area, the deepest person towards a goal,
 isolated from everyone, on the touchline):
 
 - `PLAYER_TEAM_A/B`: at least 70% of kit votes for one team.
-- `REFEREE`: the detector's referee votes; or a kit like the referee's (or
-  consistently neither team's) while following play away from the goals; or a
-  kit matching neither team running the touchline (an assistant referee). A kit
-  that clearly matches a team holds a referee decision back unless the
-  detector's votes are a clear majority.
+- `REFEREE`: the detector's referee votes; or a kit like the learned referee
+  kit while following play away from the goals; or a kit matching neither team
+  running the touchline (an assistant referee). A kit matching neither team is
+  not a referee by itself (a team kit in shadow does that too): the detector
+  must agree at least sometimes, or the person must look like a known referee.
+  A kit that matches a team holds a referee decision back unless the detector's
+  votes are a clear majority; a loose match near the edge of that team's colour
+  spread (a pink referee next to a garnet kit) holds it back less, and such a
+  person the detector mostly calls a referee also seeds the referee kit.
 - `GOALKEEPER`: the detector's goalkeeper votes; or time in or near a penalty
   area in a kit unlike the outfield kits (or like a known goalkeeper kit) while
   being the deepest or most isolated person. At least one strong cue (detector,
@@ -279,7 +283,13 @@ gate, or one that reappears after a gap, needs a previous sighting in the same
 place (its tracklet) and independent motion — one lucky detection never moves
 the ball or brings it back. A ball hidden by a player is carried with that
 player (the track follows their feet, unless the ball was moving away from
-them) and reconnects when it reappears, keeping the same track id.
+them) and reconnects when it reappears, keeping the same track id. A free ball
+the detector loses sight of is predicted for 2.5 s before the track is given
+up (broadcast detectors miss a small rolling ball for a while), and a lost
+ball found again near where it vanished keeps its id. A new track needs
+several consistent detections that moved at least half a metre; detections
+that all lie inside one person's lower box (boots, socks, or a ball glued to
+the feet) need 1.5 s of history first, because only time tells them apart.
 
 Every candidate, not only the ball, is linked into a short **tracklet**, which
 gives temporal evidence:
@@ -289,7 +299,7 @@ gives temporal evidence:
 | `FIELD_LINE` | part of a long thin bright structure (touchline, halfway line, box lines, circle) or on a fitted pitch marking while the bright structure is stretched; a ball lying on a line makes a bulge and is kept |
 | `STATIC` | standing still for 2 s in camera-compensated (or calibrated pitch) coordinates, at a spot anchored where it was first seen, or at a known painted spot; a track that never moved and rests on such a spot is dropped and the spot remembered as a false positive |
 | `PLAYER_ATTACHED` | the same place inside one person's box for many frames: wrist tape, gloves, boots, socks. Inside the upper body 0.8 s of stability is enough; at the feet, where the ball lives, 2 s. A single frame inside the upper body is only a prior, and a tracklet that was attached a moment ago stays attached while an arm swings outside the box |
-| `OTHER_OBJECT` | seen at the same time as the confidently tracked ball, elsewhere (there is one ball). The flag lapses when that track is lost, so a wrong lock cannot hide the real ball for long |
+| `OTHER_OBJECT` | seen at the same time as the confidently tracked ball, elsewhere (there is one ball). Only a mature lock may say so (at least 0.5 s old, confident, and it has moved at least a metre like a ball), never about things within 1.5 m of the ball, and the flag lapses when that track is lost: a wrong lock on a boot cannot disqualify the real ball next to it |
 | `SIZE`, `OUTSIDE_PITCH` | impossible for a ball at that depth (0.22 m scaled by the perspective player-size model), or far outside the playable field |
 | `TRAJECTORY`, `LOW_SCORE` | plausible but off the tracked ball's path, or in the gate with too weak a score |
 

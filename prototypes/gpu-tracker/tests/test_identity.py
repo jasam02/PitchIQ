@@ -5,7 +5,7 @@ import numpy as np
 import scene  # noqa: F401  (adds the prototype directory to sys.path)
 from soccer.appearance import Descriptor
 from soccer.identity import IdentityManager, Options, Stab
-from soccer.teams import TeamModel, kit_vote
+from soccer.teams import TeamModel, hellinger, kit_vote
 
 RNG = np.random.default_rng(7)
 
@@ -41,6 +41,13 @@ class Person:
         self.kit, self.shorts, self.look = kit, shorts or kit, look or kit
         self.unique = unit(RNG.normal(size=512)) if unique is None else unique
         self.cls = cls or {'REF': 'referee', 'GK': 'goalkeeper'}.get(kit, 'player')
+        self.cycle = None   # optional sequence of detector classes, one per observation
+
+    def detector_class(self):
+        if self.cycle:
+            self.cls = self.cycle[0]
+            self.cycle = self.cycle[1:]+self.cycle[:1]
+        return self.cls
 
     def embedding(self):
         return unit(.9*TEAM_BASE[self.look]+.45*self.unique+.12*unit(RNG.normal(size=512)))
@@ -73,7 +80,7 @@ class Driver:
             occluded = any(abs(b[0]-o[0]) < b[2] and abs(b[1]-o[1]) < b[3] for k, o in boxes.items() if k != tid)
             z = zone(tid) if callable(zone) else zone
             c = cues(tid) if callable(cues) else cues
-            samples.append({'id': tid, 'box': b, 'score': .9, 'cls': p.cls, 'zone': z, 'occluded': occluded,
+            samples.append({'id': tid, 'box': b, 'score': .9, 'cls': p.detector_class(), 'zone': z, 'occluded': occluded,
                             'stab': Stab(x, y, .12), 'descriptor': d, 'vote': kit_vote(self.model, d.jersey, d.shorts), 'cues': c or {}})
         out = self.ids.update({'time': self.t, 'tick': True, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                'model': self.model, 'pitch_reliable': True, 'filter_enabled': True, 'aspect': 16/9,
@@ -316,6 +323,48 @@ class IdentityTests(unittest.TestCase):
             self.assertIn(line, found[0]['message'])
         self.assertEqual({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'REF-1'})
 
+    def test_odd_kit_alone_never_makes_a_referee(self):
+        # A kit matching neither team (a team kit in shadow does that too) with the detector never saying
+        # referee: nobody becomes REF-n on colour alone.
+        d = Driver()
+        odd = Person('GK', cls='player')
+        visible = {1: (odd, .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)}
+        out = d.run(6, visible)
+        self.assertIsNone(out[1]['id'], out[1])
+        self.assertEqual(d.ids.summary()['referees'], [])
+        self.assertEqual(sorted(g['id'] for g in d.ids.summary()['players']), ['A-01', 'B-01'])
+
+    def test_loosely_matching_kit_with_detector_referee_votes_is_a_referee(self):
+        # A referee kit close to team B's colours (inside B's spread, but near its edge) and a detector
+        # that calls them a referee most of the time: the detector is not held back by the loose match.
+        limit = min(.5, 2.5*MODEL.team_spread('B')+.1)
+        for w in np.linspace(.05, .95, 91):
+            jersey = (1-w)*JERSEY['B']+w*JERSEY['REF']
+            if .85*limit <= hellinger(jersey, MODEL.b) < .97*limit and hellinger(jersey, MODEL.a) > limit:
+                break
+        else:
+            self.fail('no blend lands near the edge of the team spread')
+        JERSEY['PINK'], SHORTS['PINK'] = jersey, SHORTS['B']
+        TEAM_BASE['PINK'] = TEAM_BASE['REF']
+        try:
+            d = Driver()
+            ref = Person('PINK', cls='referee')
+            ref.cycle = ['referee', 'referee', 'player', 'referee', 'referee', 'referee', 'player', 'referee', 'referee', 'referee']
+            visible = {1: (ref, .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)}
+            out = d.run(6, visible)
+            self.assertEqual((out[1]['id'], out[1]['role']), ('REF-1', 'REFEREE'), out[1])
+            self.assertGreaterEqual(len(d.ids.referee_samples(MODEL)), 3, "a loosely matching kit the detector calls referee seeds the referee kit")
+            # The same kit with the detector mostly saying player stays a team B player.
+            d = Driver()
+            ref = Person('PINK', cls='player')
+            ref.cycle = ['player', 'player', 'referee', 'player', 'player']
+            out = d.run(6, {1: (ref, .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)})
+            self.assertEqual((out[1]['team'], out[1]['role']), ('B', 'PLAYER'), out[1])
+            self.assertEqual(d.ids.referee_samples(MODEL), [])
+        finally:
+            for table in (JERSEY, SHORTS, TEAM_BASE):
+                table.pop('PINK', None)
+
     def test_locked_referee_is_never_turned_into_a_player(self):
         d = Driver()
         ref = Person('REF')
@@ -359,8 +408,10 @@ class IdentityTests(unittest.TestCase):
     def test_unconfirmed_referee_that_is_the_goalkeeper_is_converted(self):
         d = Driver()
         keeper = Person('GK', cls='player')
-        out = d.run(3, self.keeper_scene(keeper, x=.38))  # out of the goal area: the odd kit looks like an official
+        keeper.cycle = ['referee', 'player', 'player', 'referee', 'player']  # the detector sometimes takes the odd kit for a referee
+        out = d.run(3, self.keeper_scene(keeper, x=.38))  # away from the goal: an unconfirmed referee
         self.assertEqual(out[1]['id'], 'REF-1')
+        keeper.cycle, keeper.cls = None, 'player'
         self.assertFalse(d.ids.registry['REF-1'].role_locked)
         at_goal = {'near_goal': True, 'goal_side': 'left', 'extreme': True, 'isolated': True}
         out = d.run(12, self.keeper_scene(keeper), cues=lambda tid: at_goal if tid == 1 else {})

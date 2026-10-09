@@ -117,7 +117,7 @@ class BallTrackingVariantTests(unittest.TestCase):
         self.assertEqual((s['falsePositives'], s['stolenBy'], s['trackIds']), (0, {}, [1]), E.report(s))
         self.assertTrue(any(e['message'].startswith('BALL LOST') for e in tracker.events))
         self.assertTrue(any(e['message'].startswith('BALL REACQUIRED') and e['time'] > 8.8 for e in tracker.events))
-        back = [r for r in records if r['truth']['time'] >= 9.5 and r['truth']['visible']]  # hidden behind player 4 until 9.3 s
+        back = [r for r in records if r['truth']['time'] >= 9.8 and r['truth']['visible']]  # hidden behind player 4 until 9.3 s, then 0.5 s to prove motion
         self.assertTrue(all(r['out']['state'] == 'TRACKED' and near(r['out'], r['truth']) for r in back), [(r['truth']['time'], r['out']['state']) for r in back if r['out']['state'] != 'TRACKED'][:6])
 
     def test_ball_gone_becomes_unknown_and_nothing_static_is_adopted(self):

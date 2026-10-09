@@ -154,7 +154,7 @@ class SoccerTracker:
         if tick and (not self.model.ready or time-self.fit_at >= 1 or time < self.fit_at):
             current = {lid: (descriptors.get(lid), tracked[i]['cls'], tracked[i]['zone']) for lid, i in matches}
             model = fit_team_model(self.ids.team_samples(current, time), self.model)
-            self.model = with_keepers(with_referee(model, self.ids.referee_samples()), self.ids.keeper_samples())
+            self.model = with_keepers(with_referee(model, self.ids.referee_samples(model)), self.ids.keeper_samples())
             self.fit_at = time
         samples = []
         for local_id, index in matches:

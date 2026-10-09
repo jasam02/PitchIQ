@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from .appearance import Sample, add_to_gallery, compare, decode_descriptor, encode_descriptor
 from .geometry import clamp, edge_of, iou
-from .roles import RoleEvidence, decide_role
+from .roles import RoleDecision, RoleEvidence, decide_role
 from .teams import role_label
 
 # Final re-ID score weights, re-normalized over the components known for a pair.
@@ -410,6 +410,14 @@ class IdentityManager:
             tr.state = 'unknown'
             return
         o, d = self.o, tr.decision
+        if d.label == 'CANDIDATE' and d.scores.get('neitherTeam', 0) >= .6 and tr.hits >= o.min_hits and len(tr.descs) >= 3:
+            # A kit matching neither team is not a role by itself, but the person may be a known referee or
+            # goalkeeper: their own appearance decides.
+            match = self._special_match(tr, ('referee', 'goalkeeper'))
+            if match is not None and match[1] >= .8:
+                g = match[0]
+                d = tr.decision = RoleDecision(g.role_label, g.role, g.team, .8 if g.team else 0.0, round(match[1], 3),
+                                               f'looks like {g.display} (appearance {match[1]:.2f})', d.referee_confidence, d.goalkeeper_confidence, d.scores)
         recent = [z for z in tr.zones if z != 'unknown']
         zr = sum(1 if z == 'inside' else .5 if z == 'boundary' else 0 for z in recent)/len(recent) if recent else 0.0
         born = tr.first_zone == 'boundary'
@@ -1502,18 +1510,37 @@ class IdentityManager:
                 out.append(sample)
         return out
 
-    def referee_samples(self):
-        """(jersey, shorts) of people the detector consistently calls referees and of referee identities."""
+    def referee_samples(self, model=None):
+        """(jersey, shorts) of people the detector consistently calls referees and of referee identities.
+        A track the detector calls referee most of the time whose kit only loosely matches a team (near
+        the edge of that team's colour spread) counts too: that is a referee in a kit close to a team's."""
         out = []
         for tr in self.tracks.values():
-            if len(tr.evidence.detector) >= 5 and tr.evidence.detector_shares()['referee'] >= .8:
-                clean = [d for d, _, occluded in tr.descs if not occluded and d.has_jersey]
-                if clean:
-                    out.append((clean[-1].jersey, clean[-1].shorts))
+            if len(tr.evidence.detector) < 5:
+                continue
+            share = tr.evidence.detector_shares()['referee']
+            kits = tr.evidence.kits
+            if share < .8 and (share < .6 or model is None or not self._loose_kit(kits, model)):
+                continue
+            clean = [d for d, _, occluded in tr.descs if not occluded and d.has_jersey]
+            out += [(d.jersey, d.shorts) for d in clean[-3:]]
         for g in self.registry.values():
             if g.role == 'referee' and g.status != 'retired':
                 out += [(x.d.jersey, x.d.shorts) for x in g.gallery[-2:] if x.d.has_jersey]
         return out
+
+    @staticmethod
+    def _loose_kit(kits, model):
+        """The kit votes of a track match a team only loosely, or match neither team."""
+        if not kits:
+            return False
+        votes = [v for v in kits if v.team is not None]
+        if len(votes) < .5*len(kits):
+            return True
+        team = Counter(v.team for v in votes).most_common(1)[0][0]
+        limit = min(.5, 2.5*model.team_spread(team)+.1)
+        mine = [v.dist_a if team == 'A' else v.dist_b for v in votes if v.team == team]
+        return sum(mine)/len(mine) >= .8*limit
 
     def keeper_samples(self):
         """[(team, jerseys)] of goalkeeper identities, for goalkeeper kit prototypes."""
