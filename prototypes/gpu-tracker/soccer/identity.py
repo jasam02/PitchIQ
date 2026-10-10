@@ -47,6 +47,7 @@ RELEASE_HOLD = 3.0
 KIT_WINDOW = 4.0
 MAX_EVENTS_PER_STEP = 60
 ROLE_LOCK = .7           # role confidence that converts and locks a referee / goalkeeper role
+GK_DOUBT_CHECKS = 3      # consecutive role checks (~3 s) of contradictory evidence that revoke a confirmed goalkeeper
 ROLE_OUT = {'player': 'PLAYER', 'goalkeeper': 'GOALKEEPER', 'referee': 'REFEREE'}
 OFFICIAL_OUT = {'assistant': 'ASSISTANT_REFEREE', 'centre': 'CENTER_REFEREE', '': 'UNKNOWN_OFFICIAL'}
 LOOKS_PROBES = 3         # recent clean crops compared with the referee and team appearance galleries
@@ -144,6 +145,9 @@ class GlobalPlayer:
     retired_into: str | None = None
     official: str = ''                                   # referees: assistant | centre | '' (kind unknown)
     role_scores: dict = field(default_factory=dict)      # the latest role decision's evidence scores
+    doubt: int = 0                                       # goalkeepers: consecutive checks with contradictory evidence
+    revoked: str = ''                                    # goalkeepers: why the goalkeeper status was taken away
+    keeper_goal: float = 0.0                             # goalkeepers: the strongest goal-area residence ever seen (what confirmed them)
 
     @property
     def role_label(self):
@@ -219,6 +223,8 @@ class TrackState:
     looks: tuple | None = None                      # (pool version, time, {'referee', 'A', 'B', 'probes'})
     role_streak: int = 0                            # consecutive role checks asking for the same new role
     role_wanted: str | None = None
+    keeper_logged: float = -math.inf                # when this track's goalkeeper-candidate evidence was last logged
+    keeper_unknown: int = 0                         # consecutive checks on which a goalkeeper candidate's decision was CANDIDATE
 
 
 class IdentityManager:
@@ -251,7 +257,8 @@ class IdentityManager:
                         'exitEdge': g.exit_edge, 'identityConfidence': r3(g.identity_confidence),
                         'teamConfidence': r3(g.team_confidence), 'roleConfidence': r3(g.role_confidence),
                         'observations': g.observations, 'gkVotes': dict(g.gk_votes), 'roleLocked': g.role_locked,
-                        'refereeConfidence': r3(g.referee_confidence), 'goalkeeperConfidence': r3(g.goalkeeper_confidence),
+                        'refereeConfidence': r3(g.referee_confidence), 'goalkeeperConfidence': r3(g.goalkeeper_confidence), 'revoked': g.revoked,
+                        'keeperGoal': r3(g.keeper_goal),
                         'retiredInto': g.retired_into, 'official': g.official})
         return {'version': 1, 'identities': out, 'counters': dict(self.counters)}
 
@@ -270,12 +277,14 @@ class IdentityManager:
                 edge = str(v.get('exitEdge', ''))[:8]
                 retired = v.get('status') == 'retired'
                 g = GlobalPlayer(pid, role, v.get('team') if v.get('team') in ('A', 'B') else None,
-                                 'retired' if retired else 'offscreen' if edge else 'missing', gallery, float(v.get('firstSeen', 0)), float(v.get('lastSeen', 0)), box,
+                                 'retired' if retired else 'unknown' if v.get('revoked') else 'offscreen' if edge else 'missing', gallery, float(v.get('firstSeen', 0)), float(v.get('lastSeen', 0)), box,
                                  tuple(v['lastPitch']) if v.get('lastPitch') else None, None, edge,
                                  identity_confidence=clamp(float(v.get('identityConfidence', 0))),
                                  team_confidence=clamp(float(v.get('teamConfidence', 0))), role_confidence=clamp(float(v.get('roleConfidence', 0))),
                                  restored=True, gk_votes=Counter(v.get('gkVotes', {})), role_locked=bool(v.get('roleLocked')),
                                  referee_confidence=clamp(float(v.get('refereeConfidence', 0))), goalkeeper_confidence=clamp(float(v.get('goalkeeperConfidence', 0))),
+                                 revoked=str(v.get('revoked', '') or ''),
+                                 keeper_goal=clamp(float(v.get('keeperGoal', 1.0 if v.get('roleLocked') and role == 'goalkeeper' else 0.0))),
                                  retired_into=v.get('retiredInto'), official=v.get('official') if v.get('official') in ('assistant', 'centre') else '')
                 self.registry[pid] = g
             except (KeyError, TypeError, ValueError):
@@ -439,6 +448,13 @@ class IdentityManager:
         ok = pitch_ok and d.label != 'CANDIDATE' and d.role != 'unknown' and tr.hits >= o.min_hits
         # Assistant referees run the touchline: allowed for a confident referee decision.
         runner = d.role == 'referee' and d.role_confidence >= .6
+        sideline = ''
+        if ok and d.role == 'goalkeeper':
+            # The detector may call a sideline official a goalkeeper; feet on or outside the touchline, or
+            # in its corridor, keep them a candidate rather than a goalkeeper candidate.
+            k = d.scores.get('keeper') or {}
+            if k.get('vetoed'):
+                ok, sideline = False, k['vetoed']
         if ok:
             ok = tr.hits >= need if runner else zr >= .8 and (not born or (tr.hits >= o.boundary_hits and tr.inside >= 3))
         if ok:
@@ -453,6 +469,8 @@ class IdentityManager:
             tr.state = 'candidate'
         if not pitch_ok:
             tr.reason = 'pitch not reliable on this frame: no promotion'
+        elif sideline:
+            tr.reason = f'looks like a goalkeeper to the detector, but {sideline}: not a goalkeeper candidate'
         elif tr.state == 'rejected':
             tr.reason = f'mostly outside the playable area (inside {pct(zr)})'
         elif tr.state == 'unknown':
@@ -477,6 +495,19 @@ class IdentityManager:
                     tr.reid.clear()
                     out['events'].append(self._event('role', tr.id, None, '\n'.join(['ROLE UPDATE', f'Local Track: {tr.id}', f'Old role: {old}',
                                                                                       f'New role: {ROLE_OUT[d.role]}'] + self._role_lines(d) + [f'Role confidence: {confidence:.2f}'])))
+                elif tr.role == 'goalkeeper':
+                    # A goalkeeper candidate (no identity yet) whose feet say sideline, whose evidence turned to
+                    # another role, or whose goalkeeper evidence faded, goes back to being a candidate for
+                    # anything: OUT beats a wrong keeper.
+                    k = d.scores.get('keeper', {})
+                    tr.keeper_unknown = tr.keeper_unknown+1 if d.role == 'unknown' else 0
+                    if k.get('vetoed') or d.role in ('referee', 'player') or tr.keeper_unknown >= 3:
+                        why = k.get('reason') or d.reason or 'no goalkeeper evidence'
+                        tr.role, tr.team, tr.state, tr.role_confidence = 'unknown', None, 'candidate', 0.0
+                        tr.reid.clear()
+                        tr.reason = f'goalkeeper candidate dropped: {why}'
+                        out['events'].append(self._event('role', tr.id, None, '\n'.join(
+                            ['GOALKEEPER CANDIDATE DROPPED', f'Local Track: {tr.id}', f'Reason: {why}'] + self._keeper_lines(d) + ['State: ' + ('OUT' if k.get('offPitch', 0) >= .5 else ROLE_OUT.get(d.role, 'UNKNOWN'))])))
                 continue
             if tr.state != 'confirmed' or tr.player_id is None or t-tr.role_checked < 1.0 or len(tr.evidence.records) < 2*self.o.min_hits:
                 continue
@@ -494,7 +525,19 @@ class IdentityManager:
                 if g.role == 'referee' and d.role == 'referee' and d.official:
                     g.official = d.official
                 confidence = d.referee_confidence if g.role == 'referee' else d.goalkeeper_confidence
-                if not g.role_locked and confidence >= ROLE_LOCK:
+                if g.role == 'goalkeeper':
+                    g.keeper_goal = max(g.keeper_goal, d.scores['nearGoal'])
+                    # Hysteresis: a confirmed goalkeeper survives odd frames, a walk upfield (the detector may well
+                    # call them a player there) and a ball fetched behind the goal line; only sustained sideline,
+                    # off-pitch-away-from-the-goal or referee evidence over a full window, after the track has
+                    # been theirs for a while, revokes the status and frees the team's slot.
+                    settled = len(tr.evidence.records) >= WINDOW and t-g.bound_at >= 5.0
+                    contradiction = self._keeper_contradiction(d) if settled else ''
+                    g.doubt = g.doubt+1 if contradiction else 0
+                    if g.doubt >= GK_DOUBT_CHECKS:
+                        self._revoke_goalkeeper(tr, g, d, contradiction, ctx, out)
+                        continue
+                if not g.role_locked and confidence >= ROLE_LOCK and (g.role != 'goalkeeper' or d.scores.get('keeper', {}).get('confirmed')):
                     g.role_locked, g.role_confidence = True, max(g.role_confidence, confidence)
                     g.role_history.append((r3(t), g.role, f'locked at {confidence:.2f}'))
                 elif not g.role_locked and g.role == 'referee' and d.role == 'goalkeeper' and d.goalkeeper_confidence >= ROLE_LOCK:
@@ -548,10 +591,139 @@ class IdentityManager:
 
     @staticmethod
     def _keeper_lines(d):
+        """The goalkeeper evidence behind a decision, one line each, with where the person stands and
+        whether that confirms a goalkeeper identity or leaves a candidate."""
         s = d.scores
-        return [f"Goal proximity score: {s['nearGoal']:.2f}", f"Penalty-area residence: {s['nearGoal']:.0%} of observations",
-                f"Uniform difference score: {max(s['neitherTeam'], s['keeperKit']):.2f}", f"Deepest / isolated: {s['deepest']:.0%} / {s['isolated']:.0%}",
-                f"Detector goalkeeper votes: {s['detectorGoalkeeper']:.0%}", f'Temporal confidence: {d.goalkeeper_confidence:.2f}']
+        k = s.get('keeper') or {}
+        lines = [f"Role detector: GK {s['detectorGoalkeeper']:.0%} / REF {s['detectorReferee']:.0%}",
+                 f"Pitch state: INSIDE {k.get('inside', 0):.0%} / ON OR OUTSIDE THE TOUCHLINE {k.get('offPitch', 0):.0%}"
+                 + (f" (touchline corridor {k['touchline']:.0%})" if k.get('touchline') else '') + (f", goal side {k['goalSide']}" if k.get('goalSide') else ''),
+                 f"Goal proximity score: {s['nearGoal']:.2f}", f"Penalty-area residence: {s['nearGoal']:.0%} of observations",
+                 f"Uniform difference score: {max(s['neitherTeam'], s['keeperKit']):.2f}", f"Deepest / isolated: {s['deepest']:.0%} / {s['isolated']:.0%}",
+                 f"Detector goalkeeper votes: {s['detectorGoalkeeper']:.0%}", f'Temporal confidence: {d.goalkeeper_confidence:.2f}']
+        if k:
+            lines.append(f"Goalkeeper confirmation: {k['state']} ({k['reason']})")
+        return lines
+
+    @staticmethod
+    def _keeper_confirmed(d):
+        return d is not None and d.role == 'goalkeeper' and bool((d.scores.get('keeper') or {}).get('confirmed'))
+
+    @staticmethod
+    def _keeper_contradiction(d):
+        """Evidence over the window that a confirmed goalkeeper is not one: '' when none."""
+        s, k = d.scores, d.scores.get('keeper') or {}
+        if d.role == 'referee' and d.referee_confidence >= ROLE_LOCK:
+            return f'referee evidence {d.referee_confidence:.2f}'
+        if k.get('outside', 0) >= .5 and s['nearGoal'] < .3:
+            return f"outside the pitch {k['outside']:.0%} of the time, away from any goal"
+        if k.get('touchline', 0) >= .5 and s['nearGoal'] < .1:
+            return f"patrols the touchline ({k['touchline']:.0%}) away from any goal"
+        # Detector 'player' votes while the keeper stands upfield are not a contradiction (invariant: a
+        # confirmed keeper walking out of the box keeps the role); that case is only noted as an issue.
+        return ''
+
+    def goalkeeper_of(self, team, exclude=None):
+        """The identity currently holding team `team`'s goalkeeper slot, or None. Revoked, retired and
+        substituted identities hold nothing: the slot is a live relationship, not a historical fact."""
+        holders = [g for g in self.registry.values()
+                   if g is not exclude and g.role == 'goalkeeper' and g.team == team and g.status not in ('retired', 'substituted', 'unknown')]
+        if not holders:
+            return None
+        return max(holders, key=lambda g: (g.track is not None and self._lost_for(g) < LOST, g.last_seen))
+
+    def keeper_slots(self):
+        """{'A': pid or None, 'B': pid or None}: who holds each team's goalkeeper slot right now."""
+        return {team: (g.pid if g is not None else None) for team in ('A', 'B') for g in [self.goalkeeper_of(team)]}
+
+    def _keeper_outranks(self, tr, d, owner):
+        """A confirmed goalkeeper candidate on track tr takes a team's slot from its current owner when
+        the owner is not clearly the keeper now: not visible (or visible without goal-area evidence) and
+        with weaker goalkeeper evidence than the candidate's. Candidates compete; the first seen does not
+        win. Returns 'revoke' (the owner's goalkeeper status was weak: taken away), 'deteam' (the owner
+        was itself confirmed at a goal, so it is a goalkeeper of the other team: only the team is taken)
+        or '' (the owner keeps the slot)."""
+        if not self._keeper_confirmed(d):
+            return ''
+        s = d.scores
+        at_goal = s['nearGoal'] >= .5
+        strong_owner = owner.role_locked and owner.keeper_goal >= .5   # confirmed at a goal, whatever its last window looks like
+        visible = owner.track is not None and self._lost_for(owner) < LOST
+        if visible:
+            # A visible owner only ever loses its status through its own contradictory evidence; a weakly
+            # confirmed one (never seen at a goal) at most loses the team to a candidate standing at the goal.
+            return 'deteam' if (not strong_owner and at_goal) else ''
+        missing = max(0.0, self.time-owner.last_seen)
+        if strong_owner:
+            # Two keepers confirmed at the same goal: the one there now has the team, the absent one is a
+            # goalkeeper of the other team until the side votes say more. Needs the candidate at the goal and
+            # the owner gone for a while, so a brief occlusion never costs a keeper its team.
+            return 'deteam' if at_goal and missing >= 10.0 else ''
+        strength = lambda conf, goal: conf*(1.0 if goal >= .5 else .6)
+        if strength(d.goalkeeper_confidence, s['nearGoal']) >= strength(owner.goalkeeper_confidence, owner.keeper_goal)+.15:
+            return 'revoke'
+        return 'deteam' if at_goal and missing >= 10.0 else ''
+
+    def _deteam_goalkeeper(self, owner, successor, why, ctx, out):
+        """A confirmed goalkeeper loses a team it cannot have (another keeper defends that goal): the
+        identity keeps its goalkeeper role and is re-teamed by the side votes later."""
+        was, team = owner.display, owner.team
+        owner.team, owner.team_confidence = None, 0.0
+        owner.gk_votes.clear()
+        owner.role_history.append((r3(ctx['time']), 'goalkeeper', f'team {team} released: {why}'))
+        self._restyle(owner)
+        tr = self.tracks.get(owner.track) if owner.track is not None else None
+        if tr is not None and tr.player_id == owner.pid:
+            tr.team = None
+        out['events'].append(self._event('role', tr.id if tr is not None else None, owner.pid,
+                                         f'GOALKEEPER TEAM RELEASED\nGlobal ID: {owner.pid} (was {was}, now {owner.display})\nReason: {why}\nTeam {team} goalkeeper slot: released to {successor}'))
+
+    def _take_slot(self, tr, d, owner, successor, why, ctx, out):
+        """Give owner's team slot to successor according to _keeper_outranks; True when taken."""
+        mode = self._keeper_outranks(tr, d, owner)
+        if mode == 'revoke':
+            self._revoke_goalkeeper(self.tracks.get(owner.track) if owner.track is not None else None, owner, None, why, ctx, out, successor=successor)
+        elif mode == 'deteam':
+            self._deteam_goalkeeper(owner, successor, why, ctx, out)
+        return bool(mode)
+
+    def _revoke_goalkeeper(self, tr, g, d, why, ctx, out, successor=None):
+        """Take the goalkeeper status away from an identity: its team's slot is free again at once, it no
+        longer counts, seeds a keeper kit, blocks a team or matches returning keepers, and its track is
+        re-decided (OUT, referee or player, whatever the evidence says). The identity is kept, marked."""
+        t = ctx['time']
+        was, slot = g.display, g.team
+        if tr is not None and tr.player_id == g.pid:
+            self._unbind(g)
+            self._release(tr, f'goalkeeper status revoked: {why}')
+            tr.role = d.role if d is not None and d.role in ('referee', 'player') else 'unknown'
+            tr.team = d.team if d is not None and d.role == 'player' else None
+            tr.role_confidence = (d.referee_confidence if d.role == 'referee' else d.role_confidence) if d is not None and tr.role != 'unknown' else 0.0
+            tr.state = 'uncertain' if tr.role != 'unknown' else 'candidate'
+            tr.reid.clear()
+        g.status, g.role_locked, g.doubt, g.revoked = 'unknown', False, 0, why
+        g.team = None
+        g.role_history.append((r3(t), 'revoked', why))
+        for person in g.emitted_all:
+            if person.get('id') == g.pid:
+                person.update(display=g.pid, team=None, role='UNKNOWN', label='GOALKEEPER_REVOKED')
+        lines = ['GOALKEEPER REVOKED', f'Global ID: {g.pid} (was {was})', f'Local Track: {tr.id if tr is not None else "-"}', f'Reason: {why}']
+        if d is not None:
+            lines += self._keeper_lines(d)
+        lines.append(f'Team {slot} goalkeeper slot: ' + (f'released to {successor}' if successor else 'released') if slot else 'Goalkeeper slot: none held')
+        out['events'].append(self._event('role', tr.id if tr is not None else None, g.pid, '\n'.join(lines), d.scores if d is not None else None))
+        out['issues'].append({'id': g.pid, 'time': t, 'reason': f'Goalkeeper status revoked: {why}.'})
+
+    def _hold_keeper_candidate(self, tr, d, ctx, out, what):
+        """A goalkeeper candidate without confirmed evidence keeps collecting it; the team's slot stays free."""
+        k = (d.scores.get('keeper') or {}) if d is not None else {}
+        tr.reason = f"goalkeeper candidate: {k.get('reason', 'waiting for evidence')}"
+        t = ctx['time']
+        if t-tr.keeper_logged >= 5.0 or t < tr.keeper_logged:
+            tr.keeper_logged = t
+            out['events'].append(self._event('role', tr.id, None, '\n'.join(
+                ['GOALKEEPER CANDIDATE', f'Local Track: {tr.id}', f'Team: {tr.team or "unknown"}', what] + (self._keeper_lines(d) if d is not None else [])
+                + [f"State: GK_CANDIDATE{'_'+tr.team if tr.team else ''}"]), d.scores if d is not None else None))
 
     def _special_match(self, tr, roles):
         """Best missing identity with one of `roles` whose gallery this track resembles: (identity, appearance)."""
@@ -651,10 +823,22 @@ class IdentityManager:
 
     def _to_goalkeeper(self, tr, g, d, ctx, out):
         t = ctx['time']
-        rival = next((o for o in self.registry.values() if o is not g and o.role == 'goalkeeper' and g.team is not None and o.team == g.team
-                      and o.status not in ('retired', 'substituted', 'unknown')), None)
+        if not self._keeper_confirmed(d):
+            # Behaves like a goalkeeper on some frames, but the evidence is not sustained and spatial: the
+            # identity keeps its role and the team's goalkeeper slot stays free.
+            self._hold_keeper_candidate(tr, d, ctx, out, f'Identity: {g.pid} keeps role {self._old_role(g)}')
+            return
+        rival = self.goalkeeper_of(d.team or g.team, exclude=g) if (d.team or g.team) is not None else None
         s = d.scores
         lines = self._keeper_lines(d)
+        if rival is not None and g.role != 'referee':
+            # The team's keeper returning under a player identity merges into their own goalkeeper identity
+            # (the merge branch below); only a track that does not look like the absent rival competes for the slot.
+            visible = rival.track is not None and self._lost_for(rival) < LOST
+            match = self._special_match(tr, ('goalkeeper',)) if not visible else None
+            resembles = match is not None and match[0] is rival and match[1] >= .6
+            if not resembles and self._take_slot(tr, d, rival, g.pid, f'a stronger goalkeeper candidate for team {rival.team} ({g.pid}: {s["keeper"]["route"]})', ctx, out):
+                rival = None
         if g.role == 'referee':
             # An unconfirmed referee identity that is really a goalkeeper: a goalkeeper identity takes over.
             match = self._special_match(tr, ('goalkeeper',))
@@ -664,7 +848,8 @@ class IdentityManager:
                     if self._allow('gk-cap', t, 30):
                         out['events'].append(self._event('sanity', tr.id, g.pid, f'{g.display} looks like a goalkeeper, but {self._count("goalkeeper")} goalkeeper identities already exist; kept as is. Check.'))
                     return
-                target = GlobalPlayer(self._next_id_for('goalkeeper', None), 'goalkeeper', d.team, first_seen=g.first_seen, last_seen=t, last_box=list(tr.box), created_on=tr.id)
+                team = d.team if d.team and (rival is None or self._take_slot(tr, d, rival, None, f'a stronger goalkeeper candidate for team {d.team} ({s["keeper"]["route"]})', ctx, out)) else None
+                target = GlobalPlayer(self._next_id_for('goalkeeper', None), 'goalkeeper', team, first_seen=g.first_seen, last_seen=t, last_box=list(tr.box), created_on=tr.id)
                 self.registry[target.pid] = target
                 self._seed_gallery(target, tr, g if self._always_this_person(g, tr) else None)
             born_here = self._hand_over(tr, g, target, t, out)
@@ -672,6 +857,7 @@ class IdentityManager:
             tr.team_votes.clear()
             self._bind(tr, target, t, max(.6, g.identity_confidence))
             target.role_locked, target.role_confidence, target.goalkeeper_confidence = True, d.goalkeeper_confidence, d.goalkeeper_confidence
+            target.keeper_goal = max(target.keeper_goal, s['nearGoal'])
             target.role_history.append((r3(t), 'goalkeeper', f'from {g.pid}'))
             out['events'].append(self._event('role', tr.id, target.pid, '\n'.join(
                 ['GOALKEEPER IDENTIFIED', f'Global ID: {g.pid} -> {target.pid}' + (f' ({g.pid} retired: it was this goalkeeper)' if born_here else ''),
@@ -693,6 +879,7 @@ class IdentityManager:
             return
         g.role, g.role_locked = 'goalkeeper', True
         g.role_confidence = g.goalkeeper_confidence = d.goalkeeper_confidence
+        g.keeper_goal = max(g.keeper_goal, s['nearGoal'])
         g.role_history.append((r3(t), 'goalkeeper', 'position and kit evidence'))
         tr.role = 'goalkeeper'
         self._restyle(g)
@@ -832,6 +1019,8 @@ class IdentityManager:
                 if g.role == 'referee':
                     out.append(g)
             elif tr.role == 'goalkeeper':
+                if (tr.decision is not None and (tr.decision.scores.get('keeper') or {}).get('vetoed')):
+                    continue  # feet on the sideline: not this (or any) goalkeeper until that changes
                 if g.role == 'goalkeeper' and (tr.team is None or g.team is None or g.team == tr.team):
                     out.append(g)
             elif g.role == 'player' and g.team == tr.team:
@@ -937,9 +1126,20 @@ class IdentityManager:
             tr, best = p['tr'], p['all'][0]
 
             def implausible(s):
+                # Goalkeepers and referees do not change jerseys mid-match: a clearly different jersey rules
+                # a missing one out, however well the place and the timing fit.
+                other_kit = tr.role in ('goalkeeper', 'referee') and s['jersey'] <= .2 and s['appearance'] is not None and s['appearance'] < .6
                 return s['final'] < .3 or (s['spatial'] is not None and s['spatialShare'] >= .5 and s['spatial'] < .15) or \
-                    (p['stranger'] is not None and p['stranger']-s['final'] >= o.reid_margin)
+                    (p['stranger'] is not None and p['stranger']-s['final'] >= o.reid_margin) or other_kit
             hold = p['blind'] is not None or (tr.released is not None and ctx['time']-tr.released[1] < RELEASE_HOLD)
+            if tr.role == 'goalkeeper' and self._keeper_confirmed(tr.decision) and ctx['time']-tr.born >= 10.0 and best['n'] >= p['need'] and not hold:
+                # A keeper confirmed at a goal for 10 s is decided: the absent keeper it resembles enough, or
+                # a new identity (which then competes for the team slot).
+                if best['final'] >= .55 and self._brief_lost(tr) is None:
+                    self._reconnect(tr, p['all'], ctx, out)
+                    continue
+                if self._brief_lost(tr) is None and self._create_or_hold(tr, ctx, out, rejected=p['all'][:3], stranger=p['stranger']):
+                    continue
             if all(s['n'] >= p['need'] and implausible(s) for s in p['all']) and self._brief_lost(tr) is None and not hold:
                 created = self._create_or_hold(tr, ctx, out, rejected=p['all'][:3], stranger=p['stranger'])
                 if created:
@@ -1113,6 +1313,10 @@ class IdentityManager:
         if lost is not None:
             tr.reason = f'waiting: {lost.pid} lost detection {self._lost_for(lost):.1f} s ago'
             return False
+        if tr.role == 'goalkeeper' and not self._keeper_confirmed(tr.decision):
+            # A provisional goalkeeper never creates (and so never reserves) a goalkeeper identity.
+            self._hold_keeper_candidate(tr, tr.decision, ctx, out, 'No goalkeeper identity created yet')
+            return False
         group = 'referee' if tr.role == 'referee' else 'goalkeeper' if tr.role == 'goalkeeper' else tr.team
         n, cap = self._count(group), self._cap(group)
         over = n >= cap
@@ -1132,7 +1336,15 @@ class IdentityManager:
             out['events'].append(self._event('reid-rejected', tr.id, s['id'], f"RE-ID REJECTED\nLocal Track: {tr.id}\nCandidate: {long_id(s['id'])}\nReason: {why}", self._scores(s)))
         pid = self._next_id(tr)
         role = tr.role if tr.role in ('referee', 'goalkeeper') else 'player'
-        g = GlobalPlayer(pid, role, tr.team if role != 'referee' else None, first_seen=ctx['time'], last_seen=ctx['time'], last_box=list(tr.box), created_on=tr.id)
+        team = tr.team if role != 'referee' else None
+        if role == 'goalkeeper' and team is not None:
+            # The team from the keeper-kit vote is evidence, not ownership: the slot decides.
+            owner = self.goalkeeper_of(team)
+            if owner is not None and not self._take_slot(tr, tr.decision, owner, pid, f'a stronger goalkeeper candidate for team {team} ({pid}: {(tr.decision.scores.get("keeper") or {}).get("route", "")})', ctx, out):
+                team, tr.team = None, None
+        g = GlobalPlayer(pid, role, team, first_seen=ctx['time'], last_seen=ctx['time'], last_box=list(tr.box), created_on=tr.id)
+        if role == 'goalkeeper' and tr.decision is not None:
+            g.keeper_goal = tr.decision.scores['nearGoal']
         if role != 'player':
             g.role_locked = tr.role_confidence >= ROLE_LOCK
             g.role_history.append((r3(ctx['time']), role, f'created with role confidence {tr.role_confidence:.2f}'))
@@ -1202,6 +1414,7 @@ class IdentityManager:
     def _bind(self, tr, g, time, conf):
         tr.player_id, tr.state, tr.blind, tr.reason = g.pid, 'confirmed', [], ''
         tr.reid.clear()
+        g.doubt = 0
         if tr.team is None and g.team is not None:
             tr.team = g.team
         g.track, g.status, g.here, g.bound_at, g.restored = tr.id, 'active', True, time, False
@@ -1462,10 +1675,16 @@ class IdentityManager:
                         team, why = best, f'the deepest outfield players next to this goalkeeper were team {best} in {n} of {total} observations'
             if team is None:
                 continue
-            if any(o.role == 'goalkeeper' and o.team == team and o is not g and o.status not in ('retired', 'substituted', 'unknown') for o in self.registry.values()):
-                if self._allow('gk-conflict-'+g.pid, t, 30):
-                    out['events'].append(self._event('role', tr.id, g.pid, f'{g.pid} defends like team {team}, but team {team} already has a goalkeeper; team left unknown.'))
-                continue
+            owner = self.goalkeeper_of(team, exclude=g)
+            if owner is not None:
+                d = tr.decision
+                if d is not None and self._take_slot(tr, d, owner, g.pid, f'a stronger goalkeeper for team {team} ({g.pid}: {d.scores["keeper"]["route"]})', ctx, out):
+                    pass
+                else:
+                    if self._allow('gk-conflict-'+g.pid, t, 30):
+                        out['events'].append(self._event('role', tr.id, g.pid, f'{g.pid} defends like team {team}, but team {team} already has goalkeeper {owner.pid}'
+                                                         f' with {"stronger" if owner.goalkeeper_confidence >= g.goalkeeper_confidence else "comparable"} evidence; team left unknown.'))
+                    continue
             g.team, tr.team = team, team
             g.team_confidence = tr.team_confidence = .8
             g.role_history.append((r3(t), 'goalkeeper', f'team {team}'))
@@ -1561,7 +1780,7 @@ class IdentityManager:
         """(display, combined label) for a person without a global identity."""
         if tr.state == 'uncertain':
             display = 'REF-?' if tr.role == 'referee' else (f'GK-{tr.team}?' if tr.team else 'GK-?') if tr.role == 'goalkeeper' else f'{tr.team}-?' if tr.team else '?'
-            return display, 'IDENTITY_UNCERTAIN'
+            return display, ('GOALKEEPER_CANDIDATE' if tr.role == 'goalkeeper' else 'IDENTITY_UNCERTAIN')
         if tr.state == 'rejected':
             return 'OUT', 'REJECTED_OUTSIDE_FIELD'
         if tr.state == 'unknown':
@@ -1711,7 +1930,8 @@ class IdentityManager:
                      'lastPitch': None if g.last_pitch is None else [r3(g.last_pitch[0]), r3(g.last_pitch[1])],
                      'velocity': [round(float(g.velocity[0]), 4), round(float(g.velocity[1]), 4)], 'exitEdge': g.exit_edge,
                      'restored': g.restored, 'history': list(g.history)[-10:],
-                     'official': OFFICIAL_OUT.get(g.official, '') if g.role == 'referee' else None, 'roleEvidence': g.role_scores}
+                     'official': OFFICIAL_OUT.get(g.official, '') if g.role == 'referee' else None, 'roleEvidence': g.role_scores,
+                     'revoked': g.revoked or None, 'keeperGoal': r3(g.keeper_goal)}
             if g.status == 'retired':
                 entry['retiredInto'] = g.retired_into
                 groups['retired'].append(entry)

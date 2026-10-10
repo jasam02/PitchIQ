@@ -28,7 +28,12 @@ position, not a referee's.
 - GOALKEEPER: detector goalkeeper votes; or time spent near a goal in a kit unlike the outfield
   kits (or like a known goalkeeper kit) while being the deepest or most isolated person. Needs at
   least one strong cue (detector, goal proximity, a known keeper kit, or a kit matching nobody while
-  consistently being the deepest person).
+  consistently being the deepest person). This is the track-level role: a GOALKEEPER CANDIDATE. A
+  goalkeeper *identity* (GK-A / GK-B) is confirmed only by keeper_confirmation(): sustained evidence
+  with a spatial part (goal-area residence, or consistently the deepest person, or sustained
+  detector votes in a distinct kit together with some position evidence) and nothing that says
+  touchline official or spectator (feet on or outside the pitch, the touchline corridor, referee
+  evidence). The detector calling someone a goalkeeper is never enough on its own.
 - PLAYER: >= 70% of kit votes for one team, and the person does not look more like the referees.
 - Otherwise CANDIDATE (and UNKNOWN after a long time), never forced into Team A or Team B.
 """
@@ -43,6 +48,10 @@ from .teams import role_label
 
 WINDOW = 50              # evidence ticks kept (10 s at 5 Hz)
 ROLE_THRESHOLD = .55
+GK_CONFIRM_RECORDS = 15  # evidence ticks (3 s) of goalkeeper evidence before a goalkeeper identity can be confirmed
+GK_CONFIRM = .7          # temporal goalkeeper confidence needed to confirm
+GK_OFF_PITCH = .2        # share of observations on or outside the touchline that rules a candidate out
+GK_TOUCHLINE = .3        # share of observations in the touchline corridor that rules a candidate out
 CROWDED_THRESHOLD = .45  # referee threshold when the kit's team already has its full count of identities
 CORRIDOR = (-1.0, 4.0)   # metres from the nearest pitch edge where a touchline official stands: on the line to 4 m out
 PLAY_RADIUS = 25.0       # metres from the ball: following play
@@ -155,6 +164,56 @@ def _central(records, team):
     return {'score': score, 'ball': ball, 'formation': formation, 'moves': moves}
 
 
+def keeper_confirmation(records, scores, goalkeeper_confidence, referee_confidence):
+    """Is the goalkeeper evidence sustained, spatial and free of touchline-official signs, so that a
+    goalkeeper identity may be confirmed? A goalkeeper is a role with a place: their own goal area. So
+    the detector's votes alone never confirm; feet on or outside the pitch, the touchline corridor or
+    referee evidence veto. Returns a dict with 'confirmed', 'state' ('CONFIRMED' | 'CANDIDATE'), the
+    'route' that confirms, a one-line 'reason', and the shares behind it (for the debug output)."""
+    n = len(records)
+    zones = [r.get('zone', 'inside') for r in records]
+    inside = sum(1 for z in zones if z == 'inside')/n if n else 0.0
+    outside = sum(1 for z in zones if z == 'outside')/n if n else 0.0
+    off = sum(1 for z in zones if z in ('boundary', 'outside'))/n if n else 0.0
+    touch = scores.get('touchlineTime') or 0.0
+    near_goal, deep, isolated = scores['nearGoal'], scores['deepest'], scores['isolated']
+    det, kit = scores['detectorGoalkeeper'], max(scores['keeperKit'], scores['neitherTeam'])
+    sides = Counter(r['goal_side'] for r in records if r.get('goal_side'))
+    side = sides.most_common(1)[0][0] if sides else None
+    out = {'confirmed': False, 'state': 'CANDIDATE', 'route': '', 'reason': '', 'inside': round(inside, 3), 'offPitch': round(off, 3),
+           'outside': round(outside, 3), 'touchline': round(touch, 3), 'goalSide': side, 'records': n, 'vetoed': ''}
+    # Vetoes: a person on the sideline is an official, a substitute or staff, whatever the detector says.
+    # While vetoed, a track is not even a goalkeeper candidate: it is neither promoted as one nor
+    # matched to a missing goalkeeper identity.
+    if off > GK_OFF_PITCH:
+        out['reason'] = out['vetoed'] = f'feet on or outside the touchline in {off:.0%} of observations'
+        return out
+    if touch >= GK_TOUCHLINE:
+        out['reason'] = out['vetoed'] = f'patrols the touchline corridor ({touch:.0%} of observations)'
+        return out
+    if referee_confidence >= .5:
+        out['reason'] = out['vetoed'] = f'referee evidence {referee_confidence:.2f}'
+        return out
+    # Positive routes, each with a spatial part.
+    if near_goal >= .5:
+        route = f'goal-area residence {near_goal:.0%}'
+    elif deep >= .6 and (isolated >= .5 or det >= .5 or kit >= .6):
+        route = f'the deepest person {deep:.0%} of the time' + (f', alone {isolated:.0%}' if isolated >= .5 else '')
+    elif det >= .75 and kit >= .6 and (deep >= .3 or near_goal >= .2):
+        route = f'detector {det:.0%} in a distinct kit, deepest {deep:.0%}, goal area {near_goal:.0%}'
+    else:
+        out['reason'] = f'no goal-area or deepest-person evidence yet (goal area {near_goal:.0%}, deepest {deep:.0%}, detector {det:.0%})'
+        return out
+    if n < GK_CONFIRM_RECORDS:
+        out['reason'] = f'{route}; {n}/{GK_CONFIRM_RECORDS} observations'
+        return out
+    if goalkeeper_confidence < GK_CONFIRM:
+        out['reason'] = f'{route}; temporal confidence {goalkeeper_confidence:.2f} < {GK_CONFIRM}'
+        return out
+    out.update(confirmed=True, state='CONFIRMED', route=route, reason=route)
+    return out
+
+
 def _why(s):
     """One line of the evidence behind a decision, for labels and logs."""
     parts = []
@@ -173,6 +232,9 @@ def _why(s):
         parts.append(f"ball {s['ballFollowing']:.2f}")
     if s.get('teamCrowded'):
         parts.append('team full')
+    k = s.get('keeper')
+    if k is not None and s['final'].startswith('GOALKEEPER'):
+        parts.append(f"gk {'confirmed' if k['confirmed'] else 'candidate'}: inside {k['inside']:.0%} goal {s['nearGoal']:.2f} deepest {s['deepest']:.0%}")
     parts.append(s['final'])
     return ' | '.join(parts)
 
@@ -257,6 +319,7 @@ def decide_role(e, model, min_votes=5, looks=None, crowded=None):
               'formationConsistency': opt(central['formation']), 'ballFollowing': opt(central['ball']), 'movesWithTeam': opt(central['moves']),
               'refereeBehaviour': opt(central['score']), 'teamCrowded': crowded_team, 'routes': {k: r3(v) for k, v in routes.items()}}
     common = {'referee_confidence': r3(clamp(ref)*support), 'goalkeeper_confidence': r3(clamp(gk)*support), 'scores': scores}
+    scores['keeper'] = keeper_confirmation(records, scores, common['goalkeeper_confidence'], common['referee_confidence'])
 
     def done(d):
         d.official = official if d.role == 'referee' else ''

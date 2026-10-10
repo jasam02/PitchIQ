@@ -167,14 +167,61 @@ isolated from everyone, on the touchline):
 - `GOALKEEPER`: the detector's goalkeeper votes; or time in or near a penalty
   area in a kit unlike the outfield kits (or like a known goalkeeper kit) while
   being the deepest or most isolated person. At least one strong cue (detector,
-  goal area or goalkeeper kit) is required.
+  goal area or goalkeeper kit) is required. This only makes the track a
+  **goalkeeper candidate** (`GK-?` / `GK-B?`, label `GOALKEEPER_CANDIDATE`): a
+  goalkeeper *identity* is confirmed separately, see below.
 - Otherwise the person stays `CANDIDATE` (later `UNKNOWN`) and is never forced
   into team A or B.
 
 Roles keep being re-evaluated after promotion, about once a second. A referee or
 goalkeeper role with a role confidence of at least 0.7 is **locked**: it
 survives leaving the goal area, odd frames or a detector that changes its mind,
-and is never turned back into a team player. A confirmed player changes role
+and is never turned back into a team player by a few frames.
+
+**Goalkeeper is a role with a place.** A goalkeeper candidate never creates,
+converts or locks a goalkeeper identity (`GK-n`, shown as `GK-A` / `GK-B`) until
+its evidence is *confirmed*: at least 3 s (15 observations) of goalkeeper
+evidence with a temporal confidence of 0.7, a spatial route (goal-area residence
+in at least half the observations; or consistently the deepest person, alone or
+with detector / kit support; or sustained detector votes in a distinct kit plus
+some goal-area or deepest-person evidence), and nothing that says sideline:
+feet on or outside the touchline in more than 20% of observations, the touchline
+corridor (on the line to 4 m out) in 30% or more, or referee evidence of 0.5 veto
+it. The detector calling someone a goalkeeper is never enough on its own, and a
+person whose feet say sideline is not even promoted as a candidate. Until then
+the track shows `GK-?` and `GOALKEEPER CANDIDATE` events list the evidence
+(detector votes, pitch state inside / on or outside the touchline, goal
+proximity, penalty-area residence, deepest / isolated, temporal confidence and
+the confirmation state); a candidate whose feet move to the sideline is dropped
+(`GOALKEEPER CANDIDATE DROPPED`) and becomes `OUT` / `UNK` like anyone else.
+
+Each team's goalkeeper **slot** is a live relationship, not a historical fact
+(`goalkeeperSlots` in the result summary: `{"A": "GK-2", "B": null}`). It stays
+empty until a confirmed candidate exists; `GK-?` is better than the wrong person
+as `GK-B`. A confirmed goalkeeper is **revoked** only by sustained contradictory
+evidence about that person: referee evidence of 0.7, outside the pitch for half
+of the last 10 s away from any goal, or patrolling the touchline away from any
+goal, on three consecutive checks (about 3 s) over a full 10 s window, and never
+in the first 5 s after a track was bound. Walking upfield while the detector
+calls them a player, or fetching a ball behind their own goal line, is not a
+contradiction. Revocation (`GOALKEEPER REVOKED`) frees the slot at once: the
+identity is kept, marked `revoked`, no longer counts, seeds a keeper kit, blocks
+a team or matches returning keepers, its observations are relabelled
+`GOALKEEPER_REVOKED`, and the track is re-decided. Candidates compete, judged by
+what confirmed them (`keeperGoal`, the strongest goal-area residence ever seen),
+not by the last few seconds: a visible owner never loses its status to a
+candidate; a weakly confirmed owner (never seen at a goal) loses the slot to a
+candidate confirmed at that goal (revoked when absent, de-teamed when visible);
+an owner itself confirmed at a goal only loses the *team* once it has been out
+of view for 10 s while another keeper stands in that goal (`GOALKEEPER TEAM
+RELEASED`: it stays a goalkeeper, re-identifiable, re-teamed by the side votes).
+The keeper-kit team vote is evidence, never ownership. A goalkeeper or referee
+candidate in a clearly different jersey from a missing one is never held as
+that identity's possible return, and a candidate confirmed at a goal for 10 s
+is decided (re-identified at a lower bar or created) rather than deferred
+forever behind a similar-looking stale owner. A track whose feet say sideline
+(vetoed) is neither promoted as a goalkeeper candidate nor matched to any
+missing goalkeeper identity. A confirmed player changes role
 only after two consecutive checks (about 2 s) ask for the same new role, so a
 label never flips back and forth. A player identity whose evidence
 becomes clearly referee is converted: a matching missing referee identity, or a
@@ -185,7 +232,8 @@ player identity that turns out to be the goalkeeper keeps its ID, gets the
 locked goalkeeper role and is shown as `GK-A` / `GK-B`, earlier observations
 included. A returning referee or goalkeeper is matched by their own appearance
 even when the detector or the kit vote calls them a player. Every change is
-logged (`ROLE UPDATE`, `GOALKEEPER IDENTIFIED`, `GOALKEEPER TEAM`), with the
+logged (`ROLE UPDATE`, `GOALKEEPER CANDIDATE`, `GOALKEEPER IDENTIFIED`,
+`GOALKEEPER TEAM`, `GOALKEEPER REVOKED`), with the
 evidence behind it: appearance against the known referees and both teams,
 detector votes, touchline time and movement along the line, formation
 consistency, ball-following behaviour, team count. The same evidence is kept
@@ -207,7 +255,9 @@ view, the two outfield players deepest towards each side are usually that
 side's defenders (offside line) and vote for which team defends which side; a
 goalkeeper at a goal gets that team after at least 15 consistent observations
 with a 75% majority (shown as `GK-A` / `GK-B`), and stays `GK-1` with an unknown
-team otherwise. Two goalkeepers for one team are flagged as a possible duplicate.
+team otherwise. Two goalkeepers for one team are flagged as a possible duplicate;
+a confirmed keeper defending a goal whose team slot a weaker absent keeper holds
+takes that slot (see the goalkeeper slot rules above).
 
 ### 3. Local tracks vs global identities
 

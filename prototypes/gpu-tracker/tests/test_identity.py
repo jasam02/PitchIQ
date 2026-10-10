@@ -265,7 +265,8 @@ class IdentityTests(unittest.TestCase):
         visible = {1: (keeper, .05, .55)}
         for i, (team, x) in enumerate((('A', .15), ('A', .2), ('B', .3), ('B', .45), ('A', .55), ('B', .7))):
             visible[10+i] = (Person(team), x, .5+.04*i)
-        out = d.run(6, visible)
+        # The detector's votes alone never confirm a goalkeeper: the keeper is also the deepest person.
+        out = d.run(6, visible, cues=lambda tid: {'extreme': True} if tid == 1 else {})
         self.assertEqual(out[1]['id'], 'GK-1')
         self.assertEqual((out[1]['role'], out[1]['team'], out[1]['display'], out[1]['label']), ('GOALKEEPER', 'A', 'GK-A', 'GOALKEEPER_TEAM_A'))
         self.assertEqual(len(d.ids.summary()['goalkeepers']), 1)
@@ -552,6 +553,222 @@ class IdentityTests(unittest.TestCase):
         out = d.run(8, self.keeper_scene(keeper, x=.3))
         self.assertEqual((out[1]['id'], out[1]['display'], out[1]['role']), (pid, 'GK-A', 'GOALKEEPER'))
         self.assertTrue(d.ids.registry[pid].role_locked)
+
+    @staticmethod
+    def ends_match():
+        # Two teams in view with team B's defenders at the right end (team B defends the right goal).
+        return {10+i: (Person(team), x, .5+.03*i) for i, (team, x) in enumerate((('A', .2), ('A', .26), ('A', .32), ('B', .62), ('B', .7), ('B', .78)))}
+
+    def test_sideline_official_the_detector_calls_goalkeeper_never_reserves_the_slot(self):
+        # The stale-slot failure: a person on the pitch just inside the touchline, next to team B's
+        # defenders, whom the detector calls a goalkeeper. They used to become GK-B within seconds and
+        # kept team B's goalkeeper slot after they were found to be OUT, so the real keeper was GK-?.
+        d = Driver()
+        team = self.ends_match()
+        d.run(2, team)
+        official = Person('GK', cls='goalkeeper')
+        corridor = {'edge': {'side': 'near', 'metres': 1.0, 'dir': (1.0, 0.0)}}
+        out = d.run(6, {1: (official, .9, .88), **team}, cues=lambda tid: corridor if tid == 1 else {})
+        self.assertIsNone(out[1]['id'], out[1])
+        # Never a goalkeeper: at most a candidate while the sideline evidence builds, then unknown.
+        self.assertIn(out[1]['label'], ('UNKNOWN', 'CANDIDATE', 'GOALKEEPER_CANDIDATE'))
+        self.assertNotIn(out[1]['display'], ('GK-B', 'GK-A'))
+        self.assertIn('touchline', out[1]['reason'])
+        self.assertIn('gk candidate', out[1]['why'])
+        self.assertEqual(d.ids.keeper_slots(), {'A': None, 'B': None})
+        self.assertEqual(d.ids.summary()['goalkeepers'], [])
+        self.assertFalse([e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER IDENTIFIED')])
+        # Then they stand outside the pitch: OUT; the slot stays free.
+        out = d.run(7, {1: (official, .9, .97), **team}, zone=lambda tid: 'outside' if tid == 1 else 'inside', cues=lambda tid: corridor if tid == 1 else {})
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['label']), (None, 'OUT', 'REJECTED_OUTSIDE_FIELD'), out[1])
+        self.assertEqual(d.ids.keeper_slots()['B'], None)
+        # The real team B goalkeeper appears at the right goal, is confirmed, and takes GK-B.
+        keeper = Person('GK', cls='goalkeeper', look='B')
+        at_goal = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+        out = d.run(8, {2: (keeper, .95, .55), **team}, cues=lambda tid: at_goal if tid == 2 else {})
+        self.assertEqual((out[2]['id'], out[2]['display'], out[2]['role'], out[2]['team']), ('GK-1', 'GK-B', 'GOALKEEPER', 'B'), out[2])
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-1')
+        found = [e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER IDENTIFIED')]
+        self.assertEqual(len(found), 1)
+        self.assertIn('Goalkeeper confirmation: CONFIRMED (goal-area residence', found[0]['message'])
+
+    def test_midfield_person_the_detector_calls_goalkeeper_stays_a_candidate_with_its_evidence_logged(self):
+        d = Driver()
+        team = self.ends_match()
+        d.run(2, team)
+        odd = Person('GK', cls='goalkeeper')   # inside the pitch near the middle, never at a goal
+        out = d.run(6, {1: (odd, .5, .45), **team})
+        self.assertIsNone(out[1]['id'], out[1])
+        self.assertEqual((out[1]['display'], out[1]['label'], out[1]['role']), ('GK-?', 'GOALKEEPER_CANDIDATE', 'GOALKEEPER'))
+        self.assertEqual(d.ids.keeper_slots(), {'A': None, 'B': None})
+        candidates = [e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER CANDIDATE') and 'DROPPED' not in e['message'][:30]]
+        self.assertTrue(candidates)
+        for line in ('Local Track: 1', 'Role detector: GK 100%', 'Pitch state: INSIDE 100%', 'Goal proximity score: 0.00', 'Penalty-area residence: 0%',
+                     'Goalkeeper confirmation: CANDIDATE (no goal-area or deepest-person evidence yet', 'State: GK_CANDIDATE'):
+            self.assertIn(line, candidates[0]['message'], candidates[0]['message'])
+        self.assertLessEqual(len(candidates), 2)   # logged every few seconds, not every tick
+
+
+    def test_confirmed_goalkeeper_is_revoked_after_sustained_contrary_evidence_and_the_slot_reused(self):
+        d = Driver()
+        team = self.ends_match()
+        wrong = Person('GK', cls='goalkeeper')
+        at_goal = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+        out = d.run(6, {1: (wrong, .95, .55), **team}, cues=lambda tid: at_goal if tid == 1 else {})
+        self.assertEqual((out[1]['id'], out[1]['display']), ('GK-1', 'GK-B'))
+        self.assertTrue(d.ids.registry['GK-1'].role_locked)
+        # A few odd frames do not shake a confirmed keeper; a long time outside the pitch does.
+        out = d.run(2, {1: (wrong, .95, .97), **team}, zone=lambda tid: 'outside' if tid == 1 else 'inside')
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-1')
+        out = d.run(9, {1: (wrong, .95, .97), **team}, zone=lambda tid: 'outside' if tid == 1 else 'inside')
+        g = d.ids.registry['GK-1']
+        self.assertEqual((g.status, g.role_locked, bool(g.revoked)), ('unknown', False, True))
+        self.assertEqual(d.ids.keeper_slots()['B'], None)
+        self.assertIsNone(out[1]['id'])
+        revoked = [e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER REVOKED')]
+        self.assertEqual(len(revoked), 1)
+        for line in ('Global ID: GK-1 (was GK-B)', 'outside the pitch', 'Team B goalkeeper slot: released'):
+            self.assertIn(line, revoked[0]['message'])
+        # The real keeper claims the slot; the revoked identity is kept but holds nothing.
+        keeper = Person('GK', cls='goalkeeper', look='B')
+        out = d.run(8, {2: (keeper, .95, .55), **team}, cues=lambda tid: at_goal if tid == 2 else {})
+        self.assertEqual((out[2]['id'], out[2]['display']), ('GK-2', 'GK-B'))
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-2')
+        self.assertEqual([(x['id'], x['status'], bool(x['revoked'])) for x in d.ids.summary()['goalkeepers']], [('GK-1', 'UNKNOWN', True), ('GK-2', 'ACTIVE', False)])
+        self.assertTrue(all(p['label'] == 'GOALKEEPER_REVOKED' for frame in d.people for p in frame if p['track'] == 1 and p.get('id') == 'GK-1'))
+
+    def test_stronger_goalkeeper_candidate_takes_the_slot_from_a_weaker_absent_owner(self):
+        d = Driver()
+        team = self.ends_match()
+        weak = Person('GK', cls='goalkeeper')
+        deep = {'extreme': True, 'isolated': True}   # the deepest person, alone, but never seen at a goal
+        out = d.run(6, {1: (weak, .95, .55), **team}, cues=lambda tid: deep if tid == 1 else {})
+        self.assertEqual((out[1]['id'], out[1]['display']), ('GK-1', 'GK-B'))
+        d.step(team, ended=[1])
+        strong = Person('A', cls='goalkeeper')   # the real keeper, in a kit near their team's
+        at_goal = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+        out = d.run(8, {2: (strong, .95, .55), **team}, cues=lambda tid: at_goal if tid == 2 else {})
+        self.assertEqual((out[2]['id'], out[2]['display']), ('GK-2', 'GK-B'), out[2])
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-2')
+        self.assertTrue(d.ids.registry['GK-1'].revoked)
+        self.assertTrue(any('a stronger goalkeeper' in e['message'] for e in d.kinds('role') if e['message'].startswith('GOALKEEPER REVOKED')))
+
+    def test_goalkeeper_slots_start_empty_and_a_late_keeper_still_claims_one(self):
+        d = Driver()
+        team = self.ends_match()
+        d.run(20, team)   # midfield only: nobody near a goal
+        self.assertEqual(d.ids.keeper_slots(), {'A': None, 'B': None})
+        keeper = Person('GK', cls='player')   # the detector never says goalkeeper
+        at_goal = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+        out = d.run(8, {2: (keeper, .95, .55), **team}, cues=lambda tid: at_goal if tid == 2 else {})
+        self.assertEqual((out[2]['id'], out[2]['display']), ('GK-1', 'GK-B'))
+
+    def test_revoked_goalkeeper_stays_released_when_identities_are_continued(self):
+        d = Driver()
+        team = self.ends_match()
+        wrong = Person('GK', cls='goalkeeper')
+        at_goal = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+        d.run(6, {1: (wrong, .95, .55), **team}, cues=lambda tid: at_goal if tid == 1 else {})
+        d.run(11, {1: (wrong, .95, .97), **team}, zone=lambda tid: 'outside' if tid == 1 else 'inside')
+        self.assertTrue(d.ids.registry['GK-1'].revoked)
+        nxt = Driver(saved=d.ids.snapshot())
+        self.assertEqual(nxt.ids.registry['GK-1'].status, 'unknown')
+        self.assertEqual(nxt.ids.keeper_slots(), {'A': None, 'B': None})
+        keeper = Person('GK', cls='goalkeeper', look='B')
+        out = nxt.run(8, {2: (keeper, .95, .55), **team}, cues=lambda tid: at_goal if tid == 2 else {})
+        self.assertEqual((out[2]['id'], out[2]['display']), ('GK-2', 'GK-B'))
+
+
+    AT_RIGHT_GOAL = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+
+    def confirmed_keeper(self, kit='GK', cls='goalkeeper', look=None):
+        """A keeper confirmed and locked as GK-1 / GK-B at the right goal, with the match in view."""
+        d = Driver()
+        team = self.ends_match()
+        keeper = Person(kit, cls=cls, look=look)
+        out = d.run(8, {1: (keeper, .95, .55), **team}, cues=lambda tid: self.AT_RIGHT_GOAL if tid == 1 else {})
+        self.assertEqual((out[1]['id'], out[1]['display']), ('GK-1', 'GK-B'), out[1])
+        self.assertTrue(d.ids.registry['GK-1'].role_locked)
+        return d, team, keeper
+
+    def test_confirmed_keeper_walking_upfield_as_a_player_to_the_detector_keeps_the_role(self):
+        d, team, keeper = self.confirmed_keeper(kit='B', cls='goalkeeper')   # a keeper in a kit near their team's
+        keeper.cls = 'player'   # upfield for a corner: the detector calls them a player for 20 s
+        out = d.run(20, {1: (keeper, .5, .5), **team})
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['role']), ('GK-1', 'GK-B', 'GOALKEEPER'), out[1])
+        self.assertTrue(d.ids.registry['GK-1'].role_locked)
+        self.assertFalse([e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER REVOKED')])
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-1')
+
+    def test_confirmed_keeper_fetching_the_ball_behind_the_goal_line_keeps_the_role(self):
+        d, team, keeper = self.confirmed_keeper()
+        behind = {'near_goal': True, 'goal_side': 'right', 'extreme': True, 'isolated': True}
+        out = d.run(12, {1: (keeper, .99, .55), **team}, zone=lambda tid: 'outside' if tid == 1 else 'inside', cues=lambda tid: behind if tid == 1 else {})
+        self.assertEqual(d.ids.registry['GK-1'].status, 'active')
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-1')
+        self.assertFalse([e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER REVOKED')])
+        out = d.run(4, {1: (keeper, .95, .55), **team}, cues=lambda tid: self.AT_RIGHT_GOAL if tid == 1 else {})
+        self.assertEqual((out[1]['id'], out[1]['display']), ('GK-1', 'GK-B'))
+
+    def test_keeper_confirmed_at_a_goal_only_loses_the_team_to_a_later_keeper_there(self):
+        d, team, keeper = self.confirmed_keeper()
+        d.run(12, {1: (keeper, .5, .5), **team})    # upfield for a while (last window: no goal area)
+        d.step(team, ended=[1])                      # then out of view
+        d.run(12, team)
+        other = Person('A', cls='goalkeeper')         # a different person is confirmed in the same goal area
+        out = d.run(8, {2: (other, .95, .55), **team}, cues=lambda tid: self.AT_RIGHT_GOAL if tid == 2 else {})
+        self.assertEqual((out[2]['id'], out[2]['display']), ('GK-2', 'GK-B'), out[2])
+        g = d.ids.registry['GK-1']
+        self.assertEqual((g.role, g.team, g.status, g.role_locked, g.revoked), ('goalkeeper', None, 'missing', True, ''))
+        self.assertTrue(any(e['message'].startswith('GOALKEEPER TEAM RELEASED') for e in d.kinds('role')))
+        self.assertFalse([e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER REVOKED')])
+        # The first keeper returns to that goal and is re-identified as GK-1, still a goalkeeper.
+        d.step(team, ended=[2])
+        d.run(12, team)
+        out = d.run(8, {3: (keeper, .95, .55), **team}, cues=lambda tid: self.AT_RIGHT_GOAL if tid == 3 else {})
+        self.assertEqual((out[3]['id'], out[3]['role']), ('GK-1', 'GOALKEEPER'), out[3])
+
+    def test_real_keeper_in_a_similar_kit_is_decided_within_seconds_behind_a_weak_absent_owner(self):
+        d = Driver()
+        team = self.ends_match()
+        weak = Person('GK', cls='goalkeeper')
+        d.run(6, {1: (weak, .95, .55), **team}, cues=lambda tid: {'extreme': True, 'isolated': True} if tid == 1 else {})
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-1')
+        d.step(team, ended=[1])
+        d.run(12, team)
+        real = Person('GK', cls='goalkeeper')   # the same kit, another person: re-ID is undecided
+        out = d.run(14, {2: (real, .95, .55), **team}, cues=lambda tid: self.AT_RIGHT_GOAL if tid == 2 else {})
+        self.assertIsNotNone(out[2]['id'], out[2])
+        self.assertEqual((out[2]['display'], out[2]['role']), ('GK-B', 'GOALKEEPER'), out[2])
+        self.assertEqual(d.ids.keeper_slots()['B'], out[2]['id'])
+
+    def test_vetoed_sideline_candidate_is_never_matched_to_a_missing_keeper(self):
+        d, team, keeper = self.confirmed_keeper()
+        d.step(team, ended=[1])
+        d.run(2, team)
+        sub = Person('GK', cls='goalkeeper')   # same kit, warming up along the near touchline
+        corridor = {'edge': {'side': 'near', 'metres': 1.0, 'dir': (1.0, 0.0)}}
+        zones = ['inside', 'inside', 'boundary', 'inside', 'inside', 'inside', 'boundary', 'inside', 'inside', 'boundary']
+        k = [0]
+        def zone(tid):
+            k[0] += 1
+            return zones[k[0] % len(zones)] if tid == 2 else 'inside'
+        out = d.run(12, {2: (sub, .5, .9), **team}, zone=zone, cues=lambda tid: corridor if tid == 2 and k[0] % 10 < 4 else {})
+        self.assertIsNone(out[2]['id'], out[2])
+        self.assertNotEqual(out[2]['display'], 'GK-B')
+        self.assertEqual((d.ids.registry['GK-1'].status, d.ids.registry['GK-1'].revoked), ('missing', ''))
+        self.assertEqual(d.ids.keeper_slots()['B'], 'GK-1')
+
+    def test_keeper_kit_team_vote_does_not_bypass_the_slot(self):
+        d, team, keeper = self.confirmed_keeper()
+        d.model = d.model.replace(keepers=[{'team': 'B', 'jersey': JERSEY['GK']}])   # GK-1's kit is now team B's keeper kit
+        other = Person('GK', cls='goalkeeper')   # the other team's keeper in a similar kit, at the LEFT goal, while GK-1 is in view
+        at_left = {'near_goal': True, 'goal_side': 'left', 'extreme': True, 'isolated': True}
+        out = d.run(8, {1: (keeper, .95, .55), 2: (other, .05, .55), **team}, cues=lambda tid: self.AT_RIGHT_GOAL if tid == 1 else at_left if tid == 2 else {})
+        self.assertEqual((out[1]['id'], out[1]['display']), ('GK-1', 'GK-B'))
+        self.assertNotEqual(out[2]['display'], 'GK-B', out[2])
+        self.assertLessEqual(sum(1 for g in d.ids.summary()['goalkeepers'] if g['team'] == 'B' and not g['revoked']), 1)
+
 
     def test_identity_is_never_deleted(self):
         d = Driver()

@@ -255,18 +255,21 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
     roles = {'refereeConversions': sum(1 for e in events if e['kind'] == 'role' and 'New role: REFEREE' in e['message']),
              'goalkeepersIdentified': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER IDENTIFIED')),
+             'goalkeepersRevoked': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER REVOKED')),
+             'goalkeeperCandidatesDropped': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER CANDIDATE DROPPED')),
              'goalkeeperTeams': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER TEAM')),
              'mergedIdentities': len(match['retired']),
              'assistantReferees': sum(1 for p in match['referees'] if p.get('official') == 'ASSISTANT_REFEREE'),
              'centreReferees': sum(1 for p in match['referees'] if p.get('official') == 'CENTER_REFEREE')}
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
-               'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': len(match['goalkeepers']), 'referees': len(match['referees']),
+               'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': sum(1 for g in match['goalkeepers'] if not g.get('revoked')),
+                                    'referees': len(match['referees']),
                                     'merged': len(match['retired'])},
                'reidentifications': kinds.get('reid', 0), 'deferredDecisions': kinds.get('deferred', 0), 'newIdentities': kinds.get('new-identity', 0),
                'swapCorrections': kinds.get('swap-corrected', 0), 'crossingWarnings': kinds.get('swap-uncertain', 0), 'sanityWarnings': kinds.get('sanity', 0),
                'identifiedShare': round(identified/people, 3) if people else 0.0, 'rejectedDetections': tracker.rejected_counts,
                'cameraCuts': tracker.cuts, 'meanVisiblePeople': round(sum(len(f['people']) for f in frames)/len(frames), 1),
-               'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(),
+               'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(), 'goalkeeperSlots': tracker.ids.keeper_slots(),
                'elapsedSeconds': round(elapsed, 2), 'processingFPS': round(len(frames)/elapsed, 2),
                'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2)}
     return {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
