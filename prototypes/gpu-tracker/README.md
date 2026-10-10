@@ -72,6 +72,7 @@ video frame
   -> position cues .................. soccer/goals.py       near a goal / in a penalty area, deepest, isolated
   -> role classification ............ soccer/roles.py       ~10 s of detector, kit and position evidence per track
   -> pitch coordinates .............. soccer/calibration.py optional landmark calibration, carried through pans
+  -> 2D match view .................. tactical.js          top-down recreation from the saved result, in step with the video
   -> GLOBAL IDENTITY MANAGER ........ soccer/identity.py    candidates, promotion, re-ID, role locking, swap guard, sanity
   -> ball tracker ................... soccer/ball.py        candidate scoring + one camera-compensated Kalman ball track
   -> persistent soccer observations . result.json           per frame: identity, team, role, confidences; the ball
@@ -506,6 +507,47 @@ from the goal; a white spot or a line is never `BALL`; a player who leaves and
 returns keeps their ID (look for a RE-ID EVENT) or stays uncertain, never a
 different player's ID; no team grows far beyond 11 identities.
 
+## 2D match view
+
+Directly below the video, the review page recreates the match on a top-down
+pitch from the saved result (`tactical.js`): team players and goalkeepers as
+circles in the colours you pick (**Team A colour**, **Team B colour**; the
+choice is remembered per video and never changes the tracking's A/B), `GK`
+inside the goalkeeper markers, optional **Show player IDs** labels, and the ball
+as a smaller white circle, dashed while its position is predicted. Referees,
+bench, crowd and rejected detections are never drawn. The video is the only
+clock: play, pause, seek, scrub and replay move both together.
+
+Positions are the pipeline's pitch coordinates (`pitch` on each observed
+person and on the ball: the feet, through the landmark calibration carried by
+the camera-motion estimate, normalized on a 105 × 68 m pitch), never screen
+coordinates, so the board stays fixed while the camera pans and zooms and
+shows the whole pitch however little of it the camera sees. Without
+calibration keyframes there are no positions and the board says so; where the
+calibration is dropped (unreliable camera motion, a cut) nothing is placed
+until the next keyframe. Who is drawn comes from the final registry, so a
+player identity later found to be a referee is not shown as a player anywhere.
+
+Between frames the markers are linearly interpolated, and positions are
+smoothed with a short centred window (the whole history is known, so there is
+no lag). A person the tracker lost stays for 0.6 s at their last position
+(fading, dashed ring), then disappears: nobody is placed by guesswork. A gap
+of up to 1 s between two observations of the same identity is bridged by
+interpolation. A lost ball disappears (only a loss shorter than 0.15 s, a
+dropped frame or two, is bridged); a hidden ball is drawn only while the ball
+tracker still predicts it with confidence of at least 0.5. **Debug
+positions** shows each marker's pitch x / y, position source (`OBSERVED`,
+`INTERPOLATED`, `HELD`, `PREDICTED`) and confidence, plus the frame, time and
+calibration state, to check that video and board correspond.
+
+The renderer draws fixed layers (pitch, overlays, players, labels, ball, debug)
+and exposes `tactical.overlays`, a list of `(ctx, geometry, state) => …` hooks
+drawn between the pitch and the players, for trails, heat maps, formations or
+passing lanes later. `tests/test_tactical.py` checks the view in a headless
+browser against a synthetic calibrated clip when Playwright, a Chromium and
+ffmpeg are installed (`pip install playwright` and `playwright install
+chromium`, or point `PITCHIQ_CHROMIUM` at a browser).
+
 ## Output
 
 Runs are saved under `runs/<video-content-hash>/<run>/`: `config.json`,
@@ -541,6 +583,10 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `roleEvidence`). **Tactical analysis should use only people with an `id`
   whose role is `PLAYER` or `GOALKEEPER`, and treat low `identityConfidence`
   values with care.** Referees are never players.
+- `tactical`: what the 2D match view needs beyond the frames: the coordinate
+  convention, how many frames carry pitch coordinates (`calibratedFrames`,
+  `calibratedShare`) and `goalEnds` (which team defends the left / right goal
+  line, when the tracking settled it).
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
   share of on-pitch observations with an identity, ball coverage, ball tracks,
@@ -611,6 +657,8 @@ No global Python packages are changed.
   heavy shadow, snow or close-ups can make it unreliable; then nobody new is
   promoted until a clear view returns. Draw a boundary keyframe if needed.
 - Pitch coordinates need calibration keyframes; the 105 × 68 m size is assumed.
+  The 2D match view therefore shows people only while the camera is calibrated
+  and only those the camera sees; off-screen players are not placed.
 - Substitutions are not recognised automatically: a player who goes off stays
   `MISSING`, and an incoming substitute becomes a new identity only after the
   sanity checks above (a warning is logged).

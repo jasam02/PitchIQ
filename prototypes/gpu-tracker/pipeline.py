@@ -261,6 +261,21 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
              'mergedIdentities': len(match['retired']),
              'assistantReferees': sum(1 for p in match['referees'] if p.get('official') == 'ASSISTANT_REFEREE'),
              'centreReferees': sum(1 for p in match['referees'] if p.get('official') == 'CENTER_REFEREE')}
+    # For the 2D match view: how much of the run has pitch coordinates, and which team defends which end
+    # (pitch x = 0 is the left goal line as the calibration names it, which is the image's left).
+    sides = tracker.ids.goal_sides()
+
+    def defends(side):
+        votes = sides.get(side) or {}
+        total = sum(votes.values())
+        if total < 15:
+            return None
+        team, n = max(votes.items(), key=lambda item: item[1])
+        return team if n/total >= .75 else None
+    calibrated = sum(1 for f in frames if f.get('calibrated'))
+    tactical = {'coordinates': 'normalized pitch position of the feet: x 0..1 from the left goal line to the right goal line, '
+                               'y 0..1 from the far touchline to the near touchline (105 x 68 m), from the landmark calibration carried through camera motion',
+                'calibratedFrames': calibrated, 'calibratedShare': share(calibrated), 'goalEnds': {'left': defends('left'), 'right': defends('right')}}
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
                'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': sum(1 for g in match['goalkeepers'] if not g.get('revoked')),
                                     'referees': len(match['referees']),
@@ -271,9 +286,9 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                'cameraCuts': tracker.cuts, 'meanVisiblePeople': round(sum(len(f['people']) for f in frames)/len(frames), 1),
                'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(), 'goalkeeperSlots': tracker.ids.keeper_slots(),
                'elapsedSeconds': round(elapsed, 2), 'processingFPS': round(len(frames)/elapsed, 2),
-               'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2)}
+               'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2) if torch.cuda.is_available() else 0.0}
     return {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
-            'events': events, 'issues': tracker.issues[-500:], 'teams': tracker.model.to_json(),
+            'events': events, 'issues': tracker.issues[-500:], 'teams': tracker.model.to_json(), 'tactical': tactical,
             'continuedFrom': (previous or {}).get('run'), 'status': 'cancelled' if cancelled else 'complete', 'summary': summary,
             'labels': {p['id']: long_id(p['id']) for group in match.values() for p in group},
             'limitations': ['Global IDs (A-07, GK-1, REF-1) are tracking identities, not jersey numbers or names. Goalkeepers are shown by team (GK-A, GK-B).',

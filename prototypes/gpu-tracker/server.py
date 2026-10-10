@@ -209,6 +209,10 @@ def main():
     def index():
         return send_file(ROOT/'index.html')
 
+    @app.get('/tactical.js')
+    def tactical():
+        return send_file(ROOT/'tactical.js', mimetype='application/javascript')
+
     @app.get('/video')
     def video():
         return send_file(need_video().source, conditional=True)
