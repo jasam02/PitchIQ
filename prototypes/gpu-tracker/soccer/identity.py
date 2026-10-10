@@ -51,6 +51,15 @@ GK_DOUBT_CHECKS = 3      # consecutive role checks (~3 s) of contradictory evide
 ROLE_OUT = {'player': 'PLAYER', 'goalkeeper': 'GOALKEEPER', 'referee': 'REFEREE'}
 OFFICIAL_OUT = {'assistant': 'ASSISTANT_REFEREE', 'centre': 'CENTER_REFEREE', '': 'UNKNOWN_OFFICIAL'}
 LOOKS_PROBES = 3         # recent clean crops compared with the referee and team appearance galleries
+# People you identified in the review page ("manual" identities, see corrections.py) are recognised by
+# appearance before anything else; their role and team are never changed by automatic evidence.
+MANUAL_MATCH = .7        # appearance similarity at which a track is recognised as someone you identified (the same
+                         # person across a match measured .6-.85 on broadcast footage, other people <= .56)
+MANUAL_LEAD = .15        # ... and how much more like them it must look than like any automatic identity
+MANUAL_EVERY = 1.0       # seconds between those appearance checks, per track
+MANUAL_PROBES = 3        # only a track's latest crops are compared: after two people cross, older crops show the other one
+MANUAL_LOST = .45        # a track carrying someone you identified that looks less like them than this, three checks
+                         # in a row, has moved to someone else and lets the identity go
 
 
 def r3(v):
@@ -148,6 +157,9 @@ class GlobalPlayer:
     doubt: int = 0                                       # goalkeepers: consecutive checks with contradictory evidence
     revoked: str = ''                                    # goalkeepers: why the goalkeeper status was taken away
     keeper_goal: float = 0.0                             # goalkeepers: the strongest goal-area residence ever seen (what confirmed them)
+    manual: bool = False                                 # identified by you: role and team are yours, never changed automatically
+    anchor: list = field(default_factory=list)           # identified by you: their appearance as you corrected it (never updated in a run)
+    excluded: bool = False                               # identified by you as not part of the match (recognised, then left out)
 
     @property
     def role_label(self):
@@ -225,6 +237,12 @@ class TrackState:
     role_wanted: str | None = None
     keeper_logged: float = -math.inf                # when this track's goalkeeper-candidate evidence was last logged
     keeper_unknown: int = 0                         # consecutive checks on which a goalkeeper candidate's decision was CANDIDATE
+    manual_checked: float = -math.inf               # last appearance check against the people you identified
+    manual_hits: int = 0                            # consecutive checks that found the same one of them
+    manual_pid: str | None = None
+    manual_score: tuple = (0.0, 0.0)                # (similarity to them, best similarity to an automatic identity)
+    manual_doubt: int = 0                           # consecutive checks on which a track no longer looked like the person you identified
+    excluded: str | None = None                     # the identity you marked as not part of the match that this track is
 
 
 class IdentityManager:
@@ -258,7 +276,8 @@ class IdentityManager:
                         'teamConfidence': r3(g.team_confidence), 'roleConfidence': r3(g.role_confidence),
                         'observations': g.observations, 'gkVotes': dict(g.gk_votes), 'roleLocked': g.role_locked,
                         'refereeConfidence': r3(g.referee_confidence), 'goalkeeperConfidence': r3(g.goalkeeper_confidence), 'revoked': g.revoked,
-                        'keeperGoal': r3(g.keeper_goal),
+                        'keeperGoal': r3(g.keeper_goal), 'manual': g.manual, 'excluded': g.excluded,
+                        **({'anchor': [{'t': r3(s.time), 'd': encode_descriptor(s.d)} for s in g.anchor]} if g.anchor else {}),
                         'retiredInto': g.retired_into, 'official': g.official})
         return {'version': 1, 'identities': out, 'counters': dict(self.counters)}
 
@@ -277,15 +296,18 @@ class IdentityManager:
                 edge = str(v.get('exitEdge', ''))[:8]
                 retired = v.get('status') == 'retired'
                 g = GlobalPlayer(pid, role, v.get('team') if v.get('team') in ('A', 'B') else None,
-                                 'retired' if retired else 'unknown' if v.get('revoked') else 'offscreen' if edge else 'missing', gallery, float(v.get('firstSeen', 0)), float(v.get('lastSeen', 0)), box,
+                                 'retired' if retired else 'unknown' if v.get('revoked') or v.get('excluded') else 'offscreen' if edge else 'missing', gallery, float(v.get('firstSeen', 0)), float(v.get('lastSeen', 0)), box,
                                  tuple(v['lastPitch']) if v.get('lastPitch') else None, None, edge,
                                  identity_confidence=clamp(float(v.get('identityConfidence', 0))),
                                  team_confidence=clamp(float(v.get('teamConfidence', 0))), role_confidence=clamp(float(v.get('roleConfidence', 0))),
                                  restored=True, gk_votes=Counter(v.get('gkVotes', {})), role_locked=bool(v.get('roleLocked')),
                                  referee_confidence=clamp(float(v.get('refereeConfidence', 0))), goalkeeper_confidence=clamp(float(v.get('goalkeeperConfidence', 0))),
-                                 revoked=str(v.get('revoked', '') or ''),
+                                 revoked=str(v.get('revoked', '') or ''), manual=bool(v.get('manual')), excluded=bool(v.get('excluded')),
                                  keeper_goal=clamp(float(v.get('keeperGoal', 1.0 if v.get('roleLocked') and role == 'goalkeeper' else 0.0))),
                                  retired_into=v.get('retiredInto'), official=v.get('official') if v.get('official') in ('assistant', 'centre') else '')
+                if g.manual:
+                    anchor = [Sample(d, float(s.get('t', 0))) for s in v.get('anchor') or [] for d in [decode_descriptor(s.get('d', {}))] if d is not None]
+                    g.anchor = anchor or list(gallery)
                 self.registry[pid] = g
             except (KeyError, TypeError, ValueError):
                 continue
@@ -300,6 +322,7 @@ class IdentityManager:
         t = ctx['time']
         if self.started is None:
             self.started = t
+            self._announce_manual(out)
         if t < self.time-1e-6:
             for g in self.registry.values():
                 g.last_observed = -math.inf
@@ -409,6 +432,9 @@ class IdentityManager:
         """A confirmed player whose kit votes switched (>= 80% of the last 15) is released and re-identified."""
         if tr.state not in ('confirmed', 'uncertain') or tr.team is None or tr.role != 'player' or len(tr.team_votes) < VOTES:
             return
+        bound = self.registry.get(tr.player_id) if tr.player_id else None
+        if bound is not None and bound.manual:
+            return   # you gave this person their team
         other = 'B' if tr.team == 'A' else 'A'
         n = sum(1 for v in tr.team_votes if v == other)
         if n < .8*VOTES:
@@ -430,6 +456,17 @@ class IdentityManager:
         and a temporal role decision. Tracks born on the touchline need stronger evidence."""
         if tr.retired:
             tr.state = 'unknown'
+            return
+        if tr.excluded:
+            tr.state = 'rejected'   # someone you marked as not part of the match
+            return
+        mine = self._manual_check(tr, ctx['time'])
+        if mine is not None:
+            self._adopt_manual(tr, mine, ctx, out)
+            return
+        if tr.manual_hits:
+            tr.state = 'candidate'
+            tr.reason = f'checking: looks like {tr.manual_pid}, identified by you'
             return
         o, d = self.o, tr.decision
         if d.label == 'CANDIDATE' and d.scores.get('neitherTeam', 0) >= .6 and tr.hits >= o.min_hits and len(tr.descs) >= 3:
@@ -515,9 +552,20 @@ class IdentityManager:
             if g is None or g.track != tr.id:
                 continue
             tr.role_checked = t
+            if not g.manual:
+                mine = self._manual_check(tr, t)
+                if mine is not None:
+                    self._adopt_manual(tr, mine, ctx, out)   # the person is someone you identified
+                    continue
             d = tr.decision = self._decide(tr, ctx)
             g.referee_confidence, g.goalkeeper_confidence = d.referee_confidence, d.goalkeeper_confidence
             g.role_scores = d.scores
+            if g.manual:
+                # Your call: the role and team you gave this person are not changed by automatic evidence.
+                if g.role == 'goalkeeper':
+                    g.keeper_goal = max(g.keeper_goal, d.scores['nearGoal'])
+                self._verify_manual(tr, g, ctx, out)
+                continue
             if d.role == g.role:
                 current = d.referee_confidence if g.role == 'referee' else d.goalkeeper_confidence if g.role == 'goalkeeper' else d.role_confidence
                 g.role_confidence = r3(max(current, g.role_confidence) if g.role_locked else current)
@@ -643,8 +691,8 @@ class IdentityManager:
         win. Returns 'revoke' (the owner's goalkeeper status was weak: taken away), 'deteam' (the owner
         was itself confirmed at a goal, so it is a goalkeeper of the other team: only the team is taken)
         or '' (the owner keeps the slot)."""
-        if not self._keeper_confirmed(d):
-            return ''
+        if not self._keeper_confirmed(d) or owner.manual:
+            return ''   # a goalkeeper you identified keeps the slot
         s = d.scores
         at_goal = s['nearGoal'] >= .5
         strong_owner = owner.role_locked and owner.keeper_goal >= .5   # confirmed at a goal, whatever its last window looks like
@@ -792,6 +840,118 @@ class IdentityManager:
 
     def _old_role(self, g):
         return f'PLAYER (team {g.team})' if g.role == 'player' else ROLE_OUT[g.role]
+
+    # ---------- people you identified (manual identities) ----------
+    @staticmethod
+    def _plain(g):
+        if g.excluded:
+            return 'not part of the match'
+        if g.role == 'referee':
+            return 'referee'
+        if g.role == 'goalkeeper':
+            return f'goalkeeper (team {g.team})' if g.team else 'goalkeeper'
+        return f'team {g.team} player' if g.team else 'player'
+
+    def _announce_manual(self, out):
+        mine = sorted((g for g in self.registry.values() if g.manual and g.status != 'retired'), key=lambda g: g.pid)
+        if mine:
+            out['events'].append(self._event('manual', None, None, '\n'.join(
+                ['REMEMBERED FROM YOUR CORRECTIONS'] + [f'{g.pid}: {self._plain(g)}' for g in mine] +
+                ['Recognised by appearance; their roles and teams are not changed automatically.'])))
+
+    def _manual_check(self, tr, t):
+        """Is the person on this track someone you identified (including someone you marked as not part
+        of the match)? Appearance decides, about once a second: clearly similar to them (MANUAL_MATCH)
+        and clearly more similar than to any automatically identified person (MANUAL_LEAD), on two
+        checks in a row. Returns that identity once decided; tr.manual_hits > 0 while a first match
+        waits for its confirmation. Without any such identity this costs nothing and changes nothing."""
+        if tr.retired or len(tr.descs) < 3 or 0 <= t-tr.manual_checked < MANUAL_EVERY:
+            return None
+        mine = [g for g in self.registry.values() if g.manual and g.gallery and g.status not in ('retired', 'substituted') and g.track != tr.id
+                and (g.excluded or g.track is None or self._lost_for(g) >= LOST)]
+        if not mine:
+            tr.manual_hits, tr.manual_pid = 0, None
+            return None
+        tr.manual_checked = t
+        probes = self._probes(tr)[-MANUAL_PROBES:]
+        best = None
+        for g in mine:
+            c = compare(g.anchor or g.gallery, probes)
+            if c is None:
+                continue
+            a = c['appearance'] if c['appearance'] is not None else clamp(1-c['total']/.6)
+            if best is None or a > best[1]:
+                best = (g, a)
+        rival = 0.0
+        if best is not None and best[1] >= MANUAL_MATCH:
+            rival = self._best_appearance(tr, lambda o: not o.manual and o.status != 'unknown' and o.pid not in tr.former)
+        if best is None or best[1] < MANUAL_MATCH or best[1] < rival+MANUAL_LEAD:
+            tr.manual_hits, tr.manual_pid = 0, None
+            return None
+        tr.manual_hits = tr.manual_hits+1 if tr.manual_pid == best[0].pid else 1
+        tr.manual_pid, tr.manual_score = best[0].pid, (best[1], rival)
+        # Taking a track from an identity it already has needs one more confirmation than giving one to a
+        # newcomer: a track that just crossed someone may still carry that person's crops for a moment.
+        need = 3 if tr.player_id else 2
+        return best[0] if tr.manual_hits >= need else None
+
+    def _verify_manual(self, tr, g, ctx, out):
+        """The track carrying someone you identified must keep looking like them (their appearance as you
+        corrected it, not crops gathered in this run, which a wrong match would pollute). Three checks in a
+        row clearly unlike them mean the track moved to someone else: the identity is let go."""
+        c = compare(g.anchor, self._probes(tr)[-MANUAL_PROBES:]) if g.anchor and tr.descs else None
+        if c is None:
+            return
+        a = c['appearance'] if c['appearance'] is not None else clamp(1-c['total']/.6)
+        tr.manual_doubt = tr.manual_doubt+1 if a < MANUAL_LOST else 0
+        if tr.manual_doubt < 3:
+            return
+        tr.manual_doubt = 0
+        self._unbind(g)
+        self._release(tr, f'no longer looks like {g.pid}, identified by you')
+        tr.released = (g.pid, ctx['time'])
+        tr.role, tr.team, tr.state = 'unknown', None, 'candidate'
+        tr.reid.clear()
+        out['events'].append(self._event('reid-rejected', tr.id, g.pid, f'Track {tr.id} no longer looks like {g.pid}, whom you identified (appearance {a:.2f}); identity released.'))
+        out['issues'].append({'id': g.pid, 'time': ctx['time'], 'reason': 'The track carrying this identity moved to someone else; released.'})
+
+    def _adopt_manual(self, tr, g, ctx, out):
+        """Track tr is the person you identified as g: bind it (taking over from an automatic identity
+        that was this person), or, for someone you marked as not part of the match, leave it out."""
+        t = ctx['time']
+        similarity, rival = tr.manual_score
+        tr.manual_hits, tr.manual_pid = 0, None
+        old = self.registry.get(tr.player_id) if tr.player_id else None
+        if old is not None and old.track != tr.id:
+            old = None
+        tr.manual_doubt = 0
+        lines = [f'Local Track: {tr.id}', f'Appearance similarity: {similarity:.2f} (best automatic identity {rival:.2f})']
+        if g.excluded:
+            if old is not None:
+                self._unbind(old)
+                tr.former.add(old.pid)
+                lines.append(f'{old.pid} released from this track')
+            tr.player_id, tr.state, tr.excluded, tr.role, tr.team = None, 'rejected', g.pid, 'unknown', None
+            tr.reid.clear()
+            tr.reason = f'not part of the match: looks like {g.pid}, whom you marked so'
+            out['events'].append(self._event('manual', tr.id, g.pid, '\n'.join(
+                ['RECOGNISED: NOT PART OF THE MATCH', f'Looks like {g.pid}, whom you marked as not part of the match'] + lines)))
+            return
+        if g.track is not None and g.track != tr.id:
+            ghost = g.track
+            self.tracks.pop(ghost, None)
+            out['drop'].append(ghost)
+            self._drop_pairs(ghost, out)
+        if old is not None:
+            retired = self._hand_over(tr, old, g, t, out)
+            lines.append(f'Took over from {old.pid}' + (' (retired: it was this person)' if retired else ''))
+        tr.role, tr.team, tr.excluded = g.role, g.team, None
+        tr.team_confidence, tr.role_confidence = (.9 if g.team else 0.0), 1.0
+        tr.team_votes.clear()
+        self._bind(tr, g, t, max(.8, similarity))
+        out['events'].append(self._event('reid', tr.id, g.pid, '\n'.join(
+            ['RECOGNISED: IDENTIFIED BY YOU', f'Global ID: {g.pid} ({self._plain(g)}, set by you)'] + lines), accepted=True))
+        self._flush(tr, g, t)
 
     def _to_referee(self, tr, g, d, ctx, out):
         t = ctx['time']
@@ -1030,6 +1190,13 @@ class IdentityManager:
     def _resolve(self, uncertain, ctx, out):
         o = self.o
         for tr in uncertain:
+            if tr.retired or tr.state != 'uncertain':
+                continue
+            mine = self._manual_check(tr, ctx['time'])
+            if mine is not None:
+                self._adopt_manual(tr, mine, ctx, out)
+        uncertain = [tr for tr in uncertain if tr.state == 'uncertain']
+        for tr in uncertain:
             if tr.retired or tr.role != 'player' or len(tr.descs) < 3:
                 continue
             # A returning referee or goalkeeper whose kit voted for a team: their own appearance decides.
@@ -1049,6 +1216,10 @@ class IdentityManager:
                     f'Looks like {name}: appearance {match[1]:.2f} vs {rival:.2f} for {closest}'])))
         for tr in uncertain:
             if tr.retired:
+                continue
+            if tr.manual_hits:
+                tr.reason = f'checking: looks like {tr.manual_pid}, identified by you'
+                tr.reid.clear()
                 continue
             cands = self._candidates(tr)
             tr.blind = []
@@ -1457,6 +1628,8 @@ class IdentityManager:
         person.update(id=g.pid, display=g.display, team=g.team, role=ROLE_OUT.get(g.role, 'UNKNOWN'), label=g.role_label,
                       state='confirmed', identityConfidence=conf, roleConfidence=r3(g.role_confidence))
         person.pop('reason', None)
+        if g.manual:
+            person['manual'] = True
 
     def _restyle(self, g):
         """After a role or team change of an identity, every observation already labelled with it follows."""
@@ -1717,6 +1890,8 @@ class IdentityManager:
                               identityConfidence=r3(tr.best if tr.state == 'uncertain' else 0), roleConfidence=r3(tr.role_confidence))
                 if tr.reason:
                     person['reason'] = tr.reason[:160]
+                if tr.excluded:
+                    person['manual'], person['excludedId'] = True, tr.excluded
                 if not tr.retired and tr.state in ('candidate', 'uncertain'):
                     tr.pending.append(person)
                     while tr.pending and t-tr.pending[0]['time'] > BUFFER_SECONDS:
@@ -1778,6 +1953,8 @@ class IdentityManager:
 
     def _unbound_label(self, tr):
         """(display, combined label) for a person without a global identity."""
+        if tr.excluded:
+            return 'OUT', 'EXCLUDED_BY_YOU'
         if tr.state == 'uncertain':
             display = 'REF-?' if tr.role == 'referee' else (f'GK-{tr.team}?' if tr.team else 'GK-?') if tr.role == 'goalkeeper' else f'{tr.team}-?' if tr.team else '?'
             return display, ('GOALKEEPER_CANDIDATE' if tr.role == 'goalkeeper' else 'IDENTITY_UNCERTAIN')
@@ -1916,7 +2093,7 @@ class IdentityManager:
                 if g.role == 'goalkeeper' and g.status not in ('retired', 'substituted', 'unknown') and g.gallery]
 
     def summary(self):
-        groups = {'players': [], 'goalkeepers': [], 'referees': [], 'retired': []}
+        groups = {'players': [], 'goalkeepers': [], 'referees': [], 'retired': [], 'excluded': []}
         for g in sorted(self.registry.values(), key=lambda g: g.pid):
             status = 'missing' if g.status == 'active' and self._lost_for(g) > LOST else g.status
             entry = {'id': g.pid, 'longId': long_id(g.pid), 'display': g.display, 'team': g.team, 'role': ROLE_OUT.get(g.role, 'UNKNOWN'),
@@ -1931,10 +2108,13 @@ class IdentityManager:
                      'velocity': [round(float(g.velocity[0]), 4), round(float(g.velocity[1]), 4)], 'exitEdge': g.exit_edge,
                      'restored': g.restored, 'history': list(g.history)[-10:],
                      'official': OFFICIAL_OUT.get(g.official, '') if g.role == 'referee' else None, 'roleEvidence': g.role_scores,
-                     'revoked': g.revoked or None, 'keeperGoal': r3(g.keeper_goal)}
+                     'revoked': g.revoked or None, 'keeperGoal': r3(g.keeper_goal), 'manual': g.manual}
             if g.status == 'retired':
                 entry['retiredInto'] = g.retired_into
                 groups['retired'].append(entry)
+            elif g.excluded:
+                entry.update(excluded=True, status='EXCLUDED')
+                groups['excluded'].append(entry)
             else:
                 groups['referees' if g.role == 'referee' else 'goalkeepers' if g.role == 'goalkeeper' else 'players'].append(entry)
         return groups

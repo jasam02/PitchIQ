@@ -279,7 +279,8 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
                'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': sum(1 for g in match['goalkeepers'] if not g.get('revoked')),
                                     'referees': len(match['referees']),
-                                    'merged': len(match['retired'])},
+                                    'merged': len(match['retired']), 'excluded': len(match.get('excluded', []))},
+               'remembered': sorted(p['id'] for key in ('players', 'goalkeepers', 'referees', 'excluded') for p in match.get(key, []) if p.get('manual')), 'corrections': 0,
                'reidentifications': kinds.get('reid', 0), 'deferredDecisions': kinds.get('deferred', 0), 'newIdentities': kinds.get('new-identity', 0),
                'swapCorrections': kinds.get('swap-corrected', 0), 'crossingWarnings': kinds.get('swap-uncertain', 0), 'sanityWarnings': kinds.get('sanity', 0),
                'identifiedShare': round(identified/people, 3) if people else 0.0, 'rejectedDetections': tracker.rejected_counts,
@@ -296,5 +297,6 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                             'Roles come from about ten seconds of detector, kit and position evidence; a player identity later found to be a referee is merged into a referee identity and its observations are relabelled.',
                             'OSNet is a general pedestrian model: same-kit teammates can look alike, so some returns stay unresolved.',
                             'Pitch coordinates exist only for frames carried from a calibration keyframe.',
+                            'People you corrected in the review page are remembered by appearance: a run recognises them only when they look clearly like the person you corrected.',
                             'Off-screen positions are unknown; no missing observations are fabricated.',
                             'The ball is one persistent track followed through time (BALL-1); while hidden its position is predicted (MISSING), and when it cannot be confirmed it is UNKNOWN rather than a guess. No ball accuracy is claimed.']}

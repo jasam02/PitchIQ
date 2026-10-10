@@ -548,6 +548,47 @@ browser against a synthetic calibrated clip when Playwright, a Chromium and
 ffmpeg are installed (`pip install playwright` and `playwright install
 chromium`, or point `PITCHIQ_CHROMIUM` at a browser).
 
+## Correcting who someone is
+
+Click a person's box (or their label) on the video to change who they are: **Team A
+player**, **Team B player**, **Goalkeeper · team A / B**, **Referee** or **Not part of
+this match**. **Who** chooses between a new identity and *the same person as* an
+existing one of that kind; only identities never on the video at the same time are
+offered (two people at once cannot be one person). **Save** relabels every frame of
+that identity in the result, and the roster, counts, 2D match view and events follow
+(`CORRECTED BY YOU`). People you set are marked ✎. The **Corrections** panel lists
+every change for the video with **Remove**; the popover of a corrected person offers
+**Undo**.
+
+A correction is remembered for the video (`runs/<video>/corrections.json`):
+
+- The run it was made on is rebuilt from the untouched originals (`result.raw.json`,
+  `identities.raw.json`, copied on the first correction), so removing a correction
+  restores the original files exactly. Removing a correction also removes later ones
+  that built on it (for example a correction of the referee it created).
+- **Continue identities from the previous run** starts from the corrected identities.
+- Every later run of the video starts with the people you corrected as *manual
+  identities*: their saved appearance with the role and team you gave them (the
+  log starts with `REMEMBERED FROM YOUR CORRECTIONS`). A track is recognised as one
+  of them (`RECOGNISED: IDENTIFIED BY YOU`) when its latest crops look clearly like
+  that person (appearance at least 0.7) and clearly more like them than like anyone
+  the tracker knows (by 0.15), on two checks a second apart (three when the track
+  already has an identity, since a track that just crossed someone briefly still
+  carries that person's crops). Earlier frames of the track are relabelled. A
+  manual identity's role and team are never changed by automatic evidence, and a
+  goalkeeper you set keeps the team's slot. A track carrying someone you set keeps
+  being compared with their appearance as you corrected it; three checks clearly
+  unlike them (below 0.45) release the identity. Someone you marked as not part of
+  the match is recognised the same way and shown as `OUT`
+  (`EXCLUDED_BY_YOU`).
+
+A person without a global identity yet (only a local track, `B-?` or `UNK-12`) has no
+saved appearance: correcting them changes this result only, and the popover says
+so. Team letters are only meaningful with the kit model they were given under, so a
+run that does not continue identities starts from that run's kit model when a
+remembered person has a team. Corrections can be made when no run is processing,
+on the latest result.
+
 ## Output
 
 Runs are saved under `runs/<video-content-hash>/<run>/`: `config.json`,
@@ -583,6 +624,10 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `roleEvidence`). **Tactical analysis should use only people with an `id`
   whose role is `PLAYER` or `GOALKEEPER`, and treat low `identityConfidence`
   values with care.** Referees are never players.
+- `corrections`: the corrections applied to this result (who, to what, whether it
+  is remembered). Corrected people carry `manual: true` and `correction` on every
+  frame, and `summary.remembered` lists the identities a run started with from your
+  corrections.
 - `tactical`: what the 2D match view needs beyond the frames: the coordinate
   convention, how many frames carry pitch coordinates (`calibratedFrames`,
   `calibratedShare`) and `goalEnds` (which team defends the left / right goal

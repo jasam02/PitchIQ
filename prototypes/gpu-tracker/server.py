@@ -12,6 +12,7 @@ from urllib.parse import unquote
 
 from flask import Flask, abort, jsonify, request, send_file
 from waitress import serve
+import corrections
 from pipeline import ROOT, gpu_info, metadata, run
 from soccer import calibration
 
@@ -228,7 +229,12 @@ def main():
         if saved_ids:
             identities = saved_ids.get('registry', {}).get('identities', [])
             summary = {'run': saved_ids.get('run'), 'start': saved_ids.get('start'), 'end': saved_ids.get('end'), 'identities': len(identities)}
-        return jsonify(base | {'video': v.meta, 'videoKey': v.key, 'settings': v.defaults, 'previousIdentities': summary})
+        run_name = v.result_dir.name if v.result_dir else None
+        items = corrections.load(v.directory)
+        return jsonify(base | {'video': v.meta, 'videoKey': v.key, 'settings': v.defaults, 'previousIdentities': summary,
+                               'corrections': corrections.listing(v.directory, run_name),
+                               'remembered': [{'id': e['id'], 'what': 'not part of the match' if e.get('excluded') else corrections.describe(e['role'], e.get('team'))}
+                                              for e in corrections.seeds(items)['identities']]})
 
     @app.post('/api/upload')
     def upload():
@@ -289,7 +295,8 @@ def main():
         with gate:
             v = active['video']
             has = bool(v and v.result_dir and (v.result_dir/'result.json').exists())
-            return jsonify(dict(state) | {'hasResult': has, 'videoKey': v.key if v else None})
+            return jsonify(dict(state) | {'hasResult': has, 'videoKey': v.key if v else None,
+                                          'resultRun': v.result_dir.name if has else None})
 
     @app.get('/api/result')
     def result():
@@ -316,6 +323,8 @@ def main():
             previous = v.previous_identities()
             if previous is None:
                 raise ValueError('There is no earlier completed run of this video to continue identities from.')
+        # People corrected in the review page are remembered by appearance in every later run.
+        previous = corrections.seed_state(previous, corrections.load(v.directory))
         with gate:
             if state['state'] == 'running':
                 raise ValueError('A run is already processing.')
@@ -353,6 +362,47 @@ def main():
             begin(validate(request.get_json(), v.meta))
             return jsonify(ok=True)
         except (ValueError, KeyError, TypeError) as error:
+            return jsonify(error=str(error)), 400
+
+    edit = threading.Lock()
+
+    def correctable(payload):
+        with gate:
+            if state['state'] == 'running':
+                raise ValueError('Wait until processing has finished, then correct people in the result.')
+        v = need_video()
+        if v.result_dir is None or not (v.result_dir/'result.json').exists():
+            raise ValueError('There is no result to correct yet.')
+        if payload.get('run') and payload['run'] != v.result_dir.name:
+            raise ValueError('The page shows an older result than the latest run: reload the page.')
+        return v
+
+    @app.post('/api/correction')
+    def correct():
+        """Change who a person in the shown result is; remembered for later runs of this video."""
+        try:
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Expected a correction.')
+            v = correctable(payload)
+            with edit:
+                entry = corrections.add(v.directory, v.result_dir, payload)
+            print(f"Correction: {entry['from']} -> {entry['to']} ({entry['what']})", flush=True)
+            return jsonify(ok=True, correction=entry)
+        except (ValueError, KeyError, TypeError, OSError) as error:
+            return jsonify(error=str(error)), 400
+
+    @app.post('/api/correction/remove')
+    def uncorrect():
+        try:
+            payload = request.get_json()
+            if not isinstance(payload, dict) or not isinstance(payload.get('id'), str):
+                raise ValueError('Which correction?')
+            v = correctable({})
+            with edit:
+                gone = corrections.drop(v.directory, v.result_dir, payload['id'])
+            return jsonify(ok=True, removed=sorted(gone))
+        except (ValueError, KeyError, TypeError, OSError) as error:
             return jsonify(error=str(error)), 400
 
     @app.post('/api/stop')

@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 import scene  # noqa: F401  (adds the prototype directory to sys.path)
-from soccer.appearance import Descriptor
+from soccer.appearance import Descriptor, encode_descriptor
 from soccer.identity import IdentityManager, Options, Stab
 from soccer.teams import TeamModel, hellinger, kit_vote
 
@@ -769,6 +769,85 @@ class IdentityTests(unittest.TestCase):
         self.assertNotEqual(out[2]['display'], 'GK-B', out[2])
         self.assertLessEqual(sum(1 for g in d.ids.summary()['goalkeepers'] if g['team'] == 'B' and not g['revoked']), 1)
 
+
+    @staticmethod
+    def remembered(pid, role, team, who, excluded=False):
+        """A saved identity as a correction in the review page leaves it: the person's appearance, the
+        role and team you gave them, marked manual (see corrections.py)."""
+        gallery = [{'t': float(k), 'd': encode_descriptor(who.descriptor())} for k in range(6)]
+        return {'id': pid, 'role': role, 'team': team, 'status': 'unknown' if excluded else 'missing', 'gallery': gallery,
+                'roleLocked': not excluded, 'manual': True, 'excluded': excluded, 'firstSeen': 0.0, 'lastSeen': 0.0}
+
+    def test_referee_you_corrected_is_recognised_by_appearance_in_a_later_run(self):
+        # The referee wears a jersey like team B's and the detector calls them a player: on their own they
+        # would become a team B player. You corrected them to REF-4 in an earlier run.
+        ref = Person('B', look='REF', cls='player')
+        d = Driver(saved={'identities': [self.remembered('REF-4', 'referee', None, ref)], 'counters': {}})
+        team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+        out = d.run(4, {1: (ref, .45, .5), **team})
+        self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team'], out[1]['display'], out[1].get('manual')), ('REF-4', 'REFEREE', None, 'REF-4', True), out[1])
+        self.assertEqual({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'REF-4'})   # never a B player first
+        self.assertTrue(any(e['message'].startswith('RECOGNISED: IDENTIFIED BY YOU') and 'REF-4' in e['message'] for e in d.kinds('reid')))
+        self.assertTrue(any(e['message'].startswith('REMEMBERED FROM YOUR CORRECTIONS') and 'REF-4: referee' in e['message'] for e in d.kinds('manual')))
+        self.assertEqual(sum(1 for g in d.ids.summary()['players'] if g['team'] == 'B'), 3)
+        # Your call stands: the detector and the kit never turn REF-4 into a player.
+        out = d.run(12, {1: (ref, .45, .5), **team})
+        self.assertEqual((out[1]['id'], out[1]['role']), ('REF-4', 'REFEREE'))
+        self.assertTrue(d.ids.registry['REF-4'].manual)
+
+    def test_player_you_corrected_is_never_converted_to_a_referee(self):
+        mid = Person('B', cls='referee')   # the detector keeps calling this team B player a referee
+        d = Driver(saved={'identities': [self.remembered('B-15', 'player', 'B', mid)], 'counters': {}})
+        team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+        out = d.run(16, {1: (mid, .45, .5), **team})
+        self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team']), ('B-15', 'PLAYER', 'B'), out[1])
+        self.assertEqual(d.ids.summary()['referees'], [])
+        self.assertFalse([e for e in d.kinds('role') if 'New role: REFEREE' in e['message'] or 'REFEREE IDENTIFIED' in e['message']])
+
+    def test_person_you_marked_as_not_part_of_the_match_is_left_out(self):
+        coach = Person('GK', cls='player')   # a coach standing on the pitch in a kit matching neither team
+        d = Driver(saved={'identities': [self.remembered('B-08', 'player', 'B', coach, excluded=True)], 'counters': {}})
+        team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+        out = d.run(8, {1: (coach, .45, .5), **team})
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['label'], out[1]['state'], out[1].get('excludedId')), (None, 'OUT', 'EXCLUDED_BY_YOU', 'rejected', 'B-08'), out[1])
+        self.assertFalse({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']})
+        self.assertTrue(any(e['message'].startswith('RECOGNISED: NOT PART OF THE MATCH') for e in d.kinds('manual')))
+        self.assertEqual(d.ids.summary()['goalkeepers'], [])
+        self.assertEqual([g['id'] for g in d.ids.summary()['excluded']], ['B-08'])
+
+    def test_recognising_a_remembered_person_needs_appearance_that_points_clearly_to_them(self):
+        # The shortcut to a person you corrected skips the usual promotion and re-identification, so it is
+        # taken only when the crops look clearly more like that person than like anyone the tracker knows.
+        # Someone halfway between the remembered referee and a known teammate (very like both) does not
+        # qualify, however similar.
+        team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+        mate = team[13][0]
+        ref = Person('B', cls='player')
+        d = Driver(saved={'identities': [self.remembered('REF-4', 'referee', None, ref)], 'counters': {}})
+        d.run(3, team)
+        between = Person('B', unique=unit(ref.unique+mate.unique), cls='player')
+        checks = []
+        original = d.ids._manual_check
+        def spy(tr, t):
+            before = tr.manual_checked
+            found = original(tr, t)
+            if tr.id == 1 and tr.manual_checked != before:
+                checks.append((d.ids._best_appearance(tr, lambda o: o.pid == 'REF-4'), tr.manual_hits, found))
+            return found
+        d.ids._manual_check = spy
+        d.run(4, {1: (between, .45, .5), **team})
+        self.assertTrue(checks)
+        self.assertGreaterEqual(max(similarity for similarity, _, _ in checks), .8)
+        self.assertEqual({(hits, found) for _, hits, found in checks}, {(0, None)})
+        self.assertFalse([e for e in d.events if e['message'].startswith('RECOGNISED')])
+
+    def test_manual_flags_survive_the_saved_identities(self):
+        ref = Person('B', look='REF', cls='player')
+        d = Driver(saved={'identities': [self.remembered('REF-4', 'referee', None, ref), self.remembered('B-08', 'player', 'B', Person('GK'), excluded=True)], 'counters': {}})
+        snap = d.ids.snapshot()
+        nxt = Driver(saved=snap)
+        self.assertEqual((nxt.ids.registry['REF-4'].manual, nxt.ids.registry['REF-4'].role_locked, nxt.ids.registry['REF-4'].status), (True, True, 'missing'))
+        self.assertEqual((nxt.ids.registry['B-08'].excluded, nxt.ids.registry['B-08'].status), (True, 'unknown'))
 
     def test_identity_is_never_deleted(self):
         d = Driver()
