@@ -22,7 +22,7 @@ import numpy as np
 from .geometry import (centroid, clip_polygon, clip_unit, convex_hull, foot_point, line_distance,
                        point_in_polygon, polygon_area, segment_distance, signed_distance,
                        transform_points, x_at, y_at)
-from .pitch_model import levels
+from .pitch_model import MEDIUM, levels
 
 MIN_GRASS = .12          # grass share of the frame needed for a reliable pitch
 LINE_MAX_AGE = 3.0       # seconds a boundary line is carried with a reliable camera estimate
@@ -64,6 +64,8 @@ class PitchModel:
     status: str = ''                                   # one line for the overlay: where the region comes from
     evidence: list = field(default_factory=list)       # human-readable lines: what was found, predicted, missing
     sides: dict = None                                 # per side: line | carried line | grass edge | predicted | off-screen
+    vanishing: str | None = None                       # 'left' / 'right': the touchlines converge there with no goal-line evidence
+    curvature: float | None = None                     # sagitta of the longest touchline-family line, px per 1000 px: lens check
 
     @property
     def level(self):
@@ -78,6 +80,8 @@ class PitchModel:
             return {side: 'calibration' for side in out}
         for l in self.lines:
             out[l['side']] = 'line' if l['age'] <= 0 else 'carried line'
+        if self.vanishing:
+            out[self.vanishing] = 'unknown (the touchlines converge there: a vanishing point, not the pitch end)'
         return out
 
     def to_json(self):
@@ -88,7 +92,8 @@ class PitchModel:
                 'polygon': [r(p) for p in self.polygon], 'grass': [r(p) for p in self.grass_polygon],
                 'lines': [{'a': r(l['a']), 'b': r(l['b']), 'side': l['side'], 'age': round(l['age'], 2)} for l in self.lines],
                 'goals': [{'side': g['side'], 'kind': g['kind'], 'a': r(g['a']), 'b': r(g['b'])} for g in self.goals],
-                'markings': [[*r(m['a']), *r(m['b'])] for m in self.markings[:16]], 'edges': self.sources()}
+                'markings': [[*r(m['a']), *r(m['b'])] for m in self.markings[:16]], 'edges': self.sources(),
+                'vanishing': self.vanishing, 'curvature': self.curvature}
 
 
 # ---------- sampling ----------
@@ -504,6 +509,7 @@ class PitchDetector:
         self.previous = None
         self.tracked = {}   # side -> line
         self.pending = {}   # side -> unconfirmed new position
+        self.masks = None   # the paint and grass masks of the last analysed frame (for the centre circle, paint checks)
 
     def reset(self):
         self.previous = None
@@ -520,6 +526,7 @@ class PitchDetector:
             self.previous = empty
             return empty
         masks = line_masks(frame)
+        self.masks = masks
         f = sample_frame(frame, masks)
         r = grass_region(f)
         if r['count'] < r['w']*r['h']*MIN_GRASS:
@@ -570,14 +577,15 @@ class PitchDetector:
         goal_hints = [g for g in goals if g['kind'] == 'box-front']
         goal_hints += [{'side': l['side'], 'kind': 'goal-line', 'a': l['a'], 'b': l['b']} for l in lines if l['side'] in ('left', 'right')]
         model = PitchModel(time, len(polygon) >= 3, aspect, polygon, grass_polygon, lines,
-                           polygon_area(polygon) if len(polygon) >= 3 else 0.0, 'auto', goal_hints, segs)
+                           polygon_area(polygon) if len(polygon) >= 3 else 0.0, 'auto', goal_hints, segs,
+                           vanishing=converging_end(tracked, goal_hints), curvature=line_curvature(segs, masks))
         self.previous = model
         return model
 
 
 def warp_model(model, motion, time, reliable, cut):
     """Carry the last analysed model to the next frame with the camera motion (between analyses)."""
-    extra = (model.confidence, model.mode, model.status, list(model.evidence), model.sides)
+    extra = (model.confidence, model.mode, model.status, list(model.evidence), model.sides, model.vanishing, model.curvature)
     if cut or not reliable or motion is None:
         return PitchModel(time, False, model.aspect) if cut else PitchModel(time, model.reliable, model.aspect, model.polygon, model.grass_polygon, model.lines, model.coverage, model.source, model.goals, model.markings, *extra)
     move = lambda poly: clip_unit([(float(x), float(y)) for x, y in transform_points(motion, poly)]) if len(poly) >= 3 else []
@@ -597,7 +605,222 @@ def calibrated_model(model, polygon, source='calibration', confidence=1.0, evide
     if len(polygon) < 3:
         return model
     return PitchModel(model.time, True, model.aspect, polygon, model.grass_polygon, model.lines, polygon_area(polygon), source, model.goals,
-                      model.markings, confidence, mode, status, list(evidence), dict(sides) if sides else None)
+                      model.markings, confidence, mode, status, list(evidence), dict(sides) if sides else None, None, model.curvature)
+
+
+def converging_end(tracked, goal_hints):
+    """The side where the far and near touchlines meet inside or just beyond the frame while no goal line
+    or box front was seen there. Two parallel touchlines converge towards a vanishing point in the image;
+    that point is never where the pitch ends. The polygon may still taper there, but the end is marked
+    unknown: no edge cue is measured against it, nobody is rejected beyond it, and the confidence of a
+    region bounded by it cannot be HIGH."""
+    far, near = tracked.get('far'), tracked.get('near')
+    if far is None or near is None:
+        return None
+    (ax, ay), (bx, by) = far['a'], far['b']
+    (cx, cy), (dx, dy) = near['a'], near['b']
+    den = (ax-bx)*(cy-dy)-(ay-by)*(cx-dx)
+    if abs(den) < 1e-12:
+        return None
+    x = ((ax*by-ay*bx)*(cx-dx)-(ax-bx)*(cx*dy-cy*dx))/den
+    if not -.25 <= x <= 1.25:
+        return None
+    side = 'right' if x >= .5 else 'left'
+    return None if any(g['side'] == side for g in goal_hints) else side
+
+
+def line_curvature(segs, masks):
+    """Lens-distortion check: the sagitta of the paint along the longest touchline-family line, in pixels
+    per 1000 px of line length (a straight line gives ~0; several px means a wide-angle or stitched lens)."""
+    best = max((s for s in segs if s['kind'] == 'h'), key=lambda s: abs(s['b'][0]-s['a'][0]), default=None)
+    if best is None:
+        return None
+    w, h = masks['w'], masks['h']
+    (ax, ay), (bx, by) = best['a'], best['b']
+    length = abs(bx-ax)*w
+    if length < .4*w:
+        return None
+    ys, xs = np.nonzero(masks['h_line'])
+    if not len(xs):
+        return None
+    t = (xs-ax*w)/max(1e-9, (bx-ax)*w)
+    expected = (ay+(by-ay)*t)*h
+    near = (t >= 0) & (t <= 1) & (np.abs(ys-expected) <= 6)
+    if near.sum() < 40:
+        return None
+    a, _, _ = np.polyfit(t[near], (ys[near]-expected[near]).astype(np.float64), 2)
+    return round(float(abs(a)/4)/length*1000, 2)
+
+
+def _off_segments(px, py, segs, w, h, halfway=None, tol=2.5):
+    """Mask of the pixels (normalized coordinates) farther than tol pixels from every straight paint
+    segment (within the segment's extent); the halfway line is excluded along its whole length."""
+    keep = np.ones(len(px), bool)
+    X, Y = px*w, py*h
+    for seg in segs:
+        ax, ay, bx, by = seg['a'][0]*w, seg['a'][1]*h, seg['b'][0]*w, seg['b'][1]*h
+        dx, dy = bx-ax, by-ay
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            continue
+        t = ((X-ax)*dx+(Y-ay)*dy)/length**2
+        d = np.abs((X-ax)*dy-(Y-ay)*dx)/length
+        extent = np.ones(len(px), bool) if seg is halfway else (t >= -.05) & (t <= 1.05)
+        keep &= ~((d <= tol) & extent)
+    return keep
+
+
+def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=300):
+    """Centre-circle paint around the halfway line: ridge pixels that one ellipse explains. Candidate
+    ellipses come from the connected arcs of the paint that is not on a straight segment (single arcs
+    and unions of two or three, since players and the halfway line break the circle) and from random
+    five-point samples; the one with most inliers is refit on them. Returns {'points': normalized (x, y)
+    inliers, 'ellipse': ((cx, cy), (major, minor), angle) normalized, 'coverage': share of the ellipse's
+    arc seen, 'inliers'} or None. A thin ellipse that only explains a straight line is rejected."""
+    if halfway is None:
+        return None
+    w, h = masks['w'], masks['h']
+    ys, xs = np.nonzero(masks['ridge'])
+    if len(xs) < 60:
+        return None
+    (ax, ay), (bx, by) = halfway['a'], halfway['b']
+    lo, hi = min(ay, by), max(ay, by)
+    mid_y = (lo+hi)/2
+    x_mid = x_at(((ax, ay), (bx, by)), mid_y)
+    px, py = xs/w, ys/h
+    window = (np.abs(px-x_mid) <= .3) & (py >= lo-.05) & (py <= hi+.05)
+    if window.sum() < 60:
+        return None
+    px, py = px[window], py[window]
+    keep = _off_segments(px, py, [halfway]+[s for s in segs if s is not halfway], w, h, halfway, tol=3.5)
+    px, py = px[keep], py[keep]
+    if len(px) < 40:
+        return None
+    rng = np.random.default_rng(seed)
+    if len(px) > max_points:
+        pick = rng.choice(len(px), max_points, replace=False)
+        px, py = px[pick], py[pick]
+    pts = np.c_[px*w, py*h].astype(np.float32)
+    aspect = w/h
+
+    def inliers_of(ellipse, tol=2.5):
+        (cx, cy), (ma, mi), angle = ellipse
+        if not np.isfinite([cx, cy, ma, mi, angle]).all() or min(ma, mi) < 8 or max(ma, mi) > .8*w or min(ma, mi)/max(ma, mi) < .07:
+            return None   # a sliver along a painted line is not a circle, however many pixels it touches
+        theta = math.radians(angle)
+        dx, dy = pts[:, 0]-cx, pts[:, 1]-cy
+        u = (dx*math.cos(theta)+dy*math.sin(theta))/(ma/2)
+        v = (-dx*math.sin(theta)+dy*math.cos(theta))/(mi/2)
+        r = np.hypot(u, v)
+        return np.abs(r-1)*min(ma, mi)/2 <= tol
+
+    candidates = []
+
+    def try_fit(sample):
+        if len(sample) < 5:
+            return
+        try:
+            ellipse = cv2.fitEllipse(np.asarray(sample, np.float32))
+        except cv2.error:
+            return
+        inl = inliers_of(ellipse)
+        if inl is not None and inl.sum() >= 40:
+            candidates.append((int(inl.sum()), ellipse))
+    # Connected arcs of the remaining paint (the ridge mask at its own resolution).
+    local = np.zeros((h, w), np.uint8)
+    rows_, cols_ = np.clip(np.rint(pts[:, 1]).astype(int), 0, h-1), np.clip(np.rint(pts[:, 0]).astype(int), 0, w-1)
+    local[rows_, cols_] = 1
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(local, connectivity=8)
+    parts = [i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] >= 12]
+    parts.sort(key=lambda i: -stats[i, cv2.CC_STAT_AREA])
+    parts = parts[:10]
+    members = {i: pts[labels[rows_, cols_] == i] for i in parts}
+    for i in parts:
+        try_fit(members[i])
+    for a in range(len(parts)):
+        for b in range(a+1, min(len(parts), 8)):
+            try_fit(np.vstack([members[parts[a]], members[parts[b]]]))
+            for c in range(b+1, min(len(parts), 6)):
+                try_fit(np.vstack([members[parts[a]], members[parts[b]], members[parts[c]]]))
+    for _ in range(iterations):
+        try_fit(pts[rng.choice(len(pts), 5, replace=False)])
+    candidates.sort(key=lambda c: -c[0])
+    hx, hy = (halfway['b'][0]-halfway['a'][0])*w, (halfway['b'][1]-halfway['a'][1])*h
+
+    def validate(ellipse):
+        """Refit on the inliers and check that this is a circle's image around the halfway line."""
+        inl = inliers_of(ellipse)
+        if inl is None or inl.sum() < 40:
+            return None
+        try:
+            refined = cv2.fitEllipse(pts[inl])
+        except cv2.error:
+            return None
+        inl = inliers_of(refined)
+        if inl is None or inl.sum() < 40:
+            return None
+        (cx, cy), (ma, mi), angle = refined
+        # A very flat ellipse hugging a painted line explains that line, not a circle: the inliers must
+        # spread away from their own best straight line, and the halfway line must cross the ellipse at
+        # an angle rather than run along its long axis.
+        sel = pts[inl]
+        mean = sel.mean(axis=0)
+        _, _, vt = np.linalg.svd(sel-mean, full_matrices=False)
+        off = np.abs((sel-mean) @ vt[1])
+        if float(np.sqrt(np.mean(off**2))) < 3.0:
+            return None
+        major = math.radians(angle) if ma >= mi else math.radians(angle)+math.pi/2
+        between = abs(math.atan2(hy, hx)-major) % math.pi
+        if min(between, math.pi-between) < math.radians(12):
+            return None
+        # The circle's centre lies on the halfway line (its image is close to the line); the arc must be long.
+        if line_distance((cx/w, cy/h), halfway['a'], halfway['b'], aspect) > .12*max(ma, mi)/w*aspect+.01:
+            return None
+        theta = math.radians(angle)
+        dx, dy = pts[inl, 0]-cx, pts[inl, 1]-cy
+        u = (dx*math.cos(theta)+dy*math.sin(theta))/(ma/2)
+        v = (-dx*math.sin(theta)+dy*math.cos(theta))/(mi/2)
+        bins = np.unique(np.floor((np.degrees(np.arctan2(v, u))+180)/15).astype(int))
+        coverage = len(bins)/24
+        if coverage < .33:
+            return None
+        return {'points': [(float(x/w), float(y/h)) for x, y in pts[inl]], 'ellipse': ((cx/w, cy/h), (ma/w, mi/h), float(angle)),
+                'coverage': round(coverage, 3), 'inliers': int(inl.sum())}
+    for _, ellipse in candidates[:8]:
+        found = validate(ellipse)
+        if found is not None:
+            return found
+    return None
+
+
+def find_circle(masks, model, tries=3):
+    """The centre circle and the halfway line it is centred on: circle_points is tried around the likeliest
+    halfway-line candidates (the longest well-supported paint segments not running flat across the frame),
+    the first ellipse that passes its checks wins. Returns (circle, halfway segment) or (None, None)."""
+    if not masks:
+        return None, None
+    w, h = masks['w'], masks['h']
+    candidates = []
+    for seg in model.markings:
+        if seg['support'] < .08:
+            continue
+        dx, dy = abs(seg['b'][0]-seg['a'][0])*w, abs(seg['b'][1]-seg['a'][1])*h
+        if dy < .25*dx:
+            continue   # runs flat across the frame: a touchline or box side from the side camera
+        mid = (seg['a'][0]+seg['b'][0])/2
+        if not .08 <= mid <= .92:
+            continue
+        candidates.append(seg)
+    candidates.sort(key=lambda s: -s['support'])
+    first = halfway_candidate(model)
+    if first is not None and first in candidates:
+        candidates.remove(first)
+        candidates.insert(0, first)
+    for seg in candidates[:tries]:
+        circle = circle_points(masks, seg, model.markings)
+        if circle is not None:
+            return circle, seg
+    return None, None
 
 
 def assess_confidence(model):
@@ -624,6 +847,9 @@ def assess_confidence(model):
     if model.coverage < .1:
         score = min(score, .3)
         evidence.append('the region is small')
+    if model.vanishing:
+        score = min(score, MEDIUM-.01)
+        evidence.append(f'{model.vanishing} end: the touchlines converge in view with no goal line or box front there (a vanishing point, not the pitch end): not HIGH')
     return min(.95, score), evidence
 
 
@@ -661,6 +887,29 @@ def suggest_landmarks(model):
     return out
 
 
+def _apex(model):
+    """The polygon vertex at the converging end, or None."""
+    if not model.vanishing or len(model.polygon) < 3:
+        return None
+    return max(model.polygon, key=lambda q: q[0]) if model.vanishing == 'right' else min(model.polygon, key=lambda q: q[0])
+
+
+def _at_apex(model, p, a, b):
+    """Whether the closest point of segment (a, b) to p is its end at the converging apex, or p lies
+    beyond the apex along the pitch."""
+    apex = _apex(model)
+    if apex is None:
+        return False
+    aspect = model.aspect
+    ax, ay, bx, by, px, py = a[0]*aspect, a[1], b[0]*aspect, b[1], p[0]*aspect, p[1]
+    length2 = (bx-ax)**2+(by-ay)**2
+    t = ((px-ax)*(bx-ax)+(py-ay)*(by-ay))/length2 if length2 > 1e-12 else 0.0
+    end = a if t <= 0 else b if t >= 1 else None
+    if end is not None and abs(end[0]-apex[0]) < 1e-9 and abs(end[1]-apex[1]) < 1e-9:
+        return True
+    return (p[0] >= apex[0]-.02) if model.vanishing == 'right' else (p[0] <= apex[0]+.02)
+
+
 def nearest_boundary(model, p):
     poly, aspect = model.polygon, model.aspect
     if len(poly) < 3:
@@ -679,6 +928,10 @@ def nearest_boundary(model, p):
         nx, ny = -nx, -ny
     line = next((l for l in model.lines if line_distance(l['a'], a, b, aspect) < .006 and line_distance(l['b'], a, b, aspect) < .006), None)
     side = line['side'] if line else 'far' if ny < -.6 else 'near' if ny > .6 else 'left' if nx < 0 else 'right'
+    if model.vanishing and _at_apex(model, p, a, b):
+        # The nearest point of the region is where the touchlines converge: a vanishing point, not an edge.
+        return {'distance': -best if point_in_polygon(p, poly) else best, 'side': model.vanishing, 'label': 'the converging end (a vanishing point, not a pitch edge)',
+                'line': None, 'a': a, 'b': b}
     if line:
         label = f'{side} touchline' if _horizontal(side) else f'{side} goal line'
     elif model.source == 'calibration':
@@ -699,6 +952,11 @@ def zone_of(model, box, config):
     if d <= 0:
         return 'inside', d
     margin = min(config.max_margin, max(config.min_margin, config.boundary_margin*box[3]))
+    if d > 0 and model.vanishing:
+        # Towards the converging end the pitch is not known to end: that is a vanishing point, not a line.
+        edge = nearest_boundary(model, foot_point(box))
+        if edge is not None and edge['side'] == model.vanishing:
+            return 'unknown', d
     return ('boundary' if d <= margin else 'outside'), d
 
 

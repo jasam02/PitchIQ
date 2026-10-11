@@ -38,11 +38,12 @@ const NEUTRAL = '#8d99a6';   // a goalkeeper whose team is not known yet
 class Track {
   constructor(info) {
     this.info = info;
-    this.t = []; this.x = []; this.y = []; this.c = []; this.predicted = [];
+    this.t = []; this.x = []; this.y = []; this.c = []; this.predicted = []; this.q = [];
   }
-  push(t, x, y, confidence, predicted) {
+  push(t, x, y, confidence, predicted, quality = 1) {
     if (this.t.length && t <= this.t[this.t.length - 1]) return;   // frames arrive in time order
     this.t.push(t); this.x.push(x); this.y.push(y); this.c.push(confidence); this.predicted.push(!!predicted);
+    this.q.push(Number.isFinite(quality) ? quality : 1);   // pitch position confidence: the registration's, times the local projection certainty
   }
   smooth(window) {
     // Centred average of the samples within ±window/2: the whole history is known, so no lag.
@@ -56,7 +57,7 @@ class Track {
       for (let j = lo; j <= hi; j++) { sx += this.x[j]; sy += this.y[j]; }
       xs[i] = sx / (hi - lo + 1); ys[i] = sy / (hi - lo + 1);
     }
-    this.x = xs; this.y = ys; this.t = Float64Array.from(this.t); this.c = Float64Array.from(this.c);
+    this.x = xs; this.y = ys; this.t = Float64Array.from(this.t); this.c = Float64Array.from(this.c); this.q = Float64Array.from(this.q);
     return this;
   }
 }
@@ -87,12 +88,12 @@ function buildTimeline(result, info) {
       if (!p.id || !roster.has(p.id) || !validPosition(p.pitch)) continue;
       let track = tracks.get(p.id);
       if (!track) tracks.set(p.id, track = new Track(roster.get(p.id)));
-      track.push(f.time, p.pitch[0], p.pitch[1], Number.isFinite(p.identityConfidence) ? p.identityConfidence : .5, false);
+      track.push(f.time, p.pitch[0], p.pitch[1], Number.isFinite(p.identityConfidence) ? p.identityConfidence : .5, false, p.pitchConfidence);
       observed++;
     }
     const b = f.ball;
     if (b && validPosition(b.pitch) && (b.state === 'TRACKED' || (b.state === 'MISSING' && b.confidence >= RULES.ballPredictedMin))) {
-      ball.push(f.time, b.pitch[0], b.pitch[1], b.confidence, b.state !== 'TRACKED');
+      ball.push(f.time, b.pitch[0], b.pitch[1], b.confidence, b.state !== 'TRACKED', b.pitchConfidence);
       ballFrames++;
     }
   });
@@ -115,7 +116,8 @@ function sampleAt(track, t, frameStep, hold = RULES.holdAfter, gapLimit = RULES.
   let lo = 0, hi = n - 1;
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (track.t[mid] <= t) lo = mid; else hi = mid - 1; }
   const k = lo, t0 = track.t[k], dt = t - t0;
-  const observed = (i) => ({x: track.x[i], y: track.y[i], confidence: track.c[i], source: track.predicted[i] ? 'PREDICTED' : 'OBSERVED', alpha: 1});
+  const quality = (i) => track.q && track.q.length > i ? track.q[i] : 1;
+  const observed = (i) => ({x: track.x[i], y: track.y[i], confidence: track.c[i], source: track.predicted[i] ? 'PREDICTED' : 'OBSERVED', alpha: 1, quality: quality(i)});
   if (dt < 0 || dt <= same) return observed(dt < 0 ? 0 : k);
   if (k + 1 < n) {
     const t1 = track.t[k + 1], gap = t1 - t0;
@@ -123,10 +125,11 @@ function sampleAt(track, t, frameStep, hold = RULES.holdAfter, gapLimit = RULES.
     if (gap <= gapLimit) {
       const u = dt / gap;
       return {x: track.x[k] + (track.x[k + 1] - track.x[k]) * u, y: track.y[k] + (track.y[k + 1] - track.y[k]) * u,
-              confidence: Math.min(track.c[k], track.c[k + 1]), source: track.predicted[k] || track.predicted[k + 1] ? 'PREDICTED' : 'INTERPOLATED', alpha: 1};
+              confidence: Math.min(track.c[k], track.c[k + 1]), source: track.predicted[k] || track.predicted[k + 1] ? 'PREDICTED' : 'INTERPOLATED', alpha: 1,
+              quality: Math.min(quality(k), quality(k + 1))};
     }
   }
-  if (dt <= hold) return {x: track.x[k], y: track.y[k], confidence: track.c[k] * (1 - dt / hold), source: 'HELD', alpha: 1 - .7 * dt / hold};
+  if (dt <= hold) return {x: track.x[k], y: track.y[k], confidence: track.c[k] * (1 - dt / hold), source: 'HELD', alpha: 1 - .7 * dt / hold, quality: quality(k)};
   return null;
 }
 
@@ -302,8 +305,9 @@ class TacticalView {
     ctx.lineWidth = Math.max(1, r * .16);
     for (const p of state.players) {
       const [x, y] = g.toPx(p.x, p.y), colour = p.team ? this.colours[p.team] : NEUTRAL;
-      ctx.globalAlpha = p.alpha * (selected && selected !== p.id ? .35 : 1);
-      ctx.fillStyle = colour; ctx.strokeStyle = '#0d1a24b8';
+      const q = Number.isFinite(p.quality) ? p.quality : 1, uncertain = q < .5;
+      ctx.globalAlpha = p.alpha * (.45 + .55 * q) * (selected && selected !== p.id ? .35 : 1);
+      ctx.fillStyle = uncertain ? colour + '55' : colour; ctx.strokeStyle = uncertain ? colour : '#0d1a24b8';
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       if (p.source === 'HELD') { ctx.setLineDash([r * .5, r * .4]); ctx.strokeStyle = '#ffffffaa'; ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
       if (selected === p.id) { ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, Math.PI * 2); ctx.stroke(); }
@@ -329,7 +333,7 @@ class TacticalView {
     if (!b) return;
     const [x, y] = g.toPx(b.x, b.y), r = Math.max(3.5, g.playerRadius * .45);
     ctx.save();
-    ctx.globalAlpha = b.source === 'PREDICTED' || b.source === 'HELD' ? .7 : 1;
+    ctx.globalAlpha = (b.source === 'PREDICTED' || b.source === 'HELD' ? .7 : 1) * (.5 + .5 * (Number.isFinite(b.quality) ? b.quality : 1));
     ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = r; ctx.shadowOffsetY = r * .3;
     ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     ctx.shadowColor = 'transparent';
@@ -349,11 +353,11 @@ class TacticalView {
     };
     for (const p of state.players) {
       const [x, y] = g.toPx(p.x, p.y);
-      block(x + g.playerRadius + 3, y - size, [p.display, `x ${p.x.toFixed(3)} y ${p.y.toFixed(3)}`, p.source, `conf ${p.confidence.toFixed(2)}`]);
+      block(x + g.playerRadius + 3, y - size, [p.display, `x ${p.x.toFixed(3)} y ${p.y.toFixed(3)}`, p.source, `identity ${p.confidence.toFixed(2)} · position ${(Number.isFinite(p.quality) ? p.quality : 1).toFixed(2)}`]);
     }
     if (state.ball) {
       const [x, y] = g.toPx(state.ball.x, state.ball.y);
-      block(x + g.playerRadius, y + g.playerRadius * .5, ['BALL', `x ${state.ball.x.toFixed(3)} y ${state.ball.y.toFixed(3)}`, state.ball.source, `conf ${state.ball.confidence.toFixed(2)}`]);
+      block(x + g.playerRadius, y + g.playerRadius * .5, ['BALL', `x ${state.ball.x.toFixed(3)} y ${state.ball.y.toFixed(3)}`, state.ball.source, `conf ${state.ball.confidence.toFixed(2)} · position ${(Number.isFinite(state.ball.quality) ? state.ball.quality : 1).toFixed(2)}`]);
     }
     const tl = this.timeline;
     block(6, 6, [`video ${state.time.toFixed(2)} s · frame ${state.frame >= 0 ? state.frame : '-'} · ${state.calibrated ? 'calibrated' : 'no calibration here'}`,

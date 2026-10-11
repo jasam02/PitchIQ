@@ -94,6 +94,7 @@ class Driver:
         self.t = 0.0
         self.events = []
         self.people = []
+        self.pitch_reliable = True   # False: no usable pitch on these frames (the registration failed, not the tracking)
 
     def step(self, visible, ended=(), zone='inside', segment=0, dt=.2, cues=None, ball=None):
         """visible: {local id: (Person, x, y)}; zone and cues: a value or a function of the local id; ball: its
@@ -109,7 +110,7 @@ class Driver:
             samples.append({'id': tid, 'box': b, 'score': .9, 'cls': p.detector_class(), 'zone': z, 'occluded': occluded,
                             'stab': Stab(x, y, .12), 'descriptor': d, 'vote': kit_vote(self.model, d.jersey, d.shorts), 'cues': c or {}})
         out = self.ids.update({'time': self.t, 'tick': True, 'samples': samples, 'ended': [{'id': i} for i in ended],
-                               'model': self.model, 'pitch_reliable': True, 'filter_enabled': True, 'aspect': 16/9,
+                               'model': self.model, 'pitch_reliable': self.pitch_reliable, 'filter_enabled': True, 'aspect': 16/9,
                                'segment': segment, 'drift': 0, 'ball': {'stab': ball, 'pitch': None} if ball else None})
         self.events += out['events']
         self.people.append(out['people'])
@@ -858,6 +859,35 @@ class IdentityTests(unittest.TestCase):
         g = d.ids.registry['B-01']
         self.assertIn(g.status, ('missing', 'offscreen'))
         self.assertTrue(g.gallery)
+
+
+class UnknownPitchTests(unittest.TestCase):
+    """A registration failure is not a tracking failure: without a usable pitch, image evidence alone
+    promotes people (more slowly) and nobody is rejected for a zone that was never measured."""
+
+    def test_people_are_promoted_on_image_evidence_and_never_rejected_without_a_pitch(self):
+        d = Driver()
+        d.pitch_reliable = False
+        visible = {i+1: p for i, p in enumerate(roster('A', 5)+roster('B', 5, x0=.6))}
+        people = d.run(8.0, visible, zone='unknown')
+        states = {tid: p['state'] for tid, p in people.items()}
+        self.assertNotIn('rejected', states.values(), states)
+        self.assertGreaterEqual(sum(1 for p in people.values() if p['id']), 8, states)
+        self.assertTrue(any('unresolved' in (p.get('reason') or '') or p['id'] for p in d.people[3]), d.people[3])
+        with_pitch = Driver()
+        quick = with_pitch.run(1.4, visible, zone='inside')
+        blind = Driver()
+        blind.pitch_reliable = False
+        slow = blind.run(1.4, visible, zone='unknown')
+        self.assertGreater(sum(1 for p in quick.values() if p['id']), sum(1 for p in slow.values() if p['id']))   # image evidence alone takes longer
+
+    def test_zone_evidence_from_earlier_frames_still_counts(self):
+        d = Driver()
+        visible = {i+1: p for i, p in enumerate(roster('A', 4))}
+        d.run(3.0, visible, zone='outside')          # measured outside the pitch while it was known
+        d.pitch_reliable = False
+        people = d.run(4.0, visible, zone='unknown')
+        self.assertTrue(all(p['state'] == 'rejected' for p in people.values()), {k: p['state'] for k, p in people.items()})
 
 
 if __name__ == '__main__':

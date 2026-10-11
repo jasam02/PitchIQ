@@ -24,9 +24,11 @@ from .ball import BallTracker
 from .camera import CameraMotion, CameraState, Keyframes
 from .geometry import foot_point, iou
 from .identity import PLAYER_HEIGHT, IdentityManager, Options, Stab
-from .pitch import (FieldFilter, PitchDetector, assess_confidence, calibrated_model, halfway_candidate, nearest_boundary,
+from . import midfield
+from .pitch import (FieldFilter, PitchDetector, assess_confidence, calibrated_model, find_circle, halfway_candidate, nearest_boundary,
                     suggest_landmarks, warp_model)
 from .pitch_model import HIGH, LOW_LEVEL
+from .registration import Anchor
 from .relevance import REJECT_TEXT, assess
 from .goals import GoalMemory, position_cues
 from .teams import TeamModel, fit_team_model, kit_vote, with_keepers, with_referee
@@ -92,7 +94,12 @@ class SoccerTracker:
         self.cuts = 0
         self.last_ball = None   # the previous frame's ball position, a role cue for everyone
         self.pitch_events_logged = 0
-        self.frame_log = []     # per frame: camera motion and the pitch model's homography, for the offline pass
+        self.frame_log = []     # per frame: camera motion (and how it was measured) and the live pitch model, for the offline passes
+        self.frame_index = -1   # index of the current frame in this run
+        self.anchors = []       # registration.Anchor: every validated calibration of this run, for the offline passes
+        self.circle = None      # centre-circle paint found on the last evidence tick (pitch.find_circle), or None
+        self.midfield = None    # the last automatic midfield registration attempt: {'time', 'taken', 'reason'|'observability'}
+        self.registration = None   # filled by the pipeline's offline passes
         self.low_since = None   # start of the current LOW-confidence section without a model
         self.section = None     # its best representative tick so far
         self.sections = []      # closed LOW sections [{'start', 'end', 'at', 'suggested'}]
@@ -147,6 +154,7 @@ class SoccerTracker:
         rows = rows[:, :6]
         dt = max(0.0, time-self.last_time) if self.last_time is not None else 0.0
         self.last_time = time
+        self.frame_index += 1
         live = self._live_boxes(time)
         dets, unconfirmed = [], []
         for i, row in enumerate(rows):
@@ -167,8 +175,11 @@ class SoccerTracker:
             self.pitch_detector.reset()
             self.size = None
         self.state.update(M, reliable, cut)
-        self.keyframes.update(time, M, reliable, cut, self.camera.homography)
+        self.keyframes.update(time, M, reliable, cut, self.camera.homography, self.camera.quality)
         model = self.keyframes.pitch
+        if self.keyframes.anchored is not None and model.H is not None:
+            # A validated landmark calibration: an anchor the offline passes carry both ways.
+            self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'landmarks', dict(model.details)))
         tick = cut or time-self.last_tick >= self.config.options.tick-1e-6
         if tick:
             self.last_tick = time
@@ -181,8 +192,18 @@ class SoccerTracker:
             self.carried_motion, self.carried_reliable = np.eye(3), True
             auto_conf, auto_evidence = assess_confidence(self.analysed)
             self.analysed.confidence, self.analysed.evidence = auto_conf, auto_evidence
+            # Centre-circle paint (an ellipse around the halfway line) is calibration evidence of its own: with
+            # the halfway line it constrains the geometry where the touchlines alone cannot.
+            self.circle, circle_line = find_circle(self.pitch_detector.masks, self.analysed)
             if model.H is not None:
-                model.refine(self.analysed.markings, time, [foot_point(b) for b in live])
+                circle_px = [(x*W, y*H) for x, y in self.circle['points']] if self.circle else None
+                model.refine(self.analysed.markings, time, [foot_point(b) for b in live], circle_px)
+                if model.state == 'refined':
+                    self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'paint', dict(model.details)))
+            elif self.circle is not None and auto_conf < HIGH:
+                # No model to carry and no confident playable region from the paint: the centre circle, the
+                # halfway line and a touchline can anchor one.
+                self._midfield_anchor(model, circle_line, time)
             pitch = self.analysed
         else:
             self.carried_motion = motion @ self.carried_motion
@@ -250,6 +271,8 @@ class SoccerTracker:
             for sample in samples:
                 sample['cues'] = cues[sample['id']]
                 edge = nearest_boundary(pitch, foot_point(sample['box'])) if edges else None
+                if edge is not None and edge['side'] == pitch.vanishing:
+                    edge = None   # the touchlines converge there: a vanishing point, not a pitch edge anyone can be near
                 if edge is not None:
                     # The nearest pitch edge: how far beyond it (metres, negative inside) and which way it runs.
                     dx, dy = (edge['b'][0]-edge['a'][0])*self.aspect, edge['b'][1]-edge['a'][1]
@@ -270,7 +293,7 @@ class SoccerTracker:
         people += [(None, b) for b in boxes if not any(iou(b, q) > .5 for _, q in people)]
         ball, ball_candidates = self.ball.step(frame, time, ball_rows if ball_rows is not None else np.zeros((0, 6)), M, reliable, cut,
                                                pitch, people, self._scale(boxes), self.state.stabilize_point, self.state.segment,
-                                               self.keyframes.to_pitch_point if calibrated else None)
+                                               self.keyframes.to_pitch_point if calibrated else None, model.confidence if calibrated else 0.0)
         if ball['state'] in ('TRACKED', 'MISSING') and ball['confidence'] >= .4:
             cx, cy = ball['center']
             self.last_ball = {'stab': self.state.stabilize_point(cx, min(1.0, cy+ball['box'][3]/2)), 'segment': self.state.segment,
@@ -281,9 +304,12 @@ class SoccerTracker:
         self.ball.events = []
         self.issues += result['issues']
         self.previous_boxes = boxes
-        self.frame_log.append({'t': time, 'dt': dt, 'M': M if reliable else None, 'reliable': reliable, 'cut': cut,
+        carried = self.camera.homography if self.camera.homography is not None and reliable else M
+        self.frame_log.append({'t': time, 'dt': dt, 'M': carried if reliable else None, 'reliable': reliable, 'cut': cut, 'quality': self.camera.quality,
                                'H': model.H.copy() if calibrated else None, 'confidence': model.confidence if calibrated else 0.0})
         boundary = self.keyframes.boundary()
+        live_calibration = model.to_json() | {'anchored': model.H is not None, 'cameraMotion': self.camera.quality, 'midfield': self.midfield,
+                                              'circle': {'coverage': self.circle['coverage'], 'inliers': self.circle['inliers']} if self.circle else None}
         return {'people': result['people'], 'ball': ball, 'ballCandidates': ball_candidates,
                 'rejected': [{'box': [round(v, 4) for v in r['box']], 'reason': r['reason'], 'text': REJECT_TEXT[r['reason']],
                               **({'detail': r['detail'][:90]} if self.config.debug else {})} for r in rejected],
@@ -291,12 +317,37 @@ class SoccerTracker:
                 'boundary': None if boundary is None else [[round(x, 4), round(y, 4)] for x, y in boundary],
                 'cameraReliable': reliable, 'cut': cut, 'segment': self.state.segment, 'calibrated': calibrated,
                 'pitchCoordinates': ('calibration' if model.level == 'HIGH' else 'predicted') if calibrated else None,
-                'pitchMode': pitch.mode, 'pitchConfidence': round(float(pitch.confidence), 3)}, M, reliable
+                'pitchMode': pitch.mode, 'pitchConfidence': round(float(pitch.confidence), 3),
+                'pitchModel': live_calibration if (tick or cut or self.config.debug) else None}, M, reliable
+
+    def _midfield_anchor(self, model, halfway, time):
+        """Automatic registration from the centre circle (an ellipse), the halfway line and a touchline
+        (soccer/midfield.py), validated against the paint and scored for observability before it anchors
+        the pitch model; a refused attempt is reported once per reason."""
+        W, H = self.width, self.height
+        ellipse = midfield.ellipse_from_points([(x*W, y*H) for x, y in self.circle['points']])
+        if ellipse is None:
+            return
+        touchlines = midfield.touchline_candidates(self.analysed, ellipse, W, H)
+        result = midfield.solve(self.circle, halfway, touchlines, W, H, self.keyframes.size, self.pitch_detector.masks)
+        if 'H' not in result:
+            if self.midfield is None or self.midfield.get('reason') != result['reason']:
+                model.events.append((time, 'midfield', f'centre circle seen ({self.circle["coverage"]:.0%} of the arc) but not used as an anchor: {result["reason"]}'))
+            self.midfield = {'time': time, 'taken': False, 'reason': result['reason']}
+            return
+        taken = model.anchor(np.linalg.inv(result['H']), time, note='centre circle, halfway line and touchline', observability=result['observability'],
+                             details=result['details'], source='auto-midfield')
+        self.midfield = {'time': time, 'taken': bool(taken), 'observability': round(result['observability'], 3), 'rmsPixels': round(result['rms_px'], 1),
+                         'evidence': result['details'].get('evidence')}
+        if taken:
+            self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'auto-midfield', dict(model.details)))
 
     def _decide_pitch(self, pitch, model, time, tick):
         """Which playable region this frame uses, its mode and confidence; LOW sections are recorded."""
         auto_conf, auto_evidence = pitch.confidence, list(pitch.evidence)
-        if model.H is not None and model.level != LOW_LEVEL:
+        # The tracked model supplies the region when it is trusted, unless the detector's own region is
+        # confident (painted boundary lines) and the model is not: a weak automatic anchor never replaces it.
+        if model.H is not None and model.level != LOW_LEVEL and (model.level == 'HIGH' or auto_conf < HIGH):
             outline = model.outline()
             if outline:
                 mode = 'automatic' if model.level == 'HIGH' else 'robust'

@@ -141,6 +141,16 @@ class BallTrackingVariantTests(unittest.TestCase):
         self.assertTrue(all(reason in ('STATIC', 'FIELD_LINE') for _, _, reason in by['centre spot']))  # it lies on the halfway line
         self.assertEqual(s['falsePositives'], 0)
 
+    def test_an_untrusted_calibration_does_not_declare_painted_spots(self):
+        # The pitch mapping exists but its confidence is low (a carried, unconfirmed registration): the spot
+        # under a candidate is not "known" from it; stillness over time still rejects, and nothing false starts.
+        records, tracker, s = run(calibrated=True, calibration=.2, seconds=2.5)
+        by = reasons_by_object(records)
+        self.assertTrue(by['penalty spot left'])
+        self.assertNotEqual(by['penalty spot left'][0][2], 'STATIC')
+        self.assertEqual(s['falsePositives'], 0, E.report(s))
+        self.assertEqual(s['trackIds'], [1], E.report(s))
+
 
 if __name__ == '__main__':
     unittest.main()

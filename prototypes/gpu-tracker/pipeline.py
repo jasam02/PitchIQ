@@ -21,8 +21,7 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import pitch_model
-from soccer.geometry import foot_point
+from soccer import pitch_model, registration
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -87,6 +86,22 @@ def ball_tiles(model, frame):
                 rows[:, :4] += [x, y, x, y]
                 output.extend(rows.tolist())
     return output
+
+
+def ball_crop(model, frame, window):
+    """Ball detections in a crop of the frame at its original resolution (the local search around the
+    ball tracker's prediction): rows [x1, y1, x2, y2, score, 0] in frame pixels."""
+    x0, y0, x1, y1 = window
+    crop = frame[y0:y1, x0:x1]
+    if crop.size == 0:
+        return []
+    size = int(min(1280, max(320, 32*round(max(crop.shape[:2])/32))))
+    result = model.predict(crop, imgsz=size, conf=.08, iou=.4, classes=[0], device=0, half=True, verbose=False)[0]
+    rows = []
+    for box in result.boxes:
+        bx1, by1, bx2, by2 = box.xyxy[0].tolist()
+        rows.append([bx1+x0, by1+y0, bx2+x0, by2+y0, float(box.conf[0]), 0.0])
+    return rows
 
 
 def far_tiles(model, frame, band):
@@ -219,7 +234,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     torch.cuda.reset_peak_memory_stats()
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
-    index, last_notice, logged, pitch, far_passes = first_frame, -10, 0, None, 0
+    index, last_notice, logged, pitch, far_passes, ball_searches = first_frame, -10, 0, None, 0, 0
     try:
         while not cancelled():
             ok, frame = capture.read()
@@ -238,6 +253,10 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                 rows = merge_far(rows, far_tiles(model, frame, band))
             if config.get('ballTiles', False) and (index-first_frame) % 2 == 0:
                 ball_rows += ball_tiles(model, frame)
+            window = tracker.ball.search_window()
+            if window is not None and config.get('ballSearch', True):
+                ball_searches += 1
+                ball_rows += ball_crop(model, frame, window)
             if ball_rows:
                 raw = torch.tensor(ball_rows, dtype=torch.float32)
                 ball_rows = raw[nms(raw[:, :4], raw[:, 4], .3)].numpy()
@@ -268,12 +287,14 @@ def run(video_path, output, config, progress, cancelled, previous=None):
         log.close()
     if not frames:
         raise RuntimeError('No video frames were processed.')
-    progress({'stage': 'Propagating the pitch model through the whole segment'})
+    progress({'stage': 'Registering the pitch over the whole segment and remapping the tracks'})
     propagated = finalize_pitch(frames, tracker)
     progress({'stage': 'Writing global identities and tracking data'})
     report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous)
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
+    report['summary']['pitch']['registration'] = tracker.registration
+    report['summary']['ball']['localSearches'] = ball_searches
     snapshot = tracker.snapshot() | {'run': output.name, 'start': start, 'end': frames[-1]['time']}
     (output/'identities.json').write_text(json.dumps(snapshot, separators=(',', ':')), encoding='utf-8')
     (output/'result.json').write_text(json.dumps(report, separators=(',', ':'), allow_nan=False), encoding='utf-8')
@@ -282,49 +303,57 @@ def run(video_path, output, config, progress, cancelled, previous=None):
 
 
 def finalize_pitch(frames, tracker):
-    """Offline pass: the whole segment is known, so frames before a calibration keyframe (or after a
-    loss) take the pitch model carried back through the recorded camera motion. Pitch coordinates of
-    people and the ball, the playable region and the confidence of those frames are recomputed;
-    identities are not touched. Returns the number of frames filled."""
+    """Offline passes 2 and 3 (soccer/registration.py): every validated anchor of the run (landmark
+    calibrations, painted markings that confirmed the model, automatic midfield anchors) is carried
+    forward and backward through the recorded camera motion, the two directions are blended, and the
+    pitch positions of people and the ball are recomputed on every frame from the final geometry. The
+    image tracks and identities are not touched. Returns the number of frames that gained a pitch model."""
     log = tracker.frame_log
     if len(log) != len(frames):
         return 0
     W, H = tracker.width, tracker.height
     size = tracker.keyframes.size
+    timeline = registration.build_timeline(log, tracker.anchors, W, H, size)
+    online = [bool(f.get('calibrated')) for f in frames]
+    metrics = registration.remap_frames(frames, timeline, W, H, size)
     filled = 0
-    for frame, (Hm, confidence, was_filled) in zip(frames, pitch_model.propagate(log, W, H, size)):
-        if not was_filled or Hm is None:
+    for frame, entry, was in zip(frames, timeline, online):
+        Hm, confidence = entry['H'], entry['confidence']
+        if Hm is None or not frame.get('calibrated'):
             continue
-        filled += 1
-        at = lambda point: pitch_model.field.to_pitch(Hm, size, (point[0]*W, point[1]*H))
-        for person in frame['people']:
-            q = at(foot_point(person['box']))
-            if q is not None:
-                person['pitch'] = [round(float(q[0]), 4), round(float(q[1]), 4)]
-        ball = frame.get('ball') or {}
-        if ball.get('state') in ('TRACKED', 'MISSING') and ball.get('center') and ball.get('box'):
-            cx, cy = ball['center']
-            q = at((cx, min(1.0, cy+ball['box'][3]/2)))
-            if q is not None:
-                ball['pitch'] = [round(float(q[0]), 4), round(float(q[1]), 4)]
-        frame['calibrated'], frame['pitchCoordinates'] = True, 'predicted'
-        frame['pitchConfidence'] = round(float(confidence), 3)
-        frame['pitchMode'] = 'automatic' if confidence >= pitch_model.HIGH else 'robust'
-        if frame.get('pitch'):
+        if not was:
+            filled += 1
+            frame['pitchConfidence'] = round(float(confidence), 3)
+            frame['pitchMode'] = 'automatic' if confidence >= pitch_model.HIGH else 'robust'
+        if frame.get('pitch') and (not was or frame['pitch'].get('level') == pitch_model.LOW_LEVEL):
             outline = pitch_model.field.outline(Hm, size, W, H)
             if outline:
                 p = frame['pitch']
                 p['polygon'] = [[round(x, 4), round(y, 4)] for x, y in outline]
                 p['source'], p['confidence'], p['level'] = 'model', round(float(confidence), 3), pitch_model.levels(confidence)
                 p['mode'] = 'automatic' if confidence >= pitch_model.HIGH else 'robust'
-                p['status'] = f'PITCH CONFIDENCE: {confidence:.2f} · PREDICTED BACKWARDS FROM A LATER CALIBRATION'
+                how = {'carried': f"CARRIED {entry['direction'] or ''} FROM THE ANCHOR AT FRAME {entry['anchor']}",
+                       'interpolated': f"BLENDED FROM THE ANCHORS AROUND IT (nearest: frame {entry['anchor']})"}.get(entry['source'], entry['source'].upper())
+                p['status'] = f'PITCH CONFIDENCE: {confidence:.2f} · OFFLINE REGISTRATION: {how.strip()} · observability {entry["observability"]:.2f}'
                 p['edges'] = pitch_model.field.side_status(Hm, size, W, H)
-                p['evidence'] = ['filled by the offline pass: the model of a later frame carried back through the camera motion']
-    # A section that asked for confirmation online is resolved when the fill now covers it.
+                p['evidence'] = [f"filled by the offline registration pass: {entry['source']} ({entry['direction'] or 'at the anchor'}), "
+                                 f"anchor {entry['age']:.1f}s away, observability {entry['observability']:.2f}"
+                                 + (f", forward/backward disagreement {entry['disagreement']:.1f} m" if entry['disagreement'] is not None else '')]
+    bridged = registration.bridge_ball(frames, W)
+    tracker.events += registration.warnings(frames)
+    tracker.events.sort(key=lambda e: e['time'])
+    # A section that asked for confirmation online is resolved when the registration now covers it.
     times = [f['time'] for f in frames]
     covered = lambda s: all(f.get('calibrated') for f, t in zip(frames, times) if s['start']-1e-6 <= t <= s['end']+1e-6)
     tracker.pitch_issues()   # closes a section still open at the end
     tracker.sections = [s for s in tracker.sections if not covered(s)]
+    ticks = [f['pitch'] for f in frames if f.get('pitch')]
+    curvatures = [p['curvature'] for p in ticks if p.get('curvature') is not None]
+    tracker.registration = registration.summarize(timeline, tracker.anchors) | metrics | {
+        'propagatedFrames': filled, 'ballFramesBridged': bridged,
+        'lensCurvature': round(float(np.median(curvatures)), 2) if curvatures else None,
+        'vanishingPointShare': round(sum(1 for p in ticks if p.get('vanishing'))/len(ticks), 3) if ticks else 0.0,
+        'mappingWarnings': sum(1 for e in tracker.events if e['kind'] == 'calibration')}
     return filled
 
 

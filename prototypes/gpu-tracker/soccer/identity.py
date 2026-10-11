@@ -484,7 +484,12 @@ class IdentityManager:
         if ctx.get('pitch_provisional'):
             need *= 2   # the playable area itself is uncertain: new people must persist longer before they become identities
         pitch_ok = ctx['pitch_reliable'] or not ctx['filter_enabled']
-        ok = pitch_ok and d.label != 'CANDIDATE' and d.role != 'unknown' and tr.hits >= o.min_hits
+        # No usable pitch on this frame (the registration failed, not the tracking): the image evidence alone
+        # decides, more slowly, and nobody is rejected for a zone that was never measured.
+        blind = not pitch_ok
+        if blind:
+            need = max(need, o.boundary_hits)
+        ok = d.label != 'CANDIDATE' and d.role != 'unknown' and tr.hits >= o.min_hits
         # Assistant referees run the touchline: allowed for a confident referee decision.
         runner = d.role == 'referee' and d.role_confidence >= .6
         sideline = ''
@@ -494,7 +499,9 @@ class IdentityManager:
             k = d.scores.get('keeper') or {}
             if k.get('vetoed'):
                 ok, sideline = False, k['vetoed']
-        if ok:
+        if ok and blind:
+            ok = tr.hits >= need and (not recent or zr >= .8 or runner)
+        elif ok:
             ok = tr.hits >= need if runner else zr >= .8 and (not born or (tr.hits >= o.boundary_hits and tr.inside >= 3))
         if ok:
             tr.state, tr.team, tr.role = 'uncertain', d.team, d.role
@@ -503,11 +510,11 @@ class IdentityManager:
                                              f'Track {tr.id} promoted to {self._describe(d.role, d.team)} after {tr.hits} observations (inside {pct(zr)}, team {pct(d.team_confidence)}, role {pct(d.role_confidence)}).'))
             return
         if tr.hits >= 3*o.min_hits:
-            tr.state = 'rejected' if zr < .8 and not runner else 'unknown'
+            tr.state = 'rejected' if recent and zr < .8 and not runner else 'unknown'
         else:
             tr.state = 'candidate'
-        if not pitch_ok:
-            tr.reason = 'pitch not reliable on this frame: no promotion'
+        if blind and tr.state == 'candidate':
+            tr.reason = f'pitch position unresolved on this frame (no calibration): image evidence decides after {need} observations ({tr.hits} so far; {d.reason})'
         elif sideline:
             tr.reason = f'looks like a goalkeeper to the detector, but {sideline}: not a goalkeeper candidate'
         elif tr.state == 'rejected':

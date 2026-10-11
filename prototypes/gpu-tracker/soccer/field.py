@@ -236,6 +236,7 @@ class Fit:
     lines: int
     circle_points: int
     reason: str = ''        # why the fit was rejected ('' when accepted)
+    jac: np.ndarray | None = None   # the observations' Jacobian at the solution (conditioning)
 
     @property
     def ok(self):
@@ -372,6 +373,7 @@ def fit(obs, width, height, size=None, prior=None, learn_size=False, prior_weigh
     H = orient(result.x[:9].reshape(3, 3), width, height)
     if H is None:
         return _rejected(bad, 'the fit diverged')
+    jac = result.jac[:, :9] if getattr(result, 'jac', None) is not None else None
     learned = PitchSize(float(result.x[9]), float(result.x[10]), 'landmarks') if learn_size else size
     # Residuals of the observations alone (prior and gauge terms excluded).
     res = _residuals(np.r_[H.ravel()/np.linalg.norm(H), [learned.length, learned.width]] if learn_size else H.ravel()/np.linalg.norm(H),
@@ -384,7 +386,7 @@ def fit(obs, width, height, size=None, prior=None, learn_size=False, prior_weigh
         rms_m = float(math.sqrt(((world-np.asarray([marks[p['name']] for p in points]))**2).sum(axis=1).mean()))
     else:
         rms_m = 0.0
-    out = Fit(H, learned, rms_px, rms_m, len(points), len(segs), len(circle))
+    out = Fit(H, learned, rms_px, rms_m, len(points), len(segs), len(circle), jac=jac)
     problem = sanity(H, learned, width, height)
     if problem:
         return _rejected(out, problem)
@@ -455,6 +457,126 @@ def fit_keyframes(sets, width, height, size=None):
     return PitchSize(length, width_m, 'landmarks'), best
 
 
+# ---------- observability: how well an evidence set constrains the pitch plane ----------
+LONGITUDINAL = ('far touchline', 'near touchline', 'penalty area far side', 'penalty area near side', 'goal area far side', 'goal area near side')
+
+
+def _family(name):
+    return 'longitudinal' if any(name.endswith(n) for n in LONGITUDINAL) else 'transverse'
+
+
+def observability(obs, width, height, size=None, rms_m=None, rms_px=None, jac=None):
+    """Geometric certainty of a calibration from its evidence alone, 0 (useless) .. 1 (excellent), with
+    the parts. It is independent of how smoothly an estimate was carried through time:
+
+      points        how many named landmarks, how much of the frame they span, whether they pin down
+                    both pitch axes (landmarks along one line, or two converging touchlines, do not)
+      lines         how many marking lines of each family: along the pitch (touchlines, box sides) and
+                    across it (goal lines, halfway line, box fronts); one family alone fixes neither the
+                    length direction nor where the pitch ends
+      circle        how much of the centre circle is seen (arc coverage), which fixes scale and the
+                    centre in a midfield view where straight-line intersections are few
+      conditioning  of the fit's Jacobian when given (a flat direction means a parameter the evidence
+                    cannot see)
+      residual      how well the evidence agrees with one pitch plane (metres for landmarks, pixels
+                    for paint)
+    The parts combine as: coverage = evidence of both axes and enough of it; score = coverage x
+    conditioning x residual."""
+    size = size or PitchSize()
+    marks = landmarks(size)
+    points = [p for p in obs.get('points', ()) if p['name'] in marks]
+    segs = list(obs.get('lines', ()))
+    circle = list(obs.get('circle', ()))
+    details = {'landmarks': len(points), 'lines': len(segs), 'circlePoints': len(circle)}
+    # Points: count, spread over the frame, both axes.
+    pts_score = 0.0
+    if len(points) >= 4:
+        src = np.array([(p['x'], p['y']) for p in points], np.float64)
+        dst = np.array([marks[p['name']] for p in points], np.float64)
+        count = min(1.0, (len(points)-2)/4)   # four landmarks determine the plane with no check; six check it
+        spread = min(1.0, float(cv2.contourArea(cv2.convexHull(src.astype(np.float32))))/(width*height)/.12)
+        axes = min(1.0, float(np.ptp(dst[:, 0]))/30)*min(1.0, float(np.ptp(dst[:, 1]))/20)
+        pts_score = math.sqrt(count*spread)*math.sqrt(axes)
+        details.update(count=round(count, 3), spread=round(spread, 3), axes=round(axes, 3))
+    # Lines: both families needed; the length direction and the pitch end come only from transverse lines.
+    families = {'longitudinal': set(), 'transverse': set()}
+    for l in segs:
+        families[_family(l['name'])].add(l['name'])
+    nl, nt = len(families['longitudinal']), len(families['transverse'])
+    lines_score = min(1.0, nl/2)*min(1.0, nt/2)*min(1.0, (nl+nt)/4)
+    if nl and not nt:
+        lines_score = .1*min(1.0, nl/2)   # touchlines alone: a vanishing direction, no end and no scale
+    elif nt and not nl:
+        lines_score = .15*min(1.0, nt/2)
+    details.update(longitudinal=sorted(families['longitudinal']), transverse=sorted(families['transverse']))
+    # Circle: arc coverage around the centre spot under the fit, when a homography is available.
+    circle_score = 0.0
+    if len(circle) >= 12 and obs.get('H') is not None:
+        H = np.asarray(obs['H'], np.float64)
+        try:
+            world = unproject(H, circle)
+            cx, cy = circle_centre(size)
+            angles = np.degrees(np.arctan2(world[:, 1]-cy, world[:, 0]-cx))
+            bins = np.unique(np.floor((angles+180)/15).astype(int))
+            coverage = len(bins)/24
+            radii = np.hypot(world[:, 0]-cx, world[:, 1]-cy)
+            agreement = float(np.mean(np.abs(radii-RADIUS) <= .6))
+            circle_score = min(1.0, coverage/.5)*agreement
+            details.update(circleCoverage=round(coverage, 3), circleAgreement=round(agreement, 3))
+        except np.linalg.LinAlgError:
+            pass
+    # The circle with the halfway line fixes the centre and the scale; with a touchline it fixes everything.
+    combined = max(pts_score, lines_score, .5*circle_score)
+    if circle_score and nt:
+        combined = max(combined, .6*circle_score+.15*nl)
+    coverage = min(1.0, combined)
+    conditioning = 1.0
+    if jac is not None:
+        singular = np.linalg.svd(np.asarray(jac, np.float64), compute_uv=False)
+        cond = float(singular[0]/max(singular[min(len(singular)-1, 7)], 1e-12))   # the 8 non-gauge parameters
+        conditioning = min(1.0, max(0.0, 1-(math.log10(max(cond, 1.0))-3)/4))      # 1e3 -> 1, 1e7 -> 0
+        details['conditioning'] = round(conditioning, 3)
+    residual = 1.0
+    if rms_m is not None:
+        residual = min(residual, min(1.0, max(0.0, 1-rms_m/2.5)))
+        details['rmsMetres'] = round(rms_m, 2)
+    if rms_px is not None:
+        residual = min(residual, min(1.0, max(0.0, 1-rms_px/(.02*width))))
+        details['rmsPixels'] = round(rms_px, 1)
+    score = coverage*conditioning*residual
+    details.update(score=round(score, 3), coverage=round(coverage, 3), residual=round(residual, 3),
+                   pointsScore=round(pts_score, 3), linesScore=round(lines_score, 3), circleScore=round(circle_score, 3))
+    return details
+
+
+def paint_agreement(H, size, masks, width, height, names=None):
+    """Bidirectional check: project the canonical markings into the image and measure how much of each
+    visible one lies on paint (the ridge mask of pitch.line_masks). Returns {name: share} for the markings
+    in view (None where the marking is in view but the mask has no row there)."""
+    ridge = masks['ridge']
+    mh, mw = ridge.shape
+    out = {}
+    catalogue = lines(size)
+    for name, a, b in catalogue:
+        if names is not None and name not in names:
+            continue
+        seg = image_segment(H, a, b, samples=96)
+        if seg is None or not visible(seg, width, height):
+            continue
+        (x0, y0), (x1, y1) = seg
+        t = np.linspace(0, 1, 60)
+        xs, ys = (x0+(x1-x0)*t)*mw/width, (y0+(y1-y0)*t)*mh/height
+        inside = (xs >= 1) & (xs < mw-1) & (ys >= 1) & (ys < mh-1)
+        if inside.sum() < 10:
+            continue
+        xi, yi = np.rint(xs[inside]).astype(int), np.rint(ys[inside]).astype(int)
+        hit = np.zeros(len(xi), bool)
+        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)):
+            hit |= ridge[np.clip(yi+dy, 0, mh-1), np.clip(xi+dx, 0, mw-1)]
+        out[name] = round(float(hit.mean()), 3)
+    return out
+
+
 # ---------- matching detected paint to the predicted markings ----------
 def match_segments(H, size, segs, width, height, tol_px=None, angle_tol=8.0):
     """Assign detected paint segments (normalized endpoints, from pitch.detect_lines) to the marking
@@ -504,13 +626,31 @@ def match_segments(H, size, segs, width, height, tol_px=None, angle_tol=8.0):
     return out
 
 
+def at_horizon(H, size, width, height, side, min_px=None):
+    """Is this goal line's projection at the touchlines' vanishing point: the two touchlines less than
+    min_px apart there? Such an end is a perspective limit, not a measured pitch end."""
+    L, W = size.length, size.width
+    x = 0.0 if side == 'left' else L
+    ends = [(x, 0.0), (x, W)]
+    if (depth(H, ends) <= 1e-9).any():
+        return True
+    far, near = project(H, ends)
+    return float(np.hypot(*(near-far))) < (min_px if min_px is not None else .02*height)
+
+
 def side_status(H, size, width, height, matched=()):
     """For each logical side of the pitch: 'line' (paint matched on it this tick), 'predicted' (in view
-    but no paint matched) or 'off-screen'."""
+    but no paint matched), 'horizon' (a goal line whose projection collapses onto the touchlines'
+    vanishing point: no pitch end is known there) or 'off-screen'."""
     predicted = image_lines(H, size, width, height)
     found = {m['name'] for m in matched}
     out = {}
     for side, name in SIDES.items():
         info = predicted[name]
-        out[side] = 'line' if name in found else ('predicted' if info['visible'] else 'off-screen')
+        if name in found:
+            out[side] = 'line'
+        elif side in ('left', 'right') and info['visible'] and at_horizon(H, size, width, height, side):
+            out[side] = 'horizon'
+        else:
+            out[side] = 'predicted' if info['visible'] else 'off-screen'
     return out

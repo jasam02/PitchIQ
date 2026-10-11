@@ -31,6 +31,7 @@ import cv2
 import numpy as np
 
 from .geometry import clamp, signed_distance
+from .pitch import nearest_boundary
 
 BALL_DIAMETER = .22      # metres
 PLAYER_HEIGHT = 1.8      # metres
@@ -359,13 +360,16 @@ class BallTracker:
         return self._nearest_person(x/self.W, y/self.H, people, px_m)
 
     # ---------- main ----------
-    def step(self, frame, time, rows, M, reliable, cut, pitch, people, scale, stabilize, segment, to_pitch=None):
+    def step(self, frame, time, rows, M, reliable, cut, pitch, people, scale, stabilize, segment, to_pitch=None, calibration=None):
         """rows: (N, 6) ball detections in pixels. people: [(track id or None, normalized box)].
         scale(y) -> expected player height (normalized) at foot height y, or None.
-        stabilize(x, y) -> camera-compensated normalized point. Returns the frame's ball dict and
-        debug candidates."""
+        stabilize(x, y) -> camera-compensated normalized point. calibration: confidence of the pitch
+        registration this frame (None: trusted whenever to_pitch is given): penalties that need a pitch
+        position (the painted spots) are only applied under a trusted registration, so a wrong or
+        missing one cannot reject the ball. Returns the frame's ball dict and debug candidates."""
         dt = 1/self.fps if self.last_time is None else max(1e-3, time-self.last_time)
         self.last_time = time
+        self.calibration = clamp(float(calibration)) if calibration is not None else (1.0 if to_pitch is not None else 0.0)
         if cut:
             if self.kf is not None:
                 self._lose(time, 'camera cut')
@@ -421,9 +425,16 @@ class BallTracker:
             patch = analyse_patch(frame, cx, cy, d)
             nx, ny = cx/self.W, cy/self.H
             # Field location (the ball can fly above the pitch in the image, so only far-away is rejected).
+            # The playable region is trusted as far as its own confidence: a LOW region cannot reject, and
+            # beyond a converging end (a vanishing point, not a measured pitch end) nothing is outside.
+            trust = clamp(float(getattr(pitch, 'confidence', 1.0))) if pitch is not None else 0.0
             if pitch is not None and pitch.reliable and len(pitch.polygon) >= 3:
                 out = signed_distance((nx, ny), pitch.polygon, pitch.aspect)
-                fieldscore = 1.0 if out <= 0 else math.exp(-out/.04)
+                if out > 0 and getattr(pitch, 'vanishing', None):
+                    edge = nearest_boundary(pitch, (nx, ny))
+                    if edge is not None and edge['side'] == pitch.vanishing:
+                        out = 0.0
+                fieldscore = 1.0 if out <= 0 else max(.7*(1-trust), math.exp(-out/.04))
             else:
                 out, fieldscore = 0.0, .7
             # On a fitted painted line of the pitch model: counts when the bright structure here is itself
@@ -440,7 +451,7 @@ class BallTracker:
             c.visual = round(.4*c.scores['det']+.2*size+.15*patch['shape']+.15*patch['isolation']+.1*fieldscore, 3)
             if ratio > 3.0 or ratio < .3:
                 c.reason = 'SIZE'
-            elif out > .12:
+            elif out > .12 and trust >= .5:
                 c.reason = 'OUTSIDE_PITCH'
             cands.append(c)
         cands.sort(key=lambda c: -c.visual)
@@ -527,7 +538,7 @@ class BallTracker:
         spot = self._spot(c)
         # The tracked ball came to rest here: its own spot (and its own stillness) is not a false positive.
         c.own_spot = self.kf is not None and ((spot is not None and spot['ball_track'] == self.track) or (spot is None and t is not None and t is self.own_tracklet))
-        known = _painted_spot(c.pitch)
+        known = _painted_spot(c.pitch) and self.calibration >= .5   # a painted spot is only where a trusted registration says
         static = 0.0 if c.own_spot else 1.0 if self._static(spot) or known or settled >= 1.0 else 0.0
         still = t is not None and len(t.hits) >= 3 and speed < 1.0
         flagged = (t is not None and t.flagged(time)) or (spot is not None and time < spot['flag_until'] and still)
@@ -879,6 +890,25 @@ class BallTracker:
 
     def _speed(self):
         return math.hypot(self.kf.x[2], self.kf.x[3])/self.kf.px_per_m if self.kf is not None else 0.0
+
+    def search_window(self, dt=None):
+        """Where to look for the ball at the original resolution: a square (x0, y0, x1, y1 pixels) around
+        the predicted position while the ball is followed or recently lost, sized for the gate (wider the
+        longer it has been missing), or None. The whole-frame detector sees a far ball as two or three
+        pixels; a crop at full resolution does not."""
+        if self.kf is None or self.phase == 'SEARCHING':
+            return None
+        dt = 1/self.fps if dt is None else dt
+        x, y = self.kf.x[0]+self.kf.x[2]*dt, self.kf.x[1]+self.kf.x[3]*dt
+        px_m = self.kf.px_per_m
+        gap = max(dt, (self.last_time-self.last_seen) if self.last_time is not None else 0.0)
+        reach = (GATE_FLOOR+6*gap)*px_m+.5*math.hypot(self.kf.x[2], self.kf.x[3])*dt+3*self.last_d
+        half = float(min(max(reach, 24*self.last_d, 96.0), .35*max(self.W, self.H)))
+        x0, y0 = int(max(0, x-half)), int(max(0, y-half))
+        x1, y1 = int(min(self.W, x+half)), int(min(self.H, y+half))
+        if x1-x0 < 32 or y1-y0 < 32:
+            return None
+        return x0, y0, x1, y1
 
     def _output(self, time, chosen, to_pitch):
         if self.kf is None or self.confidence < (SHOW_CONFIDENCE if self.phase == 'LOCKED' else .25):

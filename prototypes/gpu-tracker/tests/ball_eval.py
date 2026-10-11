@@ -141,12 +141,13 @@ DISTRACTORS = {'centre spot': (52.5, 34.0, .45), 'penalty spot': (94.0, 34.0, .4
 class Sequence:
     """Renders the frames, proposes detector candidates and keeps the ground truth."""
 
-    def __init__(self, seconds=12.0, calibrated=False, ball_until=math.inf, unreliable=(7.0, 7.2), noise=True, seed=0,
+    def __init__(self, seconds=12.0, calibrated=False, ball_until=math.inf, unreliable=(7.0, 7.2), noise=True, seed=0, calibration=None,
                  spot_conf=.45, tape_conf=.78, hidden=(), undetected=()):
         """ball_until: the ball leaves the scene at this time. hidden: [(t0, t1)] when the ball is behind a
         player whatever the geometry says. undetected: [(t0, t1)] when the detector misses the visible ball."""
         self.match = Match()
         self.seconds, self.calibrated, self.ball_until, self.unreliable, self.noise = seconds, calibrated, ball_until, unreliable, noise
+        self.calibration = calibration   # confidence of the pitch registration handed to the tracker (None: trusted when calibrated)
         self.spot_conf, self.tape_conf, self.hidden, self.undetected = spot_conf, tape_conf, hidden, undetected
         self.rng = np.random.default_rng(seed)
         self.base_P = S2 @ B.camera(centre_x=52.5, span=125)
@@ -247,7 +248,8 @@ class Sequence:
                 pitch = detector.analyze(frame, t, motion, reliable, False)
             else:
                 pitch = warp_model(pitch, motion, t, reliable, False)
-            out, cands = tracker.step(frame, t, rows, M, reliable, False, pitch, people, scale, stabilize, 0, to_pitch if self.calibrated else None)
+            out, cands = tracker.step(frame, t, rows, M, reliable, False, pitch, people, scale, stabilize, 0, to_pitch if self.calibrated else None,
+                                      calibration=self.calibration)
             records.append({'truth': truth, 'out': out, 'cands': cands})
             prev_P = P
         return records, tracker
