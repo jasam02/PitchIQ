@@ -483,10 +483,23 @@ gap while `RECOVERING`, and becomes physically wide (a kick's worth of travel)
 only when a player is within reach of the prediction, because a touch changes
 the velocity at once; the filter's uncertainty is inflated at the same moment.
 **Switching resistance**: the candidate on the predicted path keeps the track
-unless another one scores at least 0.15 higher; a candidate outside the tight
-gate, or one that reappears after a gap, needs a previous sighting in the same
-place (its tracklet) and independent motion — one lucky detection never moves
-the ball or brings it back. A ball hidden by a player is carried with that
+unless another one scores at least 0.25 higher. **A detection never takes the
+ball over on its own.** Beyond the gate (the gate itself stops growing with the
+statistical uncertainty: it widens by 6 m/s of hidden time, no more) only a
+*chain* of consistent sightings is considered, and it must pass the **entry
+rule**: the speed the hidden ball would have needed to get from where it is
+believed to be to where the chain started, in the unseen time, must be either
+slow (under 8 m/s) or, up to a hard shot's 40 m/s, matched by the chain still
+moving that fast and not sitting at a foot. Anything on **another player's
+lower body** (not the player the ball was hidden at) is a boot or a sock until
+proven otherwise: it counts only when the mean prediction itself reaches it or
+it has moved relative to that player (0.6 m over 0.6 s counts as free). Every
+such decision is logged as `BALL SWITCH WARNING` (old and new position,
+required velocity, previous trajectory confidence, detector score, player
+attachment and relative motion, `ACCEPTED` / `REJECTED (JUMP | NO_ENTRY |
+UNCONFIRMED)`). The lock's "seen elsewhere while the ball was tracked" flags
+lapse once the ball has been hidden for 0.4 s (a wrong lock must not keep
+excluding the real ball). A ball hidden by a player is carried with that
 player (the track follows their feet, unless the ball was moving away from
 them) and reconnects when it reappears, keeping the same track id. A free ball
 the detector loses sight of is predicted for 2.5 s before the track is given
@@ -504,21 +517,71 @@ gives temporal evidence:
 | `FIELD_LINE` | part of a long thin bright structure (touchline, halfway line, box lines, circle) or on a fitted pitch marking while the bright structure is stretched; a ball lying on a line makes a bulge and is kept |
 | `STATIC` | standing still for 2 s in camera-compensated (or calibrated pitch) coordinates, at a spot anchored where it was first seen, or at a known painted spot; a track that never moved and rests on such a spot is dropped and the spot remembered as a false positive |
 | `PLAYER_ATTACHED` | the same place inside one person's box for many frames: wrist tape, gloves, boots, socks. Inside the upper body 0.8 s of stability is enough; at the feet, where the ball lives, 2 s. A single frame inside the upper body is only a prior, and a tracklet that was attached a moment ago stays attached while an arm swings outside the box |
-| `OTHER_OBJECT` | seen at the same time as the confidently tracked ball, elsewhere (there is one ball). Only a mature lock may say so (at least 0.5 s old, confident, and it has moved at least a metre like a ball), never about things within 1.5 m of the ball, and the flag lapses when that track is lost: a wrong lock on a boot cannot disqualify the real ball next to it |
+| `OTHER_OBJECT` | seen at the same time as the confidently tracked ball, elsewhere (there is one ball). Only a mature lock may say so (at least 0.5 s old, confident, and it has moved at least a metre like a ball), never about things within 1.5 m of the ball, and the flag lapses once that ball has been hidden for 0.4 s or is lost: a wrong lock on a boot cannot disqualify the real ball next to it |
+| `JUMP`, `NO_ENTRY`, `UNCONFIRMED` | beyond the gate while the ball is hidden: the hidden ball could not have got there in the unseen time; it sits on another player's lower body with no trajectory arriving and no motion of its own relative to them; it is not yet a chain of consistent sightings |
 | `SIZE`, `OUTSIDE_PITCH` | impossible for a ball at that depth (0.22 m scaled by the perspective player-size model), or far outside the playable field |
 | `TRAJECTORY`, `LOW_SCORE` | plausible but off the tracked ball's path, or in the gate with too weak a score |
 
 Independent motion is measured against the field (camera-compensated or pitch
-coordinates) and against the player a candidate sits on; shape and colour are
-only small terms, because the real ball is often blurred, elongated or a few
-pixels wide. `tests/ball_eval.py` renders a panning broadcast sequence with all
-of these distractors and prints the metrics that matter: frames the SAME ball
-was followed, false positives, track switches, hidden frames bridged by
-prediction, incorrect re-acquisitions and continuity:
+coordinates) and against the player a candidate sits on (`relative`: a boot
+moves with its player, a dribbled ball does not); shape and colour are only
+small terms, because the real ball is often blurred, elongated or a few pixels
+wide. The output keeps detector confidence apart from identity: `identity` (the
+track), `visual` (this observation) and `trajectory` (its consistency) are
+reported separately, and the overlay reads `BALL LOCKED · identity 0.92 ·
+visual 0.74 · trajectory 0.96`, `BALL OCCLUDED · likely interaction B-02 ·
+hidden 0.42 s`, or `BALL RECOVERING · candidate paths: 4`.
+
+**The final trajectory is decoded offline** (`soccer/ball_path.py`), because an
+uploaded video is known end to end. Every frame is a layer of nodes — its
+recorded candidates, scored for ball-likeness from the evidence above, plus an
+explicit NOT VISIBLE node — and dynamic programming (Viterbi) finds the
+cheapest path through the segment. A path pays per frame for the node it uses
+(`-log` of the ball-likeness; NOT VISIBLE costs a fixed amount), for each link
+between sightings (camera-compensated displacement as a speed, dearer the
+longer the gap it had to cover unseen; cheap when the causal pass already
+linked the two; +1.5 for arriving at a player's lower body unseen and +5,
+fading over 2 s, when it comes from another player's feet or reach), for each
+frame bridged inside a link (occluded on a known trajectory: 0.8 each, so a
+mediocre true sighting is kept rather than skipped), and for starting (3.2;
++4 when the trajectory starts on a player's lower body: nothing arrived there)
+or ending a trajectory. Links may skip up to 1.2 s, so a ball seen at frame 100
+and 130 need not be "found" in between; those frames come out `MISSING` with
+an interpolated position. A candidate glued to the same spot on one player's
+lower body loses ball-likeness (0.55; 0.3 after a second), and one the causal
+pass saw while it confidently tracked the ball elsewhere loses half. The
+effect: a boot that the first pass took for the ball while the real ball was
+hidden is a short run that connects to nothing and never pays for its start;
+the decoded path leaves those frames NOT VISIBLE, and a later sighting of the
+real ball links back to the earlier ones. The result's per-frame `ball` is this
+trajectory (`phase: PATH`, one identity `BALL-1`, `bridged` on interpolated
+frames); the causal pass stays as `ball.firstPass`; `BALL PATH` events explain
+every first-pass run the final path leaves out (the speed reaching it would
+have needed). The 2D match view and the ball metrics use the final trajectory.
+`ball_cleanup.py <result.json>` re-decodes an existing result without the
+detector (camera motion from `frames[].motion`, an `.npz`, or re-estimated from
+the video).
+
+`tests/ball_eval.py` renders a panning broadcast sequence with all of these
+distractors — and two scenarios where the ball is hidden at a dribble while a
+running player's white boots appear a few metres away — and prints the metrics
+that matter for the first pass and the final trajectory: frames the SAME ball
+was followed, false positives, frames on a boot, teleports (the shown ball
+moving faster than any shot between consecutive frames), foot-to-foot switches
+(the shown ball in one player's lower body, then another's within 0.3 s), track
+switches, hidden frames bridged by prediction, correct / incorrect
+re-acquisitions, continuity, state shares and the longest unknown interval:
 
 ```bat
 .venv\Scripts\python prototypes\gpu-tracker\tests\ball_eval.py
 ```
+
+What is *not* here: no second-stage ball/shoe classifier and no multi-frame
+(TrackNet-style) detector — candidate generation is still the single-frame
+YOLO ball class plus the full-resolution crop around the prediction, and the
+decoder's node scores take any such verifier as one more factor whenever one
+exists. The hard negatives for training one are already in every result: the
+rejected candidates with their reasons, boxes and frames.
 
 ## Debug view (how to test)
 

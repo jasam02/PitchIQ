@@ -15,8 +15,17 @@ is the ball I am already following?". Each frame:
        (tight while LOCKED, wider while OCCLUDED, growing while RECOVERING, physically wide when a
        player is within reach because a kick changes the velocity), score the candidates with
        trajectory consistency as the strongest term, and resist switching to another object
+    -> a detection never takes the ball over on its own. Beyond the gate only a CHAIN of consistent
+       detections that the hidden ball could have reached in the unseen time is considered (the
+       entry rule), and anything sitting on another player's lower body is a boot until its own
+       motion relative to that player, or the ball's trajectory arriving there, says otherwise;
+       every such decision is logged as a BALL SWITCH WARNING
     -> only when the ball is genuinely lost does a tracklet that stayed plausible for several frames
        become the (re)acquired ball
+
+This is the first, causal pass. ball_path.py decodes the final trajectory offline over the whole
+segment (every frame's candidates plus a "not visible" node, dynamic programming), which is what the
+result, the 2D view and the metrics use; the states here drive the live preview and the search.
 
 States: SEARCHING (no ball) -> LOCKED (observed this frame) -> OCCLUDED (short gap: predicted, kept
 at the player that hides it) -> RECOVERING (longer gap: expanding search, confirmation required)
@@ -48,14 +57,18 @@ STATIC_SECONDS = 2.0     # a candidate seen this long at one spot without moving
 STATIC_RADIUS = .6       # metres
 LINE_RUN = .4            # seconds a moving track may be supported by candidates lying on a painted line
 SHOW_CONFIDENCE = .35    # below this the ball is reported UNKNOWN
-SWITCH_MARGIN = .15      # another candidate must beat the one on the predicted path by this much
+SWITCH_MARGIN = .25      # another candidate must beat the one on the predicted path by this much
 FLAG_SECONDS = 1.5       # how long "seen at the same time as the ball" stays with a moving tracklet
+RELATIVE_FREE = .6       # metres a candidate must move relative to the player it sits on to count as free of them
+ENTRY_SLOW = 8.0         # m/s: a hidden ball may have rolled this fast unseen without any further evidence
 ACCEPT = {'LOCKED': .45, 'OCCLUDED': .5, 'RECOVERING': .55}
 HARD = ('SIZE', 'OUTSIDE_PITCH', 'OTHER_OBJECT', 'PLAYER_ATTACHED')
 REASONS = {'FIELD_LINE': 'BALL REJECTED: FIELD LINE', 'STATIC': 'BALL REJECTED: STATIC FALSE POSITIVE',
            'PLAYER_ATTACHED': 'BALL REJECTED: PLAYER ATTACHED OBJECT', 'OTHER_OBJECT': 'BALL REJECTED: SEEN WHILE THE BALL WAS ELSEWHERE',
            'SIZE': 'BALL REJECTED: SIZE', 'OUTSIDE_PITCH': 'BALL REJECTED: OUTSIDE PITCH',
-           'TRAJECTORY': 'BALL REJECTED: TRAJECTORY', 'LOW_SCORE': 'BALL REJECTED: LOW SCORE'}
+           'TRAJECTORY': 'BALL REJECTED: TRAJECTORY', 'LOW_SCORE': 'BALL REJECTED: LOW SCORE',
+           'JUMP': 'BALL REJECTED: IMPOSSIBLE JUMP', 'NO_ENTRY': 'BALL REJECTED: NO TRAJECTORY INTO THIS PLAYER',
+           'UNCONFIRMED': 'BALL REJECTED: NOT YET A CONSISTENT CHAIN'}
 OUTPUT_STATE = {'LOCKED': 'TRACKED', 'OCCLUDED': 'MISSING', 'RECOVERING': 'MISSING', 'SEARCHING': 'UNKNOWN'}
 
 
@@ -151,6 +164,10 @@ class Candidate:
     m2: float | None = None      # Mahalanobis distance from the ball prediction
     traj: float | None = None
     final: float | None = None
+    relative: float | None = None   # motion relative to the player it is on (0: moves with them, 1: free)
+    required: float | None = None   # m/s the hidden ball would have needed to reach this candidate's chain
+    entry: str = ''                 # why the chain cannot be the ball's continuation ('' when it can)
+    far: bool = False               # beyond the gate around the prediction
 
 
 class Tracklet:
@@ -298,6 +315,7 @@ class BallTracker:
         self.last_log = -math.inf
         self.limits = {}
         self.events = []
+        self.unflagged = False       # the current hidden spell has released the lock's "not the ball" flags
 
     # ---------- helpers ----------
     def _px_per_m(self, y_norm, scale):
@@ -521,6 +539,10 @@ class BallTracker:
     def _classify(self, c, time, reliable):
         t = c.tracklet
         attach, attached_for, attached_to = self._attachment(c, time)
+        relative, sightings = self._relative_motion(c, time)
+        c.relative = None if relative is None else round(clamp(relative/RELATIVE_FREE), 3)
+        if c.person is not None and c.person.inside and c.person.v > .72 and sightings >= 3 and c.relative is not None and c.relative < .3:
+            attach = max(attach, .55)   # a young chain glued to one player's lower body: boot-like, short of a hard rejection
         speed = moved = span = 0.0
         settled = 0.0
         if t is not None:
@@ -543,6 +565,7 @@ class BallTracker:
         still = t is not None and len(t.hits) >= 3 and speed < 1.0
         flagged = (t is not None and t.flagged(time)) or (spot is not None and time < spot['flag_until'] and still)
         c.scores.update(attach=round(attach, 3), attachedFor=attached_for, attachedTo=attached_to, motion=round(clamp(speed/3), 3), speed=round(speed, 2),
+                        relative=c.relative,
                         static=static, settled=round(settled, 2), otherObject=bool(flagged),
                         person=None if c.person is None else {'track': c.person.pid, 'u': round(c.person.u, 2), 'v': round(c.person.v, 2), 'feet': round(c.person.foot_m, 2)},
                         tracklet=None if t is None else t.id)
@@ -558,6 +581,59 @@ class BallTracker:
         elif static:
             c.reason = 'STATIC'
 
+    def _relative_motion(self, c, time):
+        """How far (metres) the candidate has moved relative to the player it is on over the last 0.6 s,
+        and from how many sightings: a boot or sock moves with the player and stays near zero, a dribbled
+        or passing ball does not."""
+        p, t = c.person, c.tracklet
+        if p is None or p.pid is None or t is None:
+            return None, 0
+        hits = [h for _, h in t.window(time, .6) if h.person is not None and h.person.pid == p.pid]
+        if len(hits) < 2:
+            return None, len(hits)
+        bw, bh = p.box[2]*self.W, p.box[3]*self.H
+        moved = max(math.hypot((h.person.u-p.u)*bw, (h.person.v-p.v)*bh) for h in hits)/max(c.px_m, 1e-3)
+        return moved, len(hits)
+
+    def _entry(self, c, previous, time):
+        """Why a candidate beyond the gate cannot be the hidden ball's continuation (None when it can): it
+        must already be a chain of consistent sightings, and the ball must have been able to get from
+        where it is believed to be to where that chain started, in the time it was unseen. A fast
+        unseen flight is plausible only if the chain still moves fast and does not sit at a foot."""
+        if len(previous) < max(2, self.confirm-1) or sum(h[1].visual for h in previous)/len(previous) < .45:
+            return 'UNCONFIRMED'
+        first_t, first = previous[0]
+        elapsed = max(2/self.fps, first_t-self.last_seen)
+        c.required = math.hypot(first.cx-self.kf.x[0], first.cy-self.kf.x[1])/max(c.px_m, 1e-3)/elapsed
+        lower = c.person is not None and c.person.inside and c.person.v > .72
+        if c.required > MAX_SPEED:
+            return 'JUMP'
+        if c.required > ENTRY_SLOW and (c.scores['speed'] < .5*c.required or lower):
+            return 'JUMP'
+        return None
+
+    def _warn_switch(self, c, time, gap, decision):
+        kf = self.kf
+        required = c.required if c.required is not None else (c.err or 0.0)/max(c.px_m, 1e-3)/max(gap, 1/self.fps)
+        lines = [f'Old position: x = {kf.x[0]:.0f}, y = {kf.x[1]:.0f} px ({self.phase}, hidden for {gap:.2f} s' + (f', at track {self.carrier["id"]}' if self.carrier else '') + ')',
+                 f'New position: x = {c.cx:.0f}, y = {c.cy:.0f} px ({c.err:.0f} px from the prediction)',
+                 f'Required velocity: {required:.1f} m/s', f'Previous trajectory confidence: {self.confidence:.2f}',
+                 f'New detector score: {c.det:.2f}', f"Player attachment score: {c.scores['attach']:.2f}"
+                 + (f" (on track {c.person.pid}, motion relative to them {c.relative if c.relative is not None else 0:.2f})" if c.person is not None and c.person.pid is not None else ''),
+                 f'Decision: {decision}' + (f' ({c.entry})' if c.entry else '')]
+        self._event(time, 'BALL SWITCH WARNING', lines)
+
+    def _unflag(self):
+        """What a lock excluded as "seen elsewhere while the ball was tracked" is only as good as that
+        lock: once the ball has been hidden for long, or lost, those objects are reconsidered (a wrong
+        lock on a boot must not keep excluding the real ball)."""
+        for t in self.tracklets:
+            if t.flag_track == self.track:
+                t.flag_until = -math.inf
+        for s in self.spots:
+            if s['flag_track'] == self.track:
+                s['flag_until'] = -math.inf
+
     # ---------- the active ball ----------
     def _associate(self, cands, time, dt, people):
         """The candidate that is the ball already being followed, or None."""
@@ -570,33 +646,54 @@ class BallTracker:
         if contact is not None:
             kf.inflate(pos_px=.2*px_m, vel_px=.7*KICK_SPEED*px_m)   # a touch may change the velocity at once
         r_tight = max(GATE_FLOOR*px_m, 2*self.last_d)+.3*speed_px*dt
+        r_path = r_tight   # the mean prediction itself, without the uncertainty that grows while hidden
         if phase != 'LOCKED':
             r_tight = max(r_tight, (GATE_FLOOR+6*gap)*px_m)
         r_wide = MAX_SPEED*(min(gap, OCCLUDED_MAX) if contact is not None else gap)*px_m+2*self.last_d
         moving = speed_px/px_m >= 1.5
         threshold = max(ACCEPT[phase], .5 if contact is not None else 0)
         eligible = []
+        warned = False
         for c in cands:
             c.err = err = math.hypot(c.cx-x, c.cy-y)
             c.m2 = m2 = kf.mahalanobis((c.cx, c.cy), max(1.0, c.d/4))
             if c.reason in HARD:
                 continue
-            near = err <= r_tight or m2 <= 9
+            # Consistent with the prediction: within the gate, or statistically close AND not far beyond it
+            # (the uncertainty grows without bound while the ball is hidden; it must not make everything "near").
+            near = err <= r_tight or (m2 <= 9 and err <= 1.5*r_tight)
             previous = c.tracklet.window(time, .3) if c.tracklet is not None else []  # the same thing seen just before
-            if phase == 'RECOVERING':
-                # Far from the last sighting: only a chain of consistent detections can be the ball again.
-                ok = err <= r_wide and len(previous) >= max(2, self.confirm-1) and sum(h[1].visual for h in previous)/len(previous) >= .45
-            else:
-                ok = near or (contact is not None and err <= r_wide)
-            if not ok:
-                if c.visual >= .45 and not c.reason:
-                    c.reason = 'TRAJECTORY'
+            lower = c.person is not None and c.person.inside and c.person.v > .72
+            other = lower and c.person.pid is not None and (self.carrier is None or c.person.pid != self.carrier['id'])
+            if other and err > r_path and (c.relative is None or c.relative < .4):
+                # On another player's lower body, with neither the ball's trajectory arriving there nor any
+                # motion of its own relative to that player: a boot or sock until proven otherwise. The
+                # uncertainty that grows while the ball is hidden never makes such a thing "consistent".
+                c.entry = 'NO_ENTRY'
+                if not c.reason:
+                    c.reason = 'NO_ENTRY'
+                if c.visual >= .45 and not warned and self._allow('switch-warning', time, 1.0):
+                    warned = True
+                    self._warn_switch(c, time, gap, 'REJECTED')
                 continue
-            # One detection is never enough to move the ball off its predicted path or to bring it back
-            # after a gap: outside the tight gate it must have been seen there the frame before; after a
-            # gap it needs a confident detector or that previous sighting.
-            on_body = c.person is not None and c.person.inside and c.person.v <= .72
-            if (err > r_tight and (not previous or c.scores['motion'] < .3 or on_body)) or (self.missing_frames >= 3 and c.det < .3 and not previous):
+            if not near:
+                c.far = True
+                if not (err <= r_wide and (contact is not None or phase == 'RECOVERING')):
+                    if c.visual >= .45 and not c.reason:
+                        c.reason = 'TRAJECTORY'
+                    continue
+                # Beyond the gate only a chain of consistent sightings that the hidden ball could have
+                # reached is the ball: one detection never is, whatever its confidence.
+                verdict = self._entry(c, previous, time)
+                if verdict is not None:
+                    c.entry = verdict
+                    if not c.reason:
+                        c.reason = verdict
+                    if c.visual >= .45 and not warned and self._allow('switch-warning', time, 1.0):
+                        warned = True
+                        self._warn_switch(c, time, gap, 'REJECTED')
+                    continue
+            elif self.missing_frames >= 3 and c.det < .3 and not previous:
                 if not c.reason:
                     c.reason = 'LOW_SCORE'
                 continue
@@ -640,6 +737,9 @@ class BallTracker:
         gap = time-self.last_seen
         if self.phase != 'LOCKED' and gap >= 3/self.fps-1e-6:
             self._event(time, 'BALL REACQUIRED', [f'Hidden for {gap:.2f} s ({self.missing_frames} frames), found again {chosen.err:.0f} px from the predicted position.'] + self._lines(chosen))
+        if chosen.far:
+            self._warn_switch(chosen, time, gap, 'ACCEPTED')
+        self.unflagged = False
         if self.phase != 'LOCKED':
             self.confidence = max(self.confidence, min(chosen.final, .6))
         self.phase, self.last_seen, self.last_d, self.missing_frames, self.carrier = 'LOCKED', time, chosen.d, 0, None
@@ -680,6 +780,9 @@ class BallTracker:
         elif time-self.last_seen > .2:
             kf.x[2:] *= .9  # rolling friction while unseen
         gap = time-self.last_seen
+        if gap > OCCLUDED_MAX and not self.unflagged:
+            self._unflag()
+            self.unflagged = True
         self.confidence *= math.exp(-dt/(2.5 if self.carrier is not None else .8))  # known to be at a player: it is still there
         if self.phase == 'OCCLUDED' and self.carrier is None and gap > OCCLUDED_MAX:
             self.phase = 'RECOVERING'
@@ -723,12 +826,7 @@ class BallTracker:
             self.lost_at = {'time': time, 'x': float(self.kf.x[0]), 'y': float(self.kf.x[1]), 'track': self.track}
             self._event(time, 'BALL LOST', [f'Last position: x = {self.kf.x[0]:.0f}, y = {self.kf.x[1]:.0f} px', f'Reason: {why}',
                                              'The ball is UNKNOWN until a candidate shows consistent motion again.'])
-        for t in self.tracklets:
-            if t.flag_track == self.track:
-                t.flag_until = -math.inf  # the lock may have been wrong: reconsider everything it excluded
-        for s in self.spots:
-            if s['flag_track'] == self.track:
-                s['flag_until'] = -math.inf
+        self._unflag()  # the lock may have been wrong: reconsider everything it excluded
         self.kf, self.phase, self.confidence, self.carrier = None, 'SEARCHING', 0.0, None
         self.line_run, self.parked_since, self.missing_frames = 0.0, None, 0
         self.history.clear()
@@ -861,8 +959,13 @@ class BallTracker:
             lines.append(f'Distance from prediction: {c.err:.0f} px')
         lines += [f"Independent motion: {s['motion']:.2f} ({s['speed']:.1f} m/s)", f"Field line overlap: {s['line']:.2f}",
                   f"Player attachment score: {s['attach']:.2f}" + (f" (same place on track {s['attachedTo']} for {s['attachedFor']:.1f} s)" if s['attachedFor'] else ''),
-                  f"Static object score: {s['static']:.2f}", f"Size / shape / isolation / on pitch: {s['size']:.2f} / {s['shape']:.2f} / {s['isolation']:.2f} / {s['field']:.2f}",
-                  f'FINAL SCORE: {c.final if c.final is not None else c.visual:.2f}',
+                  f"Static object score: {s['static']:.2f}", f"Size / shape / isolation / on pitch: {s['size']:.2f} / {s['shape']:.2f} / {s['isolation']:.2f} / {s['field']:.2f}"]
+        if c.person is not None and c.person.pid is not None:
+            lines.append(f"On track {c.person.pid} ({'lower body' if c.person.v > .72 else 'upper body' if c.person.inside else 'within reach'})"
+                         + (f", motion relative to them: {c.relative:.2f}" if c.relative is not None else ''))
+        if c.required is not None:
+            lines.append(f'Required speed from the last known position: {c.required:.1f} m/s')
+        lines += [f'FINAL SCORE: {c.final if c.final is not None else c.visual:.2f}',
                   'ACCEPTED' if c.status == 'ball' else f'REJECTED: {c.reason}' if c.reason else 'CANDIDATE']
         return lines
 
@@ -931,10 +1034,17 @@ class BallTracker:
                'acceleration': round(accel, 2), 'lastSeen': round(self.last_seen, 3)}
         if self.last_confident is not None:
             out['lastConfident'] = [round(self.last_confident[1]/self.W, 5), round(self.last_confident[2]/self.H, 5)]
+        # Detector confidence is not identity confidence: the track-level identity, the appearance of
+        # the observation and its trajectory consistency are reported apart.
+        out['identity'] = round(self.confidence, 3)
+        out['visual'] = chosen.visual if chosen is not None else None
+        out['trajectory'] = chosen.traj if chosen is not None else None
         if self.phase != 'LOCKED':
             out['missingFor'] = round(time-self.last_seen, 2)
             if self.carrier is not None:
                 out['nearTrack'] = self.carrier['id']
+        if self.phase == 'RECOVERING':
+            out['candidatePaths'] = sum(1 for t in self.tracklets if not t.flagged(time) and len(t.hits) >= 2)
         if chosen is not None:
             out['detector'] = round(chosen.det, 3)
             out['score'] = chosen.final
@@ -952,7 +1062,14 @@ class BallTracker:
         if c.err is not None:
             s['distance'] = round(c.err, 1)
         out = {'index': c.index, 'box': [round(c.box[0]/self.W, 5), round(c.box[1]/self.H, 5), round((c.box[2]-c.box[0])/self.W, 5), round((c.box[3]-c.box[1])/self.H, 5)],
-               'det': round(c.det, 3), 'score': c.final if c.final is not None else c.visual, 'status': c.status, 'scores': s}
+               'det': round(c.det, 3), 'score': c.final if c.final is not None else c.visual, 'visual': c.visual, 'status': c.status, 'scores': s,
+               'pxm': round(c.px_m, 2), 'tracklet': c.tracklet.id if c.tracklet is not None else None}
+        if c.person is not None and c.person.pid is not None:
+            out['player'] = {'track': c.person.pid, 'u': round(c.person.u, 2), 'v': round(c.person.v, 2), 'lower': bool(c.person.inside and c.person.v > .72)}
+        if c.entry:
+            out['entry'] = c.entry
+        if c.required is not None:
+            out['required'] = round(c.required, 1)
         if c.reason and c.status != 'ball':
             out['reason'] = c.reason
             out['text'] = REASONS[c.reason]

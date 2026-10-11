@@ -22,6 +22,7 @@ import numpy as np
 
 import broadcast as B
 from scene import draw_person
+from soccer import ball_path
 from soccer.ball import BallTracker
 from soccer.geometry import to_normalized
 from soccer.pitch import PitchDetector, warp_model
@@ -142,13 +143,16 @@ class Sequence:
     """Renders the frames, proposes detector candidates and keeps the ground truth."""
 
     def __init__(self, seconds=12.0, calibrated=False, ball_until=math.inf, unreliable=(7.0, 7.2), noise=True, seed=0, calibration=None,
-                 spot_conf=.45, tape_conf=.78, hidden=(), undetected=()):
+                 spot_conf=.45, tape_conf=.78, hidden=(), undetected=(), boot_conf=.4, near_boots=False, boot_from=None):
         """ball_until: the ball leaves the scene at this time. hidden: [(t0, t1)] when the ball is behind a
-        player whatever the geometry says. undetected: [(t0, t1)] when the detector misses the visible ball."""
+        player whatever the geometry says. undetected: [(t0, t1)] when the detector misses the visible ball.
+        boot_conf: detector confidence of player 5's white boots; near_boots: player 5 stands a few metres
+        from the dribbling player 2 (the boots are then within the ball's reach while it is hidden)."""
         self.match = Match()
         self.seconds, self.calibrated, self.ball_until, self.unreliable, self.noise = seconds, calibrated, ball_until, unreliable, noise
         self.calibration = calibration   # confidence of the pitch registration handed to the tracker (None: trusted when calibrated)
         self.spot_conf, self.tape_conf, self.hidden, self.undetected = spot_conf, tape_conf, hidden, undetected
+        self.boot_conf, self.near_boots, self.boot_from = boot_conf, near_boots, boot_from
         self.rng = np.random.default_rng(seed)
         self.base_P = S2 @ B.camera(centre_x=52.5, span=125)
         self.base = B.render(self.base_P, extra_white_dots=[DISTRACTORS['debris'][:2]], size=(2*W, 2*H))
@@ -166,6 +170,9 @@ class Sequence:
         P = self.camera(t)
         frame = cv2.warpPerspective(self.base, P @ np.linalg.inv(self.base_P), (W, H), flags=cv2.INTER_LINEAR)
         players = self.match.players(t)
+        if self.near_boots:
+            # Player 5 runs past 3-5 m from player 2's dribble at 4 m/s: boots that move like a free object.
+            players[5] = (43.0+4.0*max(0.0, t-2.4), 39.5+.3*math.cos(t/1.1))
         bx, by, bh = self.match.ball(t)
         in_scene = t < self.ball_until
         ball_px = image_point(P, bx, by, bh)
@@ -190,13 +197,13 @@ class Sequence:
                 cv2.rectangle(frame, (int(tx-s/2), int(ty-s/2)), (int(tx+s/2), int(ty+s/2)), (238, 238, 238), -1)
                 rows.append([tx-s/2, ty-s/2, tx+s/2, ty+s/2, self.tape_conf, 0])
                 truth_objects['wrist tape'] = (tx, ty)
-            if k == 5:   # white boots
+            if k == 5 and (self.boot_from is None or t >= self.boot_from):   # white boots (boot_from: seen only from then on)
                 for j, u in enumerate((.32, .68)):
                     if math.sin(2*math.pi*t/.6+j*math.pi) > -.3:
                         fx, fy = (box[0]+u*box[2])*W, (box[1]+.965*box[3])*H
                         sw, sh = max(3.0, .14*px_per_m(P, x, y)), max(2.0, .06*px_per_m(P, x, y))
                         cv2.rectangle(frame, (int(fx-sw/2), int(fy-sh/2)), (int(fx+sw/2), int(fy+sh/2)), (236, 236, 236), -1)
-                        rows.append([fx-sw/2, fy-sh/2, fx+sw/2, fy+sh/2, .4, 0])
+                        rows.append([fx-sw/2, fy-sh/2, fx+sw/2, fy+sh/2, self.boot_conf, 0])
                         truth_objects[f'boot {j+1}'] = (fx, fy)
             people.append((k, box))
         missed = any(t0 <= t < t1 for t0, t1 in self.undetected)
@@ -214,7 +221,8 @@ class Sequence:
             nx, ny = self.rng.uniform(.1, .9), self.rng.uniform(.35, .95)
             cv2.circle(frame, (int(nx*W), int(ny*H)), 2, (185, 185, 185), -1)
             rows.append([nx*W-3, ny*H-3, nx*W+3, ny*H+3, .2, 0])
-        truth = {'time': t, 'ball': ball_px, 'd': d, 'visible': visible and not missed, 'inScene': in_scene, 'px_m': px_per_m(P, bx, by), 'objects': truth_objects}
+        truth = {'time': t, 'ball': ball_px, 'd': d, 'visible': visible and not missed, 'inScene': in_scene, 'px_m': px_per_m(P, bx, by), 'objects': truth_objects,
+                 'people': people}
         return t, P, frame, np.asarray(rows, np.float32).reshape(-1, 6), people, truth
 
     def run(self, tracker=None, pitch_every=5):
@@ -250,20 +258,66 @@ class Sequence:
                 pitch = warp_model(pitch, motion, t, reliable, False)
             out, cands = tracker.step(frame, t, rows, M, reliable, False, pitch, people, scale, stabilize, 0, to_pitch if self.calibrated else None,
                                       calibration=self.calibration)
-            records.append({'truth': truth, 'out': out, 'cands': cands})
+            records.append({'truth': truth, 'out': out, 'cands': cands, 'motion': M if reliable else None, 'reliable': reliable, 'cut': False,
+                            'people': [{'track': pid, 'box': box, 'display': f'P{pid}'} for pid, box in people]})
             prev_P = P
         return records, tracker
 
 
-def evaluate(records, events):
-    """Did the tracker keep following the actual ball? Frame-level accuracy plus continuity."""
+def finalize_records(records):
+    """Run the offline trajectory decoder over a sequence's records: each gets 'final', the frame's ball
+    on the decoded path. Returns the decoder's report."""
+    frames = [{'time': r['truth']['time'], 'ball': dict(r['out']), 'ballCandidates': r['cands'], 'people': r['people']} for r in records]
+    motions = [(r['motion'], r['reliable'], r['cut']) for r in records]
+    report = ball_path.finalize(frames, motions, W, H, FPS)
+    for r, f in zip(records, frames):
+        r['final'] = f['ball']
+    return report
+
+
+def lower_body(people, x, y):
+    """The player whose lower box holds the image point (x, y in pixels), or None."""
+    best = None
+    for p in people:
+        bx, by, bw, bh = p['box']
+        if bw <= 0 or bh <= 0:
+            continue
+        u, v = (x/W-bx)/bw, (y/H-by)/bh
+        if -.1 <= u <= 1.1 and .6 <= v <= 1.08 and (best is None or abs(u-.5) < best[0]):
+            best = (abs(u-.5), p['track'])
+    return best[1] if best else None
+
+
+def evaluate(records, events, key='out'):
+    """Did the tracker keep following the actual ball? Frame-level accuracy plus continuity, and the
+    failure modes that matter most: the shown ball teleporting, or jumping between players' feet.
+    key: which per-record output to score ('out': the first pass, 'final': the offline path)."""
     n = len(records)
     stats = {'frames': n, 'visibleFrames': 0, 'hiddenFrames': 0, 'correct': 0, 'falsePositives': 0, 'missed': 0, 'bridged': 0,
              'unknownWhileVisible': 0, 'trackSwitches': 0, 'incorrectAcquisitions': 0, 'acquisitions': 0,
-             'stolenBy': {}, 'continuityRuns': [], 'ballUnknownShare': 0.0}
+             'stolenBy': {}, 'continuityRuns': [], 'ballUnknownShare': 0.0, 'teleports': 0, 'footSwitches': 0, 'shoeFrames': 0,
+             'correctReacquisitions': 0, 'incorrectReacquisitions': 0, 'unknownRuns': []}
     previous_track, run_length, prev_state = None, 0, 'UNKNOWN'
+    shown_before, unknown_run = None, 0
     for r in records:
-        truth, out = r['truth'], r['out']
+        truth, out = r['truth'], r[key]
+        people = r.get('people', [])
+        if out['state'] != 'UNKNOWN':
+            x, y = out['center'][0]*W, out['center'][1]*H
+            foot = lower_body(people, x, y)
+            if shown_before is not None:
+                dt = truth['time']-shown_before['t']
+                dist_m = math.hypot(x-shown_before['x'], y-shown_before['y'])/truth['px_m']
+                if dt <= .15 and dist_m/dt > 40.0:
+                    stats['teleports'] += 1
+                if foot is not None and shown_before['foot'] is not None and foot != shown_before['foot'] and dt <= .3 and dist_m > 1.0:
+                    stats['footSwitches'] += 1
+            shown_before = {'t': truth['time'], 'x': x, 'y': y, 'foot': foot}
+            if unknown_run:
+                stats['unknownRuns'].append(unknown_run)
+                unknown_run = 0
+        else:
+            unknown_run += 1
         tol = max(1.5*truth['d'], 6.0)
         near = out['state'] != 'UNKNOWN' and math.hypot(out['center'][0]*W-truth['ball'][0], out['center'][1]*H-truth['ball'][1]) <= tol
         good = False
@@ -290,6 +344,8 @@ def evaluate(records, events):
             for name, (ox, oy) in truth['objects'].items():
                 if math.hypot(out['center'][0]*W-ox, out['center'][1]*H-oy) <= tol:
                     stats['stolenBy'][name] = stats['stolenBy'].get(name, 0)+1
+                    if name.startswith('boot'):
+                        stats['shoeFrames'] += 1
         if out['state'] != 'UNKNOWN':
             if previous_track is not None and out['track'] != previous_track:
                 stats['trackSwitches'] += 1
@@ -297,6 +353,12 @@ def evaluate(records, events):
                 stats['acquisitions'] += 1
                 if truth['visible'] and not near:
                     stats['incorrectAcquisitions'] += 1
+            # A TRACKED frame after predicted or unknown frames is a (re)acquisition: on the ball, or not.
+            if out['state'] == 'TRACKED' and prev_state != 'TRACKED' and prev_state != 'START':
+                if near:
+                    stats['correctReacquisitions'] += 1
+                elif truth['visible'] or any(math.hypot(out['center'][0]*W-ox, out['center'][1]*H-oy) <= tol for ox, oy in truth['objects'].values()):
+                    stats['incorrectReacquisitions'] += 1
             previous_track = out['track']
         prev_state = out['state']
         if good:
@@ -312,8 +374,15 @@ def evaluate(records, events):
     stats['accuracy'] = round(stats['correct']/stats['visibleFrames'], 3) if stats['visibleFrames'] else 0.0
     stats['bridgedShare'] = round(stats['bridged']/stats['hiddenFrames'], 3) if stats['hiddenFrames'] else None
     stats['ballUnknownShare'] = round(sum(1 for r in records if r['out']['state'] == 'UNKNOWN')/n, 3)
-    stats['events'] = {k: sum(1 for e in events if e['message'].startswith(k)) for k in ('BALL ACQUIRED', 'BALL REACQUIRED', 'BALL TRACK SWITCH', 'BALL LOST', 'BALL CANDIDATE PREFERRED')}
-    stats['trackIds'] = sorted({r['out']['track'] for r in records if r['out']['state'] != 'UNKNOWN'})
+    if unknown_run:
+        stats['unknownRuns'].append(unknown_run)
+    stats['longestUnknownSeconds'] = round(max(stats['unknownRuns'])/FPS, 2) if stats['unknownRuns'] else 0.0
+    states = {'TRACKED': 0, 'MISSING': 0, 'UNKNOWN': 0}
+    for r in records:
+        states[r[key]['state']] += 1
+    stats['stateShares'] = {k: round(v/n, 3) for k, v in states.items()}
+    stats['events'] = {k: sum(1 for e in events if e['message'].startswith(k)) for k in ('BALL ACQUIRED', 'BALL REACQUIRED', 'BALL TRACK SWITCH', 'BALL LOST', 'BALL CANDIDATE PREFERRED', 'BALL SWITCH WARNING', 'BALL PATH')}
+    stats['trackIds'] = sorted({r[key]['track'] for r in records if r[key]['state'] != 'UNKNOWN'})
     return stats
 
 
@@ -324,15 +393,28 @@ def report(stats):
              f"hidden frames bridged by prediction: {stats['bridged']} of {stats['hiddenFrames']}",
              f"track switches: {stats['trackSwitches']}   acquisitions: {stats['acquisitions']} (incorrect {stats['incorrectAcquisitions']})   track ids {stats['trackIds']}",
              f"mean continuity: {stats['meanContinuitySeconds']} s   longest: {stats['longestContinuitySeconds']} s   unknown share: {stats['ballUnknownShare']:.0%}",
-             f"frames stolen by distractors: {stats['stolenBy'] or 'none'}", f"events: {stats['events']}"]
+             f"frames stolen by distractors: {stats['stolenBy'] or 'none'}   on a boot: {stats['shoeFrames']}",
+             f"teleports: {stats['teleports']}   foot-to-foot switches: {stats['footSwitches']}   reacquisitions correct {stats['correctReacquisitions']} / incorrect {stats['incorrectReacquisitions']}",
+             f"states: {stats['stateShares']}   longest unknown: {stats['longestUnknownSeconds']} s",
+             f"events: {stats['events']}"]
     return '\n'.join(lines)
 
 
+SCENARIOS = (('panning camera', {}), ('calibrated pitch', {'calibrated': True}),
+             ('ball hidden at a dribble, the boots of a runner appear nearby', {'near_boots': True, 'boot_conf': .62, 'boot_from': 3.2, 'hidden': [(3.15, 3.75)], 'seconds': 6.5}),
+             ('ball hidden 1 s, the boots of a runner appear nearby', {'near_boots': True, 'boot_conf': .72, 'boot_from': 3.1, 'hidden': [(3.0, 4.05)], 'seconds': 6.5}))
+
 if __name__ == '__main__':
-    for name, kwargs in (('panning camera', {}), ('calibrated pitch', {'calibrated': True})):
+    for name, kwargs in SCENARIOS:
         records, tracker = Sequence(**kwargs).run()
         print(f'== {name}')
+        print('-- first pass')
         print(report(evaluate(records, tracker.events)))
+        path_report = finalize_records(records)
+        print('-- final trajectory')
+        print(report(evaluate(records, tracker.events+path_report['events'], key='final')))
+        if path_report['dropped']:
+            print('dropped first-pass runs:', path_report['dropped'])
         if '-v' in sys.argv:
             for e in tracker.events:
                 print(f"[{e['time']:6.2f}] " + e['message'].replace('\n', ' | ')[:400])

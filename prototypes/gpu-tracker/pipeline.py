@@ -21,7 +21,7 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import pitch_model, registration
+from soccer import ball_path, pitch_model, registration
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -288,9 +288,11 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     if not frames:
         raise RuntimeError('No video frames were processed.')
     progress({'stage': 'Registering the pitch over the whole segment and remapping the tracks'})
-    propagated = finalize_pitch(frames, tracker)
+    propagated, timeline = finalize_pitch(frames, tracker)
+    progress({'stage': 'Decoding the final ball trajectory over the whole segment'})
+    ball_report = finalize_ball(frames, tracker, timeline)
     progress({'stage': 'Writing global identities and tracking data'})
-    report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous)
+    report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous, ball_report)
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
     report['summary']['pitch']['registration'] = tracker.registration
@@ -310,7 +312,7 @@ def finalize_pitch(frames, tracker):
     image tracks and identities are not touched. Returns the number of frames that gained a pitch model."""
     log = tracker.frame_log
     if len(log) != len(frames):
-        return 0
+        return 0, None
     W, H = tracker.width, tracker.height
     size = tracker.keyframes.size
     timeline = registration.build_timeline(log, tracker.anchors, W, H, size)
@@ -354,10 +356,41 @@ def finalize_pitch(frames, tracker):
         'lensCurvature': round(float(np.median(curvatures)), 2) if curvatures else None,
         'vanishingPointShare': round(sum(1 for p in ticks if p.get('vanishing'))/len(ticks), 3) if ticks else 0.0,
         'mappingWarnings': sum(1 for e in tracker.events if e['kind'] == 'calibration')}
-    return filled
+    return filled, timeline
 
 
-def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previous):
+def finalize_ball(frames, tracker, timeline):
+    """Offline pass 4 (soccer/ball_path.py): the final ball trajectory decoded from every frame's candidates
+    and an explicit "not visible" node over the whole segment. Rewrites each frame's `ball` (the causal
+    first pass stays as `firstPass`), maps it through the registration's final homographies, and logs the
+    first-pass sightings the final path leaves out. Returns the decoder's report, or None."""
+    log = tracker.frame_log
+    if len(log) != len(frames) or not frames:
+        return None
+    W, H = tracker.width, tracker.height
+    size = tracker.keyframes.size
+
+    def to_pitch(i, point):
+        entry = timeline[i] if timeline is not None and i < len(timeline) else None
+        if entry is None or entry.get('H') is None:
+            return None
+        p, _ = registration.position(entry['H'], size, point, entry['confidence'])
+        return p
+
+    motions = [(e['M'], e['reliable'], e['cut']) for e in log]
+    report = ball_path.finalize(frames, motions, W, H, tracker.ball.fps, to_pitch)
+    for i, f in enumerate(frames):
+        b = f['ball']
+        if b.get('pitch') and timeline is not None and i < len(timeline) and timeline[i].get('H') is not None:
+            _, c = registration.position(timeline[i]['H'], size, (b['center'][0]*W, min(1.0, b['center'][1]+b['box'][3]/2)*H), timeline[i]['confidence'])
+            if c is not None:
+                b['pitchConfidence'] = c
+    tracker.events += report['events']
+    tracker.events.sort(key=lambda e: e['time'])
+    return report
+
+
+def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previous, ball_report=None):
     tracks, people, identified = {}, 0, 0
     for frame in frames:
         for person in frame['people']:
@@ -377,10 +410,20 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
     seen = [f['ball']['confidence'] for f in frames if f['ball']['state'] == 'TRACKED']
     share = lambda n: round(n/len(frames), 3)
     phases = Counter(f['ball'].get('phase', 'SEARCHING') for f in frames)
+    jumps = ball_path.shown_jumps(frames, meta['width'], meta['height'])
+    first_pass = {'reacquisitions': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL REACQUIRED')),
+                  'lost': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL LOST')),
+                  'switchWarnings': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL SWITCH WARNING')),
+                  'tracks': tracker.ball.track}
+    if ball_report:
+        first_pass.update(ball_report['firstPass'])
     ball = {'trackedShare': share(states['TRACKED']), 'missingShare': share(states['MISSING']), 'unknownShare': share(states['UNKNOWN']),
-            'meanConfidence': round(sum(seen)/len(seen), 3) if seen else None, 'tracks': tracker.ball.track,
-            'reacquisitions': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL REACQUIRED')),
-            'lost': sum(1 for e in events if e['kind'] == 'ball' and e['message'].startswith('BALL LOST')),
+            'meanConfidence': round(sum(seen)/len(seen), 3) if seen else None,
+            'tracks': ball_report['final']['runs'] if ball_report else tracker.ball.track,
+            'teleports': jumps['teleports'], 'footSwitches': jumps['footSwitches'],
+            'longestUnknownSeconds': ball_report['final']['longestUnknownSeconds'] if ball_report else None,
+            'droppedFirstPassRuns': len(ball_report['dropped']) if ball_report else 0, 'firstPass': first_pass,
+            'reacquisitions': first_pass['reacquisitions'], 'lost': first_pass['lost'],
             'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
     roles = {'refereeConversions': sum(1 for e in events if e['kind'] == 'role' and 'New role: REFEREE' in e['message']),
              'goalkeepersIdentified': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER IDENTIFIED')),
@@ -439,4 +482,4 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                             'Pitch coordinates exist where the pitch model is trusted: anchored by a calibration keyframe, carried through the camera motion (also backwards, in the offline pass) and confirmed by painted lines; on sustained low confidence a section asks for confirmation instead of guessing.',
                             'People you corrected in the review page are remembered by appearance: a run recognises them only when they look clearly like the person you corrected.',
                             'Off-screen positions are unknown; no missing observations are fabricated.',
-                            'The ball is one persistent track followed through time (BALL-1); while hidden its position is predicted (MISSING), and when it cannot be confirmed it is UNKNOWN rather than a guess. No ball accuracy is claimed.']}
+                            'The ball is one physical identity (BALL-1). Its final trajectory is decoded offline over the whole segment from every frame\'s candidates and an explicit "not visible" node: a sighting that no plausible trajectory leads into or out of (a boot, a sock, a spot) is left out, short occlusions on a trajectory are bridged (MISSING), and everything else is UNKNOWN rather than a guess. The causal first pass is kept per frame as firstPass. No ball accuracy is claimed.']}

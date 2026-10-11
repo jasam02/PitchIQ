@@ -115,8 +115,9 @@ class BallTrackingVariantTests(unittest.TestCase):
     def test_undetected_spell_reacquires_the_same_ball(self):
         records, tracker, s = run(undetected=[(6.8, 8.8)], seconds=10.5)
         self.assertEqual((s['falsePositives'], s['stolenBy'], s['trackIds']), (0, {}, [1]), E.report(s))
-        self.assertTrue(any(e['message'].startswith('BALL LOST') for e in tracker.events))
-        self.assertTrue(any(e['message'].startswith('BALL REACQUIRED') and e['time'] > 8.8 for e in tracker.events))
+        # Two seconds undetected: the track waits (RECOVERING) or is lost, but never takes anything else.
+        self.assertTrue(all(r['out']['state'] != 'TRACKED' for r in records if 7.0 <= r['truth']['time'] < 8.8), [(r['truth']['time'], r['out']['state']) for r in records if 7.0 <= r['truth']['time'] < 8.8 and r['out']['state'] == 'TRACKED'][:5])
+        self.assertTrue(any(e['message'].startswith('BALL REACQUIRED') and e['time'] >= 8.8 for e in tracker.events))
         back = [r for r in records if r['truth']['time'] >= 9.8 and r['truth']['visible']]  # hidden behind player 4 until 9.3 s, then 0.5 s to prove motion
         self.assertTrue(all(r['out']['state'] == 'TRACKED' and near(r['out'], r['truth']) for r in back), [(r['truth']['time'], r['out']['state']) for r in back if r['out']['state'] != 'TRACKED'][:6])
 

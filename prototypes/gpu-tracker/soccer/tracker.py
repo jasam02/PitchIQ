@@ -316,6 +316,8 @@ class SoccerTracker:
                 'pitch': pitch.to_json() if (tick or cut) else None,
                 'boundary': None if boundary is None else [[round(x, 4), round(y, 4)] for x, y in boundary],
                 'cameraReliable': reliable, 'cut': cut, 'segment': self.state.segment, 'calibrated': calibrated,
+                'motion': [round(float(v), 5) for v in M[:2].ravel()] if reliable else None,
+                'motion': [round(float(v), 5) for v in M[:2].ravel()] if reliable else None,
                 'pitchCoordinates': ('calibration' if model.level == 'HIGH' else 'predicted') if calibrated else None,
                 'pitchMode': pitch.mode, 'pitchConfidence': round(float(pitch.confidence), 3),
                 'pitchModel': live_calibration if (tick or cut or self.config.debug) else None}, M, reliable
