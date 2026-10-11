@@ -98,6 +98,30 @@ imported lazily), so all of its logic is unit-tested without a GPU.
   never join the pitch). Each side is followed over time: small changes are
   blended, a jump must be confirmed on the next analysis, and a line that briefly
   disappears is carried with the camera motion for up to 3 s.
+- Every analysed frame gets a **pitch confidence** (0..1, shown on the video as
+  `PITCH CONFIDENCE: 0.93 · CONFIRMED BY PAINTED LINES`) with the evidence
+  behind it: both painted touchlines found is HIGH; a grass contour alone is
+  LOW, because grass runs on beyond the touchline into run-offs, car parks and
+  neighbouring pitches. The playable region comes from the first of these that
+  is trusted: the tracked **pitch model** (section 4) at MEDIUM or better, the
+  painted boundary lines at HIGH, else the grass region in **robust mode**,
+  where feet just beyond the edge are held at the boundary instead of being
+  rejected, new people must persist twice as long before they become
+  identities, and after 3 s the stretch is reported as a section needing
+  confirmation (*Pitch confirmation* in section 4). Broadcast footage with
+  visible touchlines never leaves the automatic path. Mode and confidence are
+  stored per frame (`pitchMode`, `pitchConfidence`).
+- Far-away people on low, wide-angle cameras: the expected person size per image
+  row comes from the heights actually seen there when the linear perspective
+  model is clearly off (wide lenses compress the far field); people expected
+  smaller than 36 px get a wider size tolerance and, when their box continues a
+  tracked person, are kept even when cut short; and while the pitch is in
+  robust mode with people at its far edge expected under 30 px, extra 640 px
+  tiles are run over that band (`farTilePasses` in the summary). Tile
+  detections are provisional: they count only once they repeat on three
+  consecutive frames or continue a tracked person (`REJECTED: FAR DETECTION NOT
+  CONFIRMED` otherwise). None of this triggers on broadcast footage, where the
+  smallest players are about 40 px.
 - Each detection is tested at its **foot point** (bottom-centre of the box), not
   by box overlap: a spectator's box can overlap the pitch while their feet are in
   the stands. Zones are `inside`, `boundary` (within the touchline tolerance),
@@ -304,19 +328,54 @@ too similar to tell, both identities are kept, their confidence is capped, and a
 crossing warning is logged. A track whose crops repeatedly stop matching its
 identity (other kit, or very different OSNet appearance) releases it.
 
-### 4. Pitch coordinates
+### 4. Pitch coordinates and the pitch model
 
 There is no automatic metric calibration (no field keypoint model ships with
-this prototype). For pitch coordinates, pause on a clear frame, use **Mark
-landmarks**, pick named landmarks (corners, halfway line ends, centre spot,
-penalty and goal box corners, penalty spots) and click them on the video; four
-or more that are not on one line are needed. The calibration follows camera
-motion and is dropped (with a warning) when motion becomes unreliable or after a
-cut; add another keyframe then. While calibrated, each person gets
-`pitch: [x, y]` (x 0..1 left goal line to right goal line, y 0..1 far touchline
-to near touchline, assuming 105 × 68 m), the calibrated pitch outline becomes the
-playable region, and spatial re-ID evidence uses metres on the pitch. Screen
-coordinates (`box`) are always stored too.
+this prototype), so the pitch model is anchored by your landmarks. Pause on a
+clear frame, use **Mark landmarks**, pick named landmarks (corners, halfway line
+ends, centre spot and circle, penalty and goal box corners, penalty spots) and
+click them on the video; four or more that are not on one line are needed. Two
+things are then kept apart (`soccer/pitch_model.py`; geometry in
+`soccer/field.py`):
+
+- The **match pitch model** is the physical field: a rectangle with standard
+  markings whose length and width are learned once from all calibration
+  keyframes together (`field.fit_keyframes`: only when the landmarks pin both
+  dimensions down and explain them clearly better than the 105 × 68 m assumed
+  otherwise) and never rebuilt per frame.
+- The **camera homography** says where that rectangle lies in the current
+  frame. A keyframe anchors it (confidence 1.0). Between keyframes it is carried
+  by the camera motion (a full frame-to-frame homography when enough background
+  points support one, the similarity otherwise), its confidence falling 0.03
+  per second carried and 0.5 per second of unreliable motion; painted lines
+  that match the markings it predicts refine it (never by more than 2% of the
+  frame width at once, and only once an anchor has aged) and restore the
+  confidence; a camera cut drops it (the physical pitch is kept); when most
+  tracked people stand outside the predicted pitch three checks in a row it is
+  doubted. After the run an offline pass carries the model backwards through
+  the recorded camera motion into frames before the first keyframe or after a
+  loss (`pitchCoordinates: predicted`, `propagatedFrames` in the summary), and
+  a section that asked for confirmation online is withdrawn when that fill
+  covers it.
+
+While the model is trusted (MEDIUM or better) its projected rectangle is the
+playable region — off-screen and faded edges included, predicted from the model
+rather than read from the grass — each person gets `pitch: [x, y]` (x 0..1 left
+goal line to right goal line, y 0..1 far touchline to near touchline), and
+spatial re-ID evidence uses metres on the pitch. Screen coordinates (`box`) are
+always stored too.
+
+**Pitch confirmation.** When no painted boundary line is found and no model
+covers a stretch of the video for 3 s or more, the stretch is reported once
+(nearby stretches merged) in the *Pitch confirmation* panel and in
+`pitchIssues`: its time range, the most useful frame in it (the halfway line in
+view, as much grass as possible) and the landmarks worth marking there, with
+positions where the image already gives them (the halfway line's ends at the
+grass edges). *Confirm pitch* pauses on that frame with those points placed
+(hollow: drag them onto the real lines), lets you add the rest, and saves an
+ordinary calibration keyframe; the next run anchors the model there and carries
+it through the section in both directions. The four corners work as a last
+resort when nothing else is visible.
 
 ### 5. Camera motion
 
@@ -325,10 +384,10 @@ Pan, zoom and small rotation are estimated once per frame from background featur
 prediction. Positions used for movement, spatial re-ID and crossings are
 camera-compensated within a camera segment, so a pan is not read as player
 movement. Unreliable motion is never extrapolated: stabilized positions are
-marked as drifting (weakening spatial evidence) and boundaries/calibrations are
-dropped until the next keyframe. A camera cut ends all local tracks (identities
-become missing) and starts a new segment; re-identification then relies on
-appearance.
+marked as drifting (weakening spatial evidence), boundary keyframes are dropped
+until the next one and the pitch model's confidence falls quickly until it is
+let go. A camera cut ends all local tracks (identities become missing) and
+starts a new segment; re-identification then relies on appearance.
 
 ### 6. The ball
 
@@ -400,12 +459,20 @@ prediction, incorrect re-acquisitions and continuity:
   (`looks ref 0.84 A 0.16 B 0.72 | touchline 94% along 0.91 | ASSISTANT REFEREE 0.98`). Colours: violet team A, orange team B, pink goalkeepers,
   yellow referees, dotted while the identity is uncertain, grey for unknown,
   white dashed for candidates, red dashed for people rejected outside the field.
-- **Pitch boundary** shows the detected playable region in light blue (teal when
-  calibrated); it should sit on the white touchlines and goal lines. With
-  Identity debug on, it also shows the detected boundary lines (white; yellow
-  dashed when carried by camera motion), goal-end hints (orange dashed), the raw
-  grass hull (dashed) and which source each edge uses (`line`, `carried line`,
-  `grass edge`), plus your boundary keyframes.
+- **Pitch boundary** shows the playable region in light blue (teal when it comes
+  from the pitch model: solid from a calibration, long dashes when predicted;
+  red dashes while the confidence is LOW) with the status line, e.g.
+  `PITCH CONFIDENCE: 0.43 · USING TEMPORAL PREDICTION (4.1s since confirmation)`
+  or `... · GRASS REGION ONLY, NO PAINTED BOUNDARY (uncertain) · NEEDS
+  CONFIRMATION`; it should sit on the white touchlines and goal lines. With
+  Identity debug on, it also lists the evidence (`far touchline: FOUND (paint
+  3 px from the prediction)`, `near touchline: PREDICTED (in view, no paint
+  matched)`, `left goal line: OFF-SCREEN (predicted from the model)`, `tracked
+  people on the predicted pitch: 18 of 20`), the detected boundary lines (white;
+  yellow dashed when carried by camera motion), goal-end hints (orange dashed),
+  the raw grass hull (dashed) and which source each edge uses (`line`, `carried
+  line`, `grass edge`, `predicted`, `off-screen`), plus your boundary keyframes.
+  The *Pitch model* event filter lists anchors, refinements, doubts and losses.
 - The **ball** is drawn only once: `BALL 0.94`, or `BALL PREDICTED` (dashed)
   while it is hidden, with the track id, state and speed, the predicted next
   position (a cross) and a 1 s trail in Identity debug; otherwise `BALL UNKNOWN`
@@ -599,7 +666,10 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
 `result.json` has `version: 3`:
 
 - `frames[]`: `time`, `frame`, `people[]`, `rejected[]`, `pitch` (every 0.2 s:
-  polygon, detected lines, goal-end hints, edge sources), `boundary`,
+  polygon, detected lines, goal-end hints, edge sources incl. `predicted` /
+  `off-screen`, `confidence`, `level`, `mode`, `status`, `evidence`),
+  `pitchMode` (`automatic`, `robust`, `assist`), `pitchConfidence`,
+  `pitchCoordinates` (`calibration`, `predicted` or `null`), `boundary`,
   `cameraReliable`, `cut`, `segment`, `calibrated`, `ball`, `ballCandidates`.
 - `people[]`: `id` (global identity or `null`), `display` (`A-07`, `GK-A`,
   `REF-1`, `A-?`, `UNK-3`), `track` (local), `team` (`A`, `B` or `null`), `role`
@@ -630,8 +700,15 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   corrections.
 - `tactical`: what the 2D match view needs beyond the frames: the coordinate
   convention, how many frames carry pitch coordinates (`calibratedFrames`,
-  `calibratedShare`) and `goalEnds` (which team defends the left / right goal
-  line, when the tracking settled it).
+  `calibratedShare`, `coordinateSources`), the `pitchSize` used (standard or
+  learned from the landmarks) and `goalEnds` (which team defends the left /
+  right goal line, when the tracking settled it).
+- `pitchIssues[]`: sections whose pitch confidence stayed low without a model
+  (`start`, `end`, the representative frame `at`, `suggested` landmarks with
+  predicted positions where known, `reason`); `summary.pitch` has the mean
+  confidence, the share of analysed frames per level and of frames per mode,
+  the pitch size, the frames filled by the offline pass, far-tile passes and
+  the number of sections needing confirmation.
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
   share of on-pitch observations with an identity, ball coverage, ball tracks,
@@ -657,7 +734,16 @@ prototypes\gpu-tracker\test.cmd
 `tests/` covers pitch detection on synthetic frames and perspective broadcast
 renders (touchlines vs advertising boards, run-off, stands, green seats behind
 boards, goal lines vs penalty-box fronts, temporal stability, zoomed views,
-crowd close-ups), foot-point filtering and audience/size rejection, assistant
+crowd close-ups), the pitch model (`test_pitch_model.py`: exact homographies
+from landmarks, painted lines pulling a drifted prior back, size learned only
+when the landmarks pin it down, paint matched only to the marking it lies on,
+HIGH confidence with painted touchlines and LOW on grass without paint,
+carrying and decay, refinement, people outside the prediction, keyframes
+learning the size, backwards propagation up to a cut, the size rules behind
+scale conditions, the provisional boundary, broadcast frames staying automatic
+with the detector's own region, faded lines asking for confirmation once per
+section, far-tile detections counting only when confirmed, suggested
+landmarks), foot-point filtering and audience/size rejection, assistant
 referees at the touchline, part descriptors and galleries, team and role
 decisions, camera motion and cuts, landmark calibration, the ball tracker (the
 rendered, panning sequence of `ball_eval.py`: a pass, a dribble, a long shot
@@ -701,9 +787,18 @@ No global Python packages are changed.
 - Pitch detection is heuristic (grass colour and white lines). Unusual turf,
   heavy shadow, snow or close-ups can make it unreliable; then nobody new is
   promoted until a clear view returns. Draw a boundary keyframe if needed.
-- Pitch coordinates need calibration keyframes; the 105 × 68 m size is assumed.
-  The 2D match view therefore shows people only while the camera is calibrated
-  and only those the camera sees; off-screen players are not placed.
+- Pitch coordinates need calibration keyframes; the pitch model carries them
+  through the video (forwards online, backwards in the offline pass) but
+  cannot start without one, and the 105 × 68 m size is assumed unless the
+  landmarks of your keyframes pin a different size down. The 2D match view
+  therefore shows people only while the model is trusted and only those the
+  camera sees; off-screen players are not placed.
+- A homography describes a pinhole camera. Wide-angle action cameras (Veo and
+  the like) bend straight lines, so the model's edges can be off by a few
+  pixels at the frame borders, the frame-to-frame carry drifts over long pans,
+  and the painted-line refinement can only correct what it can match (lines
+  more than 1.5% of the frame width from the prediction are left alone). Add a
+  keyframe where the overlay visibly disagrees with the lines.
 - Substitutions are not recognised automatically: a player who goes off stays
   `MISSING`, and an incoming substitute becomes a new identity only after the
   sanity checks above (a warning is logged).

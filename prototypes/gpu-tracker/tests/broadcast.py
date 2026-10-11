@@ -36,8 +36,9 @@ def _px_per_m(P, x, y):
     return float(np.hypot(*(b-a)))
 
 
-def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.12, stands=True, spots=True, extra_white_dots=(), size=None):
-    """size: (width, height) of the output image when it is not the standard frame (P must map into it)."""
+def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.12, stands=True, spots=True, extra_white_dots=(), size=None, paint=True):
+    """size: (width, height) of the output image when it is not the standard frame (P must map into it).
+    paint=False leaves the markings out: a worn amateur field whose lines have faded away."""
     w, h = size or (W, H)
     rng = np.random.default_rng(seed)
     img = rng.integers(40, 200, size=(h, w, 3), dtype=np.uint8) if stands else np.full((h, w, 3), 90, np.uint8)
@@ -70,6 +71,8 @@ def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.1
     cv2.fillPoly(img, [pts], (70, 70, 80))
 
     def line(points, metres=line_m):
+        if not paint:
+            return
         pts = _project(P, points)
         mid = points[len(points)//2]
         thick = max(1, int(round(metres*_px_per_m(P, *mid))))
@@ -87,7 +90,7 @@ def render(P, seed=0, run_off=4.0, goal_run_off=6.0, board_white=True, line_m=.1
             line(seg((x0, WIDTH/2-half), (x0+sign*depth, WIDTH/2-half)))
             line(seg((x0+sign*depth, WIDTH/2-half), (x0+sign*depth, WIDTH/2+half)))
             line(seg((x0+sign*depth, WIDTH/2+half), (x0, WIDTH/2+half)))
-    dots = [(11, WIDTH/2), (LENGTH-11, WIDTH/2), (LENGTH/2, WIDTH/2)] if spots else []
+    dots = [(11, WIDTH/2), (LENGTH-11, WIDTH/2), (LENGTH/2, WIDTH/2)] if spots and paint else []
     for x, y in list(dots)+list(extra_white_dots):
         c = _project(P, [(x, y)])[0]
         r = max(2, int(round(.11*_px_per_m(P, x, y))))

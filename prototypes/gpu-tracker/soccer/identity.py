@@ -481,6 +481,8 @@ class IdentityManager:
         zr = sum(1 if z == 'inside' else .5 if z == 'boundary' else 0 for z in recent)/len(recent) if recent else 0.0
         born = tr.first_zone == 'boundary'
         need = o.boundary_hits if born else o.min_hits
+        if ctx.get('pitch_provisional'):
+            need *= 2   # the playable area itself is uncertain: new people must persist longer before they become identities
         pitch_ok = ctx['pitch_reliable'] or not ctx['filter_enabled']
         ok = pitch_ok and d.label != 'CANDIDATE' and d.role != 'unknown' and tr.hits >= o.min_hits
         # Assistant referees run the touchline: allowed for a confident referee decision.

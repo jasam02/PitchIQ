@@ -1,9 +1,18 @@
 """Per-frame soccer tracking pipeline (everything after the detector):
 
-    person detections -> camera motion -> pitch detection -> outside-field filter (foot point)
-    -> local tracker (BoT-SORT) -> appearance (OSNet + part colours) -> kit votes + position cues
-    -> pitch coordinates -> GLOBAL IDENTITY MANAGER (identity, team and role) -> persistent soccer
-    observations; ball candidates -> one tracked match ball
+    person detections -> camera motion -> pitch detection and the tracked pitch model -> outside-field
+    filter (foot point) -> local tracker (BoT-SORT) -> appearance (OSNet + part colours) -> kit votes +
+    position cues -> pitch coordinates -> GLOBAL IDENTITY MANAGER (identity, team and role) ->
+    persistent soccer observations; ball candidates -> one tracked match ball
+
+Pitch modes. AUTOMATIC: the image-plane detector finds painted boundary lines (broadcast footage) or
+the tracked pitch model is confident; nothing below changes. ROBUST: no painted boundary line is
+found (low, wide-angle amateur cameras with faded lines), so the playable area is the pitch model's
+temporal prediction when there is one, else the grass region held with a margin while new people
+stay provisional; far-away people are looked for with extra tiles (pipeline.far_tiles) and kept only
+when confirmed. ASSIST: the confidence has stayed low for a sustained section and no model exists;
+the section is reported once as "a pitch section needs confirmation" with a representative frame and
+the landmarks worth marking, which the next run turns into an anchored model.
 """
 import math
 from dataclasses import dataclass
@@ -15,13 +24,19 @@ from .ball import BallTracker
 from .camera import CameraMotion, CameraState, Keyframes
 from .geometry import foot_point, iou
 from .identity import PLAYER_HEIGHT, IdentityManager, Options, Stab
-from .pitch import FieldFilter, PitchDetector, calibrated_model, nearest_boundary, warp_model
+from .pitch import (FieldFilter, PitchDetector, assess_confidence, calibrated_model, halfway_candidate, nearest_boundary,
+                    suggest_landmarks, warp_model)
+from .pitch_model import HIGH, LOW_LEVEL
 from .relevance import REJECT_TEXT, assess
 from .goals import GoalMemory, position_cues
 from .teams import TeamModel, fit_team_model, kit_vote, with_keepers, with_referee
 
 CLASSES = {1: 'goalkeeper', 2: 'player', 3: 'referee'}
 MIN_VOTE_QUALITY = .2
+ASSIST_AFTER = 3.0        # seconds of LOW pitch confidence without a model before a section asks for confirmation
+ASSIST_GAP = 3.0          # sections closer than this are one issue
+FAR_MIN_PX = 30           # people expected smaller than this at the far edge of the pitch get the far-tile pass
+FAR_CONFIRM = 3           # consecutive frames a far-tile detection must repeat before it counts
 
 
 @dataclass
@@ -69,12 +84,20 @@ class SoccerTracker:
         self.model = TeamModel.from_json((saved or {}).get('teams'))
         self.fit_at = -math.inf
         self.last_tick = -math.inf
+        self.last_time = None
         self.previous_boxes = []
         self.rejected_counts = {}
         self.events = []
         self.issues = []
         self.cuts = 0
         self.last_ball = None   # the previous frame's ball position, a role cue for everyone
+        self.pitch_events_logged = 0
+        self.frame_log = []     # per frame: camera motion and the pitch model's homography, for the offline pass
+        self.low_since = None   # start of the current LOW-confidence section without a model
+        self.section = None     # its best representative tick so far
+        self.sections = []      # closed LOW sections [{'start', 'end', 'at', 'suggested'}]
+        self.far_pending = []   # far-tile detections waiting for confirmation: [box, hits, last time]
+        self.mode = 'automatic'
 
     def _scale(self, boxes):
         """Expected person height (normalized) at a foot row: the perspective size model, else the median
@@ -84,18 +107,57 @@ class SoccerTracker:
         heights = sorted(b[3] for b in boxes)
         return (lambda y: heights[len(heights)//2]) if heights else None
 
+    def _live_boxes(self, time):
+        return [tr.last_box for tr in self.ids.tracks.values() if tr.state in ('confirmed', 'uncertain') and time-tr.last_time < 1]
+
+    def _confirm_far(self, box, live, time):
+        """A far-tile detection counts when it continues a tracked person or repeats on consecutive frames."""
+        if any(iou(box, b) > .3 for b in live):
+            return True
+        self.far_pending = [p for p in self.far_pending if time-p[2] <= .5]
+        for pending in self.far_pending:
+            if iou(box, pending[0]) > .5:
+                pending[0], pending[1], pending[2] = box, pending[1]+1, time
+                return pending[1] >= FAR_CONFIRM
+        self.far_pending.append([box, 1, time])
+        return False
+
+    def far_band(self):
+        """Image rows (pixels) where people are expected to be too small for the whole-frame detector,
+        for an extra tiled pass; None in automatic mode or when nothing there is that small."""
+        pitch = self.pitch
+        if self.mode == 'automatic' or pitch is None or not pitch.reliable or len(pitch.polygon) < 3 or self.size is None or not self.size.reliable:
+            return None
+        far_y = max(0.0, min(p[1] for p in pitch.polygon))
+        if self.size.expected(far_y+.02)*self.height >= FAR_MIN_PX:
+            return None
+        y = far_y
+        while y < far_y+.35 and self.size.expected(y)*self.height < 2*FAR_MIN_PX:
+            y += .01
+        return int(max(0.0, far_y-.04)*self.height), int(min(1.0, y)*self.height)
+
     def step(self, frame, time, rows, ball_rows=None):
-        """rows: (N, 6) person detections [x1, y1, x2, y2, score, class id] in pixels; ball_rows: (M, 6)
-        ball candidates from the detector."""
+        """rows: (N, 6) person detections [x1, y1, x2, y2, score, class id] in pixels, or (N, 7) with a
+        last column set for provisional far-tile detections; ball_rows: (M, 6) ball candidates."""
         W, H = self.width, self.height
-        rows = np.asarray(rows, np.float32).reshape(-1, 6)
-        dets = []
+        rows = np.asarray(rows, np.float32)
+        columns = 7 if rows.ndim == 2 and rows.shape[1] == 7 else 6
+        rows = rows.reshape(-1, columns)
+        flags = rows[:, 6] > 0 if columns == 7 else np.zeros(len(rows), bool)
+        rows = rows[:, :6]
+        dt = max(0.0, time-self.last_time) if self.last_time is not None else 0.0
+        self.last_time = time
+        live = self._live_boxes(time)
+        dets, unconfirmed = [], []
         for i, row in enumerate(rows):
             x1, y1, x2, y2 = np.clip(row[:4], [0, 0, 0, 0], [W, H, W, H])
             if x2-x1 < 2 or y2-y1 < 2:
                 continue
-            dets.append({'box': [float(x1/W), float(y1/H), float((x2-x1)/W), float((y2-y1)/H)], 'score': float(row[4]),
-                         'cls': CLASSES.get(int(row[5]), 'player'), 'row': i})
+            box = [float(x1/W), float(y1/H), float((x2-x1)/W), float((y2-y1)/H)]
+            if flags[i] and not self._confirm_far(box, live, time):
+                unconfirmed.append({'box': box, 'score': float(row[4]), 'reason': 'unconfirmed-far', 'detail': 'seen by the far-tile pass; not yet repeated or tracked'})
+                continue
+            dets.append({'box': box, 'score': float(row[4]), 'cls': CLASSES.get(int(row[5]), 'player'), 'row': i})
         # 1. Camera motion: a pan is not player movement.
         M, reliable, cut = self.camera.estimate(frame, self.previous_boxes)
         ended = []
@@ -105,25 +167,32 @@ class SoccerTracker:
             self.pitch_detector.reset()
             self.size = None
         self.state.update(M, reliable, cut)
-        self.keyframes.update(time, M, reliable)
+        self.keyframes.update(time, M, reliable, cut, self.camera.homography)
+        model = self.keyframes.pitch
         tick = cut or time-self.last_tick >= self.config.options.tick-1e-6
         if tick:
             self.last_tick = time
-        # 2. Playable field, re-detected from the image on every evidence tick (never a fixed rectangle)
-        # and carried with the camera motion in between.
+        # 2. Playable field: the image-plane detection on every evidence tick (carried with the camera
+        # motion in between), scored for confidence; the tracked pitch model, anchored by calibration
+        # keyframes and confirmed by painted lines, supplies the region whenever it is trusted.
         motion = self.keyframes.normalized_motion(M)
         if tick or self.analysed is None:
             self.analysed = self.pitch_detector.analyze(frame, time, motion @ self.carried_motion, reliable and self.carried_reliable, cut)
             self.carried_motion, self.carried_reliable = np.eye(3), True
+            auto_conf, auto_evidence = assess_confidence(self.analysed)
+            self.analysed.confidence, self.analysed.evidence = auto_conf, auto_evidence
+            if model.H is not None:
+                model.refine(self.analysed.markings, time, [foot_point(b) for b in live])
             pitch = self.analysed
         else:
             self.carried_motion = motion @ self.carried_motion
             self.carried_reliable &= reliable
             pitch = warp_model(self.pitch, motion, time, reliable, cut)
+        pitch = self._decide_pitch(pitch, model, time, tick)
         self.pitch = pitch
-        outline = self.keyframes.pitch_outline()
-        if outline:
-            pitch = calibrated_model(pitch, outline)
+        for when, kind, text in model.events[self.pitch_events_logged:]:
+            self.events.append({'time': round(when, 3), 'kind': 'pitch', 'track': None, 'playerId': None, 'message': f'PITCH {kind.upper()}\n{text}'})
+        self.pitch_events_logged = len(model.events)
         if self.size is not None and not cut:
             if reliable:
                 Mn = self.keyframes.normalized_motion(M)
@@ -131,9 +200,9 @@ class SoccerTracker:
             else:
                 self.size = None
         # 3. Outside-field filter on the foot point.
-        accepted, continuation, rejected, self.size = assess(dets, pitch, self.config.field_filter, self.size, self.keyframes.boundary())
-        live = [tr.last_box for tr in self.ids.tracks.values() if tr.state in ('confirmed', 'uncertain') and time-tr.last_time < 1]
+        accepted, continuation, rejected, self.size = assess(dets, pitch, self.config.field_filter, self.size, self.keyframes.boundary(), live, H)
         continuation = [d for d in continuation if any(iou(d['box'], b) > .3 for b in live)]
+        rejected += unconfirmed
         for r in rejected:
             self.rejected_counts[r['reason']] = self.rejected_counts.get(r['reason'], 0)+1
         tracked = accepted+continuation
@@ -154,9 +223,10 @@ class SoccerTracker:
                 descriptors[local_id] = app.describe(frame, xyxy[index], boxes_px, embeddings[index], grass)
         if tick and (not self.model.ready or time-self.fit_at >= 1 or time < self.fit_at):
             current = {lid: (descriptors.get(lid), tracked[i]['cls'], tracked[i]['zone']) for lid, i in matches}
-            model = fit_team_model(self.ids.team_samples(current, time), self.model)
-            self.model = with_keepers(with_referee(model, self.ids.referee_samples(model)), self.ids.keeper_samples())
+            model_ = fit_team_model(self.ids.team_samples(current, time), self.model)
+            self.model = with_keepers(with_referee(model_, self.ids.referee_samples(model_)), self.ids.keeper_samples())
             self.fit_at = time
+        calibrated = self.keyframes.H is not None
         samples = []
         for local_id, index in matches:
             d = tracked[index]
@@ -189,6 +259,7 @@ class SoccerTracker:
         # 6. Global identity manager.
         result = self.ids.update({'time': time, 'tick': tick, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                   'model': self.model, 'pitch_reliable': pitch.reliable or self.keyframes.boundary() is not None,
+                                  'pitch_provisional': pitch.mode != 'automatic' and pitch.level == LOW_LEVEL,
                                   'filter_enabled': self.config.field_filter.enabled, 'aspect': self.aspect,
                                   'segment': self.state.segment, 'drift': self.state.drift,
                                   'ball': self.last_ball if self.last_ball is not None and self.last_ball['segment'] == self.state.segment else None})
@@ -197,7 +268,6 @@ class SoccerTracker:
         # 7. The single match ball (its own tracker, separate from people).
         people = [(p['track'], p['box']) for p in result['people'] if p['state'] != 'rejected']
         people += [(None, b) for b in boxes if not any(iou(b, q) > .5 for _, q in people)]
-        calibrated = self.keyframes.H is not None
         ball, ball_candidates = self.ball.step(frame, time, ball_rows if ball_rows is not None else np.zeros((0, 6)), M, reliable, cut,
                                                pitch, people, self._scale(boxes), self.state.stabilize_point, self.state.segment,
                                                self.keyframes.to_pitch_point if calibrated else None)
@@ -211,13 +281,83 @@ class SoccerTracker:
         self.ball.events = []
         self.issues += result['issues']
         self.previous_boxes = boxes
+        self.frame_log.append({'t': time, 'dt': dt, 'M': M if reliable else None, 'reliable': reliable, 'cut': cut,
+                               'H': model.H.copy() if calibrated else None, 'confidence': model.confidence if calibrated else 0.0})
         boundary = self.keyframes.boundary()
         return {'people': result['people'], 'ball': ball, 'ballCandidates': ball_candidates,
                 'rejected': [{'box': [round(v, 4) for v in r['box']], 'reason': r['reason'], 'text': REJECT_TEXT[r['reason']],
                               **({'detail': r['detail'][:90]} if self.config.debug else {})} for r in rejected],
                 'pitch': pitch.to_json() if (tick or cut) else None,
                 'boundary': None if boundary is None else [[round(x, 4), round(y, 4)] for x, y in boundary],
-                'cameraReliable': reliable, 'cut': cut, 'segment': self.state.segment, 'calibrated': self.keyframes.H is not None}, M, reliable
+                'cameraReliable': reliable, 'cut': cut, 'segment': self.state.segment, 'calibrated': calibrated,
+                'pitchCoordinates': ('calibration' if model.level == 'HIGH' else 'predicted') if calibrated else None,
+                'pitchMode': pitch.mode, 'pitchConfidence': round(float(pitch.confidence), 3)}, M, reliable
+
+    def _decide_pitch(self, pitch, model, time, tick):
+        """Which playable region this frame uses, its mode and confidence; LOW sections are recorded."""
+        auto_conf, auto_evidence = pitch.confidence, list(pitch.evidence)
+        if model.H is not None and model.level != LOW_LEVEL:
+            outline = model.outline()
+            if outline:
+                mode = 'automatic' if model.level == 'HIGH' else 'robust'
+                pitch = calibrated_model(pitch, outline, 'calibration' if model.source == 'calibration' else 'model', model.confidence,
+                                         model.evidence, model.sides(), f'PITCH CONFIDENCE: {model.confidence:.2f} · {model.status_text()}', mode)
+        if pitch.source in ('calibration', 'model'):
+            self.mode = pitch.mode
+            self._close_section(time)
+            return pitch
+        if auto_conf >= HIGH:
+            pitch.mode, pitch.status = 'automatic', f'PITCH CONFIDENCE: {auto_conf:.2f} · PAINTED BOUNDARY LINES'
+            self.mode = 'automatic'
+            self._close_section(time)
+            return pitch
+        pitch.mode = 'robust'
+        pitch.status = f'PITCH CONFIDENCE: {auto_conf:.2f} · GRASS REGION ONLY, NO PAINTED BOUNDARY (uncertain)'
+        if model.lost:
+            pitch.evidence = auto_evidence+[f'pitch model: {model.lost}']
+        self.mode = 'robust'
+        if tick and model.H is None and pitch.level == LOW_LEVEL:
+            self._note_low(time, pitch)
+            if self.low_since is not None and time-self.low_since >= ASSIST_AFTER:
+                pitch.mode = 'assist'
+                pitch.status += ' · NEEDS CONFIRMATION'
+        return pitch
+
+    def _note_low(self, time, pitch):
+        if self.low_since is None:
+            self.low_since, self.section = time, None
+        # The representative frame: the halfway line in view, and as much grass as possible.
+        score = (2.0 if halfway_candidate(pitch) is not None else 0.0)+pitch.coverage
+        if self.section is None or score > self.section['score']:
+            self.section = {'score': score, 'at': time, 'suggested': suggest_landmarks(pitch)}
+        self.low_end = time
+
+    def _close_section(self, time):
+        if self.low_since is None:
+            return
+        start, end = self.low_since, getattr(self, 'low_end', self.low_since)
+        if end-start >= ASSIST_AFTER and self.section is not None:
+            self.sections.append({'start': start, 'end': end, 'at': self.section['at'], 'suggested': self.section['suggested']})
+        self.low_since, self.section = None, None
+
+    def pitch_issues(self):
+        """LOW-confidence sections without a pitch model, nearby ones merged into one issue each."""
+        self._close_section(self.last_time if self.last_time is not None else 0.0)
+        merged = []
+        for s in sorted(self.sections, key=lambda s: s['start']):
+            if merged and s['start']-merged[-1]['end'] <= ASSIST_GAP:
+                merged[-1]['end'] = max(merged[-1]['end'], s['end'])
+                if len([m for m in s['suggested'] if m.get('predicted')]) > len([m for m in merged[-1]['suggested'] if m.get('predicted')]):
+                    merged[-1]['at'], merged[-1]['suggested'] = s['at'], s['suggested']
+            else:
+                merged.append(dict(s))
+        out = []
+        for i, s in enumerate(merged):
+            out.append({'id': f'pitch-{i+1}', 'start': round(s['start'], 2), 'end': round(s['end'], 2), 'at': round(s['at'], 2),
+                        'suggested': s['suggested'],
+                        'reason': f"Pitch confidence stayed low from {s['start']:.1f}s to {s['end']:.1f}s: no painted boundary line was found and no calibration "
+                                  f"covers it, so the grass region was used. Mark a few landmarks on the frame at {s['at']:.1f}s to anchor the pitch model."})
+        return out
 
     def snapshot(self):
         return {'registry': self.ids.snapshot(), 'teams': self.model.to_json()}

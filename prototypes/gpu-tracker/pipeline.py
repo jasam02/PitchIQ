@@ -21,6 +21,8 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
+from soccer import pitch_model
+from soccer.geometry import foot_point
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -87,6 +89,47 @@ def ball_tiles(model, frame):
     return output
 
 
+def far_tiles(model, frame, band):
+    """Robust-footage fallback: overlapping square tiles over the image band (y0, y1) in pixels where
+    the tracked people are expected to be too small for the whole-frame passes, run at a higher
+    effective resolution. Only people are looked for; the tracker treats the result as provisional
+    (pipeline column 7) until it repeats or continues a tracked person."""
+    y0, y1 = band
+    height, width = frame.shape[:2]
+    size = max(96, y1-y0)
+    y0 = max(0, min(y0, height-size))
+    starts = sorted(set(list(range(0, max(1, width-size), round(size*.75)))+[max(0, width-size)]))
+    out = []
+    for offset in range(0, len(starts), 4):
+        batch = starts[offset:offset+4]
+        predictions = model.predict([frame[y0:y0+size, x:x+size] for x in batch], imgsz=640, conf=.15, iou=.45,
+                                    classes=[1, 2, 3], device=0, half=True, verbose=False)
+        for x, prediction in zip(batch, predictions):
+            rows = prediction.boxes.data.cpu().numpy().copy()
+            if len(rows):
+                rows[:, :4] += [x, y0, x, y0]
+                out.extend(rows.tolist())
+    return np.asarray(out, np.float32).reshape(-1, 6)
+
+
+def merge_far(rows, extra):
+    """Whole-frame person rows (N, 6) plus far-tile rows (M, 6) -> (K, 7): the last column marks the
+    tile detections that no whole-frame detection already covers."""
+    if not len(extra):
+        return np.c_[rows, np.zeros(len(rows), np.float32)]
+    people = rows[rows[:, 5] != 0]
+    keep = []
+    for r in extra:
+        ix = np.maximum(0, np.minimum(r[2], people[:, 2])-np.maximum(r[0], people[:, 0])) if len(people) else np.zeros(0)
+        iy = np.maximum(0, np.minimum(r[3], people[:, 3])-np.maximum(r[1], people[:, 1])) if len(people) else np.zeros(0)
+        inter = ix*iy
+        union = (r[2]-r[0])*(r[3]-r[1])+(people[:, 2]-people[:, 0])*(people[:, 3]-people[:, 1])-inter if len(people) else np.zeros(0)
+        if not len(people) or (inter/np.maximum(union, 1e-6)).max() < .3:
+            keep.append(r)
+    flagged = np.c_[np.asarray(keep, np.float32).reshape(-1, 6), np.ones(len(keep), np.float32)]
+    return np.r_[np.c_[rows, np.zeros(len(rows), np.float32)], flagged]
+
+
 def detect(model, frame, detail):
     # This checkpoint loses larger foreground players at high input sizes.
     # Keep the 960 whole-frame view and merge an additional detail pass.
@@ -120,6 +163,8 @@ def preview(frame, observation, path, pitch=None, trail=()):
     h, w = image.shape[:2]
     if pitch and pitch.get('reliable') and pitch.get('polygon'):
         cv2.polylines(image, [np.int32(np.asarray(pitch['polygon'])*[w, h])], True, COLORS['PITCH'], 2)
+    if pitch and pitch.get('status'):
+        cv2.putText(image, pitch['status'], (20, h-20), cv2.FONT_HERSHEY_SIMPLEX, .6, COLORS['PITCH'], 2)
     for rejected in observation['rejected']:
         x, y, bw, bh = rejected['box']
         cv2.rectangle(image, (int(x*w), int(y*h)), (int((x+bw)*w), int((y+bh)*h)), (80, 80, 235), 1)
@@ -174,7 +219,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     torch.cuda.reset_peak_memory_stats()
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
-    index, last_notice, logged, pitch = first_frame, -10, 0, None
+    index, last_notice, logged, pitch, far_passes = first_frame, -10, 0, None, 0
     try:
         while not cancelled():
             ok, frame = capture.read()
@@ -187,6 +232,10 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                 break
             rows = detect(model, frame, int(config.get('imageSize', 1280)))
             ball_rows = rows[rows[:, 5] == 0].tolist()
+            band = tracker.far_band()
+            if band is not None:
+                far_passes += 1
+                rows = merge_far(rows, far_tiles(model, frame, band))
             if config.get('ballTiles', False) and (index-first_frame) % 2 == 0:
                 ball_rows += ball_tiles(model, frame)
             if ball_rows:
@@ -201,7 +250,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
             # Every identity, role and ball decision is logged; the key ones also go to the console.
             for event in tracker.events[logged:]:
                 log.write(f"[{event['time']:.2f}s] {event['kind'].upper()}\n{event['message']}\n\n")
-                if event['kind'] in ('reid', 'swap-corrected', 'sanity', 'role'):
+                if event['kind'] in ('reid', 'swap-corrected', 'sanity', 'role', 'pitch'):
                     print(f"[{event['time']:.2f}s] {event['message']}", flush=True)
             logged = len(tracker.events)
             elapsed = time.perf_counter()-started
@@ -219,13 +268,64 @@ def run(video_path, output, config, progress, cancelled, previous=None):
         log.close()
     if not frames:
         raise RuntimeError('No video frames were processed.')
+    progress({'stage': 'Propagating the pitch model through the whole segment'})
+    propagated = finalize_pitch(frames, tracker)
     progress({'stage': 'Writing global identities and tracking data'})
     report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous)
+    report['summary']['pitch']['propagatedFrames'] = propagated
+    report['summary']['pitch']['farTilePasses'] = far_passes
     snapshot = tracker.snapshot() | {'run': output.name, 'start': start, 'end': frames[-1]['time']}
     (output/'identities.json').write_text(json.dumps(snapshot, separators=(',', ':')), encoding='utf-8')
     (output/'result.json').write_text(json.dumps(report, separators=(',', ':'), allow_nan=False), encoding='utf-8')
     progress({'stage': report['status'], 'progress': 1, 'summary': report['summary'], 'teams': report['teams']})
     return report
+
+
+def finalize_pitch(frames, tracker):
+    """Offline pass: the whole segment is known, so frames before a calibration keyframe (or after a
+    loss) take the pitch model carried back through the recorded camera motion. Pitch coordinates of
+    people and the ball, the playable region and the confidence of those frames are recomputed;
+    identities are not touched. Returns the number of frames filled."""
+    log = tracker.frame_log
+    if len(log) != len(frames):
+        return 0
+    W, H = tracker.width, tracker.height
+    size = tracker.keyframes.size
+    filled = 0
+    for frame, (Hm, confidence, was_filled) in zip(frames, pitch_model.propagate(log, W, H, size)):
+        if not was_filled or Hm is None:
+            continue
+        filled += 1
+        at = lambda point: pitch_model.field.to_pitch(Hm, size, (point[0]*W, point[1]*H))
+        for person in frame['people']:
+            q = at(foot_point(person['box']))
+            if q is not None:
+                person['pitch'] = [round(float(q[0]), 4), round(float(q[1]), 4)]
+        ball = frame.get('ball') or {}
+        if ball.get('state') in ('TRACKED', 'MISSING') and ball.get('center') and ball.get('box'):
+            cx, cy = ball['center']
+            q = at((cx, min(1.0, cy+ball['box'][3]/2)))
+            if q is not None:
+                ball['pitch'] = [round(float(q[0]), 4), round(float(q[1]), 4)]
+        frame['calibrated'], frame['pitchCoordinates'] = True, 'predicted'
+        frame['pitchConfidence'] = round(float(confidence), 3)
+        frame['pitchMode'] = 'automatic' if confidence >= pitch_model.HIGH else 'robust'
+        if frame.get('pitch'):
+            outline = pitch_model.field.outline(Hm, size, W, H)
+            if outline:
+                p = frame['pitch']
+                p['polygon'] = [[round(x, 4), round(y, 4)] for x, y in outline]
+                p['source'], p['confidence'], p['level'] = 'model', round(float(confidence), 3), pitch_model.levels(confidence)
+                p['mode'] = 'automatic' if confidence >= pitch_model.HIGH else 'robust'
+                p['status'] = f'PITCH CONFIDENCE: {confidence:.2f} · PREDICTED BACKWARDS FROM A LATER CALIBRATION'
+                p['edges'] = pitch_model.field.side_status(Hm, size, W, H)
+                p['evidence'] = ['filled by the offline pass: the model of a later frame carried back through the camera motion']
+    # A section that asked for confirmation online is resolved when the fill now covers it.
+    times = [f['time'] for f in frames]
+    covered = lambda s: all(f.get('calibrated') for f, t in zip(frames, times) if s['start']-1e-6 <= t <= s['end']+1e-6)
+    tracker.pitch_issues()   # closes a section still open at the end
+    tracker.sections = [s for s in tracker.sections if not covered(s)]
+    return filled
 
 
 def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previous):
@@ -273,9 +373,20 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
         team, n = max(votes.items(), key=lambda item: item[1])
         return team if n/total >= .75 else None
     calibrated = sum(1 for f in frames if f.get('calibrated'))
+    size = getattr(getattr(tracker, 'keyframes', None), 'size', None) or pitch_model.field.PitchSize()
     tactical = {'coordinates': 'normalized pitch position of the feet: x 0..1 from the left goal line to the right goal line, '
-                               'y 0..1 from the far touchline to the near touchline (105 x 68 m), from the landmark calibration carried through camera motion',
-                'calibratedFrames': calibrated, 'calibratedShare': share(calibrated), 'goalEnds': {'left': defends('left'), 'right': defends('right')}}
+                               f'y 0..1 from the far touchline to the near touchline ({size.length:.0f} x {size.width:.0f} m), from the landmark calibration carried through camera motion',
+                'calibratedFrames': calibrated, 'calibratedShare': share(calibrated), 'goalEnds': {'left': defends('left'), 'right': defends('right')},
+                'pitchSize': size.to_json(), 'coordinateSources': dict(Counter(f.get('pitchCoordinates') or 'none' for f in frames))}
+    ticks = [f['pitch'] for f in frames if f.get('pitch')]
+    modes = Counter(f.get('pitchMode', 'automatic') for f in frames)
+    levels_ = Counter(p.get('level', 'LOW') for p in ticks)
+    pitch_issues = tracker.pitch_issues() if hasattr(tracker, 'pitch_issues') else []
+    pitch = {'meanConfidence': round(sum(p.get('confidence', 0) for p in ticks)/len(ticks), 3) if ticks else 0.0,
+             'levels': {k: round(v/len(ticks), 3) for k, v in levels_.items()} if ticks else {},
+             'modes': {k: share(v) for k, v in modes.items()}, 'size': size.to_json(),
+             'sectionsNeedingConfirmation': len(pitch_issues),
+             'modelEvents': sum(1 for e in events if e['kind'] == 'pitch')}
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
                'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': sum(1 for g in match['goalkeepers'] if not g.get('revoked')),
                                     'referees': len(match['referees']),
@@ -285,18 +396,18 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                'swapCorrections': kinds.get('swap-corrected', 0), 'crossingWarnings': kinds.get('swap-uncertain', 0), 'sanityWarnings': kinds.get('sanity', 0),
                'identifiedShare': round(identified/people, 3) if people else 0.0, 'rejectedDetections': tracker.rejected_counts,
                'cameraCuts': tracker.cuts, 'meanVisiblePeople': round(sum(len(f['people']) for f in frames)/len(frames), 1),
-               'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(), 'goalkeeperSlots': tracker.ids.keeper_slots(),
+               'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(), 'goalkeeperSlots': tracker.ids.keeper_slots(), 'pitch': pitch,
                'elapsedSeconds': round(elapsed, 2), 'processingFPS': round(len(frames)/elapsed, 2),
                'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2) if torch.cuda.is_available() else 0.0}
     return {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
-            'events': events, 'issues': tracker.issues[-500:], 'teams': tracker.model.to_json(), 'tactical': tactical,
+            'events': events, 'issues': tracker.issues[-500:], 'pitchIssues': pitch_issues, 'teams': tracker.model.to_json(), 'tactical': tactical,
             'continuedFrom': (previous or {}).get('run'), 'status': 'cancelled' if cancelled else 'complete', 'summary': summary,
             'labels': {p['id']: long_id(p['id']) for group in match.values() for p in group},
             'limitations': ['Global IDs (A-07, GK-1, REF-1) are tracking identities, not jersey numbers or names. Goalkeepers are shown by team (GK-A, GK-B).',
                             'Identity is kept only when the evidence is clear; uncertain people stay unidentified rather than guessed.',
                             'Roles come from about ten seconds of detector, kit and position evidence; a player identity later found to be a referee is merged into a referee identity and its observations are relabelled.',
                             'OSNet is a general pedestrian model: same-kit teammates can look alike, so some returns stay unresolved.',
-                            'Pitch coordinates exist only for frames carried from a calibration keyframe.',
+                            'Pitch coordinates exist where the pitch model is trusted: anchored by a calibration keyframe, carried through the camera motion (also backwards, in the offline pass) and confirmed by painted lines; on sustained low confidence a section asks for confirmation instead of guessing.',
                             'People you corrected in the review page are remembered by appearance: a run recognises them only when they look clearly like the person you corrected.',
                             'Off-screen positions are unknown; no missing observations are fabricated.',
                             'The ball is one persistent track followed through time (BALL-1); while hidden its position is predicted (MISSING), and when it cannot be confirmed it is UNKNOWN rather than a guess. No ball accuracy is claimed.']}

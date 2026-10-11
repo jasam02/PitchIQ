@@ -9,7 +9,9 @@ lines leaving it towards the image edge is a penalty/goal-area front, not a goal
 are tracked over time (smoothed, carried through camera motion, changed only when a new position is
 confirmed), and the grass region is only the fallback for sides where no boundary line is visible.
 
-Image-plane only. Metric pitch coordinates come from calibration.py.
+Image-plane only. Metric pitch coordinates come from calibration.py and the tracked pitch model
+(pitch_model.py), which also supplies the playable region when its confidence is high enough; the
+confidence of this image-plane detection itself is scored by assess_confidence().
 """
 import math
 from dataclasses import dataclass, field
@@ -20,6 +22,7 @@ import numpy as np
 from .geometry import (centroid, clip_polygon, clip_unit, convex_hull, foot_point, line_distance,
                        point_in_polygon, polygon_area, segment_distance, signed_distance,
                        transform_points, x_at, y_at)
+from .pitch_model import levels
 
 MIN_GRASS = .12          # grass share of the frame needed for a reliable pitch
 LINE_MAX_AGE = 3.0       # seconds a boundary line is carried with a reliable camera estimate
@@ -53,12 +56,23 @@ class PitchModel:
     grass_polygon: list = field(default_factory=list)  # grass hull before line clipping
     lines: list = field(default_factory=list)          # boundary lines [{'a','b','side','support','age'}]
     coverage: float = 0.0
-    source: str = 'none'                               # auto | calibration | none
+    source: str = 'none'                               # auto | calibration | model | none
     goals: list = field(default_factory=list)          # goal-end hints [{'side','kind': goal-line|box-front,'a','b'}]
     markings: list = field(default_factory=list)       # all fitted paint lines (debug)
+    confidence: float = 0.0                            # how far this playable region can be trusted (0..1)
+    mode: str = 'automatic'                            # automatic | robust | assist (see tracker.py)
+    status: str = ''                                   # one line for the overlay: where the region comes from
+    evidence: list = field(default_factory=list)       # human-readable lines: what was found, predicted, missing
+    sides: dict = None                                 # per side: line | carried line | grass edge | predicted | off-screen
+
+    @property
+    def level(self):
+        return levels(self.confidence)
 
     def sources(self):
         """Where each side of the polygon comes from: a detected line, a carried line, or the grass edge."""
+        if self.sides:
+            return dict(self.sides)
         out = {side: 'grass edge' for side in ('far', 'near', 'left', 'right')}
         if self.source == 'calibration':
             return {side: 'calibration' for side in out}
@@ -69,6 +83,8 @@ class PitchModel:
     def to_json(self):
         r = lambda p: [round(float(p[0]), 4), round(float(p[1]), 4)]
         return {'reliable': self.reliable, 'source': self.source, 'coverage': round(self.coverage, 3),
+                'confidence': round(float(self.confidence), 3), 'level': self.level, 'mode': self.mode, 'status': self.status,
+                'evidence': list(self.evidence),
                 'polygon': [r(p) for p in self.polygon], 'grass': [r(p) for p in self.grass_polygon],
                 'lines': [{'a': r(l['a']), 'b': r(l['b']), 'side': l['side'], 'age': round(l['age'], 2)} for l in self.lines],
                 'goals': [{'side': g['side'], 'kind': g['kind'], 'a': r(g['a']), 'b': r(g['b'])} for g in self.goals],
@@ -561,8 +577,9 @@ class PitchDetector:
 
 def warp_model(model, motion, time, reliable, cut):
     """Carry the last analysed model to the next frame with the camera motion (between analyses)."""
+    extra = (model.confidence, model.mode, model.status, list(model.evidence), model.sides)
     if cut or not reliable or motion is None:
-        return PitchModel(time, False, model.aspect) if cut else PitchModel(time, model.reliable, model.aspect, model.polygon, model.grass_polygon, model.lines, model.coverage, model.source, model.goals, model.markings)
+        return PitchModel(time, False, model.aspect) if cut else PitchModel(time, model.reliable, model.aspect, model.polygon, model.grass_polygon, model.lines, model.coverage, model.source, model.goals, model.markings, *extra)
     move = lambda poly: clip_unit([(float(x), float(y)) for x, y in transform_points(motion, poly)]) if len(poly) >= 3 else []
     polygon = move(model.polygon)
     dt = max(0.0, time-model.time)
@@ -570,15 +587,78 @@ def warp_model(model, motion, time, reliable, cut):
     goals = [move_line(g, motion) for g in model.goals]
     markings = [move_line(m, motion) for m in model.markings]
     return PitchModel(time, model.reliable and len(polygon) >= 3, model.aspect, polygon, move(model.grass_polygon), lines,
-                      polygon_area(polygon) if len(polygon) >= 3 else 0.0, model.source, goals, markings)
+                      polygon_area(polygon) if len(polygon) >= 3 else 0.0, model.source, goals, markings, *extra)
 
 
-def calibrated_model(model, polygon):
-    """Replace the playable polygon with the projected calibrated pitch outline."""
+def calibrated_model(model, polygon, source='calibration', confidence=1.0, evidence=(), sides=None, status='', mode='automatic'):
+    """Replace the playable polygon with the projected pitch rectangle of a calibration or the tracked
+    pitch model (its off-screen edges are predicted, not read from the grass)."""
     polygon = clip_unit([tuple(p) for p in polygon]) if polygon is not None and len(polygon) >= 3 else []
     if len(polygon) < 3:
         return model
-    return PitchModel(model.time, True, model.aspect, polygon, model.grass_polygon, model.lines, polygon_area(polygon), 'calibration', model.goals, model.markings)
+    return PitchModel(model.time, True, model.aspect, polygon, model.grass_polygon, model.lines, polygon_area(polygon), source, model.goals,
+                      model.markings, confidence, mode, status, list(evidence), dict(sides) if sides else None)
+
+
+def assess_confidence(model):
+    """How far the image-plane detection can be trusted, with the evidence behind the score: both
+    touchlines painted and found is a confident playable region; a grass contour alone (no painted
+    boundary line) is not, since grass runs on beyond the touchline into run-offs, car parks and
+    neighbouring pitches. Returns (confidence, evidence lines)."""
+    if not model.reliable or len(model.polygon) < 3:
+        return 0.0, ['no grass region large enough for a pitch']
+    lines = {l['side']: l for l in model.lines}
+    score, evidence = .2, []
+    for side, what in (('far', 'touchline'), ('near', 'touchline'), ('left', 'goal line'), ('right', 'goal line')):
+        line = lines.get(side)
+        if line is None:
+            evidence.append(f'{side} {what}: NOT FOUND (grass edge used)')
+            continue
+        gain = .3 if side in ('far', 'near') else .1
+        if line['age'] > 0:
+            gain *= max(.4, 1-line['age']/LINE_MAX_AGE)
+            evidence.append(f'{side} {what}: FOUND (painted line carried {line["age"]:.1f}s)')
+        else:
+            evidence.append(f'{side} {what}: FOUND (painted line, support {line["support"]:.2f})')
+        score += gain
+    if model.coverage < .1:
+        score = min(score, .3)
+        evidence.append('the region is small')
+    return min(.95, score), evidence
+
+
+def halfway_candidate(model):
+    """The painted steep line most likely to be the halfway line (the longest one well inside the
+    frame), as a marking segment, or None."""
+    best = None
+    for seg in model.markings:
+        if seg['kind'] != 'v' or seg['support'] < .12:
+            continue
+        mid = (seg['a'][0]+seg['b'][0])/2
+        if not .12 <= mid <= .88:
+            continue
+        if best is None or seg['support'] > best['support']:
+            best = seg
+    return best
+
+
+def suggest_landmarks(model):
+    """Landmarks worth marking on this frame to calibrate it, with predicted positions where the
+    image gives them: the halfway line's ends where it meets the grass edges. The centre circle and
+    spot are listed without positions."""
+    out = []
+    line = halfway_candidate(model)
+    if line is not None and len(model.grass_polygon) >= 3:
+        seg = (line['a'], line['b'])
+        inside = [y for y in np.linspace(0, 1, 201) if 0 <= x_at(seg, y) <= 1 and point_in_polygon((x_at(seg, y), y), model.grass_polygon)]
+        # An end is predicted only where the grass ends inside the frame: a touchline out of view
+        # (the near one on a low camera) must not be placed at the image border.
+        if inside and inside[0] > .03:
+            out.append({'name': 'halfway-far', 'x': round(float(x_at(seg, inside[0])), 4), 'y': round(float(inside[0]), 4), 'predicted': True})
+        if inside and inside[-1] < .97:
+            out.append({'name': 'halfway-near', 'x': round(float(x_at(seg, inside[-1])), 4), 'y': round(float(inside[-1]), 4), 'predicted': True})
+    out += [{'name': name, 'predicted': False} for name in ('centre-spot', 'centre-circle-left', 'centre-circle-right', 'centre-circle-far', 'centre-circle-near')]
+    return out
 
 
 def nearest_boundary(model, p):

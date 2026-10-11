@@ -71,7 +71,9 @@ def validate(payload, meta):
                 raise ValueError('Calibration landmarks need a known name and a point inside the image.')
             clean_points.append({'name': name, 'x': float(x), 'y': float(y)})
         try:
-            calibration.solve(clean_points, meta['width'], meta['height'])
+            # A non-standard pitch (youth, small-sided) disagrees with the standard size by a few metres;
+            # the run learns the size from all keyframes together, so only gross errors are refused here.
+            calibration.solve(clean_points, meta['width'], meta['height'], max_error=4.0)
         except ValueError as error:
             raise ValueError(f'Calibration at {timestamp:.2f}s: {error}')
         marks.append({'time': timestamp, 'points': clean_points})
