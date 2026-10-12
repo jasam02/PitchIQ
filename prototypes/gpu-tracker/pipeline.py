@@ -237,6 +237,8 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
     index, last_notice, logged, pitch, far_passes, ball_searches = first_frame, -10, 0, None, 0, 0
+    timing = Counter()   # seconds per stage, for summary.timing
+    clock = time.perf_counter
     try:
         while not cancelled():
             ok, frame = capture.read()
@@ -247,24 +249,34 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                 stamp = index/fps
             if stamp >= finish:
                 break
+            t0 = clock()
             rows = detect(model, frame, int(config.get('imageSize', 1280)))
+            timing['detect'] += clock()-t0
             ball_rows = rows[rows[:, 5] == 0].tolist()
             band = tracker.far_band()
             if band is not None:
                 far_passes += 1
+                t0 = clock()
                 rows = merge_far(rows, far_tiles(model, frame, band))
+                timing['farTiles'] += clock()-t0
             if config.get('ballTiles', False) and (index-first_frame) % 2 == 0:
+                t0 = clock()
                 ball_rows += ball_tiles(model, frame)
+                timing['ballTiles'] += clock()-t0
             window = tracker.ball.search_window()
             if window is not None and config.get('ballSearch', True):
                 ball_searches += 1
+                t0 = clock()
                 ball_rows += ball_crop(model, frame, window)
+                timing['ballCrop'] += clock()-t0
             if ball_rows:
                 raw = torch.tensor(ball_rows, dtype=torch.float32)
                 ball_rows = raw[nms(raw[:, :4], raw[:, 4], .3)].numpy()
                 # Obviously huge boxes are never the ball; everything else is scored by the ball tracker.
                 ball_rows = ball_rows[np.maximum(ball_rows[:, 2]-ball_rows[:, 0], ball_rows[:, 3]-ball_rows[:, 1]) <= max(width, height)*.035]
+            t0 = clock()
             observation, _, _ = tracker.step(frame, stamp, rows[rows[:, 5] != 0], np.asarray(ball_rows, np.float32).reshape(-1, 6))
+            timing['tracking'] += clock()-t0
             observation = {'time': round(stamp, 6), 'frame': index, **observation}
             frames.append(observation)
             pitch = observation['pitch'] or pitch
@@ -289,23 +301,77 @@ def run(video_path, output, config, progress, cancelled, previous=None):
         log.close()
     if not frames:
         raise RuntimeError('No video frames were processed.')
+    online_events = {id(e) for e in tracker.events}
     progress({'stage': 'Refining tracklets over the whole segment (split mixed tracks, reconnect fragments)'})
+    t0 = clock()
     identity_report = finalize_identities(frames, tracker)
+    timing['offlineIdentities'] += clock()-t0
     progress({'stage': 'Registering the pitch over the whole segment and remapping the tracks'})
+    t0 = clock()
     propagated, timeline = finalize_pitch(frames, tracker)
+    timing['offlinePitch'] += clock()-t0
     progress({'stage': 'Decoding the final ball trajectory over the whole segment'})
+    t0 = clock()
     ball_report = finalize_ball(frames, tracker, timeline)
+    timing['offlineBall'] += clock()-t0
     progress({'stage': 'Writing global identities and tracking data'})
+    t0 = clock()
     report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous, ball_report, identity_report)
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
     report['summary']['pitch']['registration'] = tracker.registration
     report['summary']['ball']['localSearches'] = ball_searches
+    timing['report'] += clock()-t0
+    report['summary']['timing'] = stage_timing(timing, len(frames), time.perf_counter()-started)
     snapshot = tracker.snapshot() | {'run': output.name, 'start': start, 'end': frames[-1]['time']}
     (output/'identities.json').write_text(json.dumps(snapshot, separators=(',', ':')), encoding='utf-8')
+    (output/'registration.json').write_text(json.dumps(registration_record(tracker, meta, config), separators=(',', ':'), default=_json_default),
+                                            encoding='utf-8')
     (output/'result.json').write_text(json.dumps(report, separators=(',', ':'), allow_nan=False), encoding='utf-8')
+    # The offline passes' events (tracklets, registration, ball path) go to the log too, after the online ones.
+    with (output/'events.log').open('a', encoding='utf-8') as log:
+        for event in tracker.events:
+            if id(event) not in online_events:
+                log.write(f"[{event['time']:.2f}s] {event['kind'].upper()} (offline)\n{event['message']}\n\n")
     progress({'stage': report['status'], 'progress': 1, 'summary': report['summary'], 'teams': report['teams']})
     return report
+
+
+def stage_timing(timing, frames, elapsed):
+    """Milliseconds per processed frame by online stage, the offline passes in seconds, and the total."""
+    online = ('detect', 'farTiles', 'ballTiles', 'ballCrop', 'tracking')
+    out = {f'{k}MsPerFrame': round(1000*timing[k]/max(1, frames), 1) for k in online}
+    out['onlineMsPerFrame'] = round(1000*sum(timing[k] for k in online)/max(1, frames), 1)
+    out['offlineSeconds'] = {k: round(timing[k], 2) for k in ('offlineIdentities', 'offlinePitch', 'offlineBall', 'report')}
+    out['elapsedSeconds'] = round(elapsed, 2)
+    return out
+
+
+def _json_default(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f'not serialisable: {type(value).__name__}')
+
+
+def registration_record(tracker, meta, config):
+    """Everything the offline registration used, saved per run (registration.json) so that the hold-out
+    tests (tools/holdout.py) can rebuild the timeline without re-running the detector: the per-frame camera
+    motion log, every validated anchor with the keyframe its chain started from, and the keyframes."""
+    applied = {round(float(k['time']), 3): k for k in tracker.keyframe_log}
+    keyframes = []
+    for c in sorted(config.get('calibrations', []) or [], key=lambda c: c['time']):
+        k = applied.get(round(float(c['time']), 3))
+        keyframes.append({'time': float(c['time']), 'index': k['index'] if k else None, 'rms': round(float(k['rms']), 3) if k and k['rms'] is not None else None,
+                          'observability': k['observability'] if k else None, 'points': c['points']})
+    return {'version': 1, 'width': meta['width'], 'height': meta['height'], 'fps': meta['fps'], 'offset': getattr(tracker, 'offset', 0),
+            'size': tracker.keyframes.size.to_json(),
+            'frames': [{'t': round(e['t'], 6), 'dt': round(e['dt'], 6), 'M': None if e['M'] is None else np.asarray(e['M'], np.float64).ravel().tolist(),
+                        'reliable': bool(e['reliable']), 'cut': bool(e['cut']), 'quality': e.get('quality') or 'none'} for e in tracker.frame_log],
+            'anchors': [{'index': a.index, 'time': round(a.time, 6), 'H': np.asarray(a.H, np.float64).ravel().tolist(), 'observability': float(a.observability),
+                         'source': a.source, 'root': a.root, 'details': a.details} for a in tracker.anchors],
+            'keyframes': keyframes}
 
 
 def finalize_pitch(frames, tracker):

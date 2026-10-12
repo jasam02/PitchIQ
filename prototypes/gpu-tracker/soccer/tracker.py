@@ -97,6 +97,8 @@ class SoccerTracker:
         self.frame_log = []     # per frame: camera motion (and how it was measured) and the live pitch model, for the offline passes
         self.frame_index = -1   # index of the current frame in this run
         self.anchors = []       # registration.Anchor: every validated calibration of this run, for the offline passes
+        self.keyframe_log = []  # {'time', 'index', 'rms', 'observability'} for every calibration keyframe that anchored the model
+        self.offset = 0         # frames of the log that precede the first emitted frame (none yet)
         self.circle = None      # centre-circle paint found on the last evidence tick (pitch.find_circle), or None
         self.midfield = None    # the last automatic midfield registration attempt: {'time', 'taken', 'reason'|'observability'}
         self.registration = None   # filled by the pipeline's offline passes
@@ -180,7 +182,10 @@ class SoccerTracker:
         model = self.keyframes.pitch
         if self.keyframes.anchored is not None and model.H is not None:
             # A validated landmark calibration: an anchor the offline passes carry both ways.
-            self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'landmarks', dict(model.details)))
+            model.anchored_index = self.frame_index
+            self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'landmarks', dict(model.details), root=self.frame_index))
+            self.keyframe_log.append({'time': self.keyframes.anchored_time, 'index': self.frame_index, 'rms': self.keyframes.rms,
+                                      'observability': round(float(model.observability), 3)})
         tick = cut or time-self.last_tick >= self.config.options.tick-1e-6
         if tick:
             self.last_tick = time
@@ -200,7 +205,8 @@ class SoccerTracker:
                 circle_px = [(x*W, y*H) for x, y in self.circle['points']] if self.circle else None
                 model.refine(self.analysed.markings, time, [foot_point(b) for b in live], circle_px)
                 if model.state == 'refined':
-                    self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'paint', dict(model.details)))
+                    root = model.anchored_index if model.anchored_index is not None else self.frame_index
+                    self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'paint', dict(model.details), root=root))
             elif self.circle is not None and auto_conf < HIGH:
                 # No model to carry and no confident playable region from the paint: the centre circle, the
                 # halfway line and a touchline can anchor one.
@@ -352,7 +358,8 @@ class SoccerTracker:
         self.midfield = {'time': time, 'taken': bool(taken), 'observability': round(result['observability'], 3), 'rmsPixels': round(result['rms_px'], 1),
                          'evidence': result['details'].get('evidence')}
         if taken:
-            self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'auto-midfield', dict(model.details)))
+            model.anchored_index = self.frame_index
+            self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'auto-midfield', dict(model.details), root=self.frame_index))
 
     def _decide_pitch(self, pitch, model, time, tick):
         """Which playable region this frame uses, its mode and confidence; LOW sections are recorded."""

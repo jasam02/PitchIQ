@@ -57,6 +57,7 @@ class PitchTracker:
         self.state = 'none'           # none | anchored | carried | refined | lost
         self.carried = 0.0            # seconds since the last anchor or confirmation
         self.anchored_at = None
+        self.anchored_index = None    # frame index of the anchor the current chain started from (registration.Anchor.root)
         self.confirmed_at = None
         self.lost = None              # why the model was let go, until the next anchor
         self.matched = []
@@ -79,8 +80,9 @@ class PitchTracker:
             self.events.append((time, 'lost', f'camera homography dropped: {why}'))
         self.H, self.temporal, self.observability, self.state, self.lost = None, 0.0, 0.0, 'lost', why
         self.details, self.matched, self.strikes = {}, [], 0
+        self.anchored_index = None
 
-    def anchor(self, H_image_to_world, time, rms=None, note='calibration keyframe', observability=None, details=None, source='calibration'):
+    def anchor(self, H_image_to_world, time, rms=None, note='calibration keyframe', observability=None, details=None, source='calibration', index=None):
         """Adopt a calibration (image pixels -> metres, as calibration.solve returns it). observability:
         the geometric certainty of its evidence (field.observability); without one the anchor is taken
         as fully constrained. An anchor below MIN_ANCHOR is refused: it would only be carried smoothly."""
@@ -97,6 +99,7 @@ class PitchTracker:
         self.H, self.temporal, self.observability, self.source, self.state = H, 1.0, observability, source, 'anchored'
         self.details = dict(details or {})
         self.carried, self.anchored_at, self.confirmed_at, self.lost = 0.0, time, time, None
+        self.anchored_index = index
         self.strikes = 0
         self.events.append((time, 'anchored', f'camera homography anchored by a {note}' + (f' (landmarks agree within {rms:.2f} m)' if rms is not None else '') +
                             f'; observability {observability:.2f}, confidence {self.confidence:.2f}'))

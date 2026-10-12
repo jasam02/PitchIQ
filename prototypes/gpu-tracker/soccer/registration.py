@@ -48,6 +48,8 @@ class Anchor:
     observability: float       # geometric certainty, 0..1
     source: str                # 'landmarks' (user), 'paint' (markings confirmed the model), 'auto-midfield'
     details: dict = dc_field(default_factory=dict)
+    root: int = -1             # frame index of the anchor that started this chain (its own index for a fresh anchor):
+                               # a derived (paint) anchor is left out with its root in a hold-out test
 
 
 def _normalize(H):
@@ -156,6 +158,18 @@ def build_timeline(log, anchors, width, height, size=None):
     return out
 
 
+def homography_json(H):
+    """The frame's final homography (world metres -> pixels) as nine floats, scaled so that H[2, 2] = 1 when
+    that is numerically safe, or None. Stored per frame so that the camera footprint and the hold-out
+    tests can be computed from a saved result."""
+    if H is None:
+        return None
+    H = np.asarray(H, np.float64)
+    if abs(H[2, 2]) > 1e-9:
+        H = H/H[2, 2]
+    return [float(v) for v in H.ravel()]
+
+
 def position(H, size, point_px, confidence):
     """(normalized pitch position, position confidence) for an image point, or (None, 0) when it does not
     land on the pitch. The confidence is the calibration's times the local projection certainty: a few
@@ -181,7 +195,8 @@ def remap_frames(frames, timeline, width, height, size=None):
         info = {'confidence': entry['confidence'] if entry else 0.0, 'temporal': entry['temporal'] if entry else 0.0,
                 'observability': entry['observability'] if entry else 0.0, 'source': entry['source'] if entry else 'none',
                 'direction': entry['direction'] if entry else None, 'anchor': entry['anchor'] if entry else None,
-                'anchorAge': entry['age'] if entry else None, 'disagreement': entry['disagreement'] if entry else None}
+                'anchorAge': entry['age'] if entry else None, 'disagreement': entry['disagreement'] if entry else None,
+                'H': homography_json(H)}
         frame['calibration'] = info
         frame['calibrated'] = H is not None and info['confidence'] >= .2
         frame['pitchCoordinates'] = None if H is None else ('calibration' if info['source'] in ('landmarks', 'paint', 'auto-midfield') else 'predicted')
@@ -290,11 +305,11 @@ def summarize(timeline, anchors):
     sources = {}
     for e in timeline:
         sources[e['source']] = sources.get(e['source'], 0)+1
-    keys = ('landmarks', 'lines', 'circlePoints', 'count', 'spread', 'axes', 'conditioning', 'residual', 'rmsMetres', 'rmsPixels', 'circleCoverage', 'coverage')
+    keys = ('landmarks', 'lines', 'circlePoints', 'count', 'spread', 'axes', 'conditioning', 'residual', 'rmsMetres', 'rmsPixels', 'circleCoverage', 'coverage', 'score')
     return {'frames': n, 'calibratedFrames': known, 'calibratedShare': round(known/n, 3) if n else 0.0,
             'confidentShare': round(confident/n, 3) if n else 0.0,
             'meanConfidence': round(float(np.mean([e['confidence'] for e in timeline])), 3) if n else 0.0,
             'meanObservability': round(float(np.mean([e['observability'] for e in timeline if e['H'] is not None])), 3) if known else 0.0,
-            'anchors': [{'frame': a.index, 'time': round(a.time, 3), 'observability': round(a.observability, 3), 'source': a.source,
+            'anchors': [{'frame': a.index, 'time': round(a.time, 3), 'observability': round(a.observability, 3), 'source': a.source, 'root': a.root,
                          **{k: v for k, v in a.details.items() if k in keys}} for a in sorted(anchors, key=lambda a: a.index)],
             'sources': sources}

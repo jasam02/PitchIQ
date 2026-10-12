@@ -177,6 +177,7 @@ class Keyframes:
         self.last_time = None
         self.fresh = False    # a calibration keyframe anchored the model on this update
         self.anchored = None  # on that update: (points in pixels, rms) of the keyframe, for the offline registration
+        self.anchored_time = None   # ... and the keyframe's own time
 
     @property
     def H(self):
@@ -220,7 +221,7 @@ class Keyframes:
                     points = [{'name': p['name'], 'x': p['x']*self.width, 'y': p['y']*self.height} for p in anchor['points']]
                     observability = calibration.field.observability({'points': points}, self.width, self.height, size=self.size, rms_m=self.rms)
                     if self.pitch.anchor(H, timestamp, self.rms, observability=observability['score'], details=observability):
-                        self.warning, self.fresh, self.anchored = None, True, (points, self.rms)
+                        self.warning, self.fresh, self.anchored, self.anchored_time = None, True, (points, self.rms), anchor['time']
                     else:
                         self.warning = f'Calibration at {anchor["time"]:.2f}s ignored: it does not describe a pitch plane in front of the camera'
                 except ValueError as error:
