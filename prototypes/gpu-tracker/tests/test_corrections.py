@@ -30,23 +30,25 @@ def entry(pid, role, team, first, last, n):
 
 def build():
     """10 frames: A-01 (track 1) and B-08 (track 7, really a referee) throughout; REF-1 (track 3) in
-    frames 0-3; REF-2 (track 9) in frames 5-9; an unidentified 'B-?' (track 12) in frames 6-9."""
+    frames 0-3 and REF-2 (track 9) in frames 5-9 (a result of an earlier version, which still had referee
+    identities); B-03 (track 4) in frames 0-3; an unidentified 'B-?' (track 12) in frames 6-9."""
     frames = []
     for i in range(10):
         t = round(10+i*.2, 3)
         people = [person('A-01', 1, t, team='A'), person('B-08', 7, t)]
         if i <= 3:
             people.append(person('REF-1', 3, t, role='REFEREE'))
+            people.append(person('B-03', 4, t))
         if i >= 5:
             people.append(person('REF-2', 9, t, role='REFEREE'))
         if i >= 6:
             people.append(person(None, 12, t, state='uncertain', display='B-?'))
         frames.append({'time': t, 'frame': 300+i, 'people': people, 'ball': {'state': 'UNKNOWN'}, 'rejected': []})
-    match = {'players': [entry('A-01', 'PLAYER', 'A', 10, 11.8, 10), entry('B-08', 'PLAYER', 'B', 10, 11.8, 10)], 'goalkeepers': [],
+    match = {'players': [entry('A-01', 'PLAYER', 'A', 10, 11.8, 10), entry('B-03', 'PLAYER', 'B', 10, 10.6, 4), entry('B-08', 'PLAYER', 'B', 10, 11.8, 10)], 'goalkeepers': [],
              'referees': [entry('REF-1', 'REFEREE', None, 10, 10.6, 4), entry('REF-2', 'REFEREE', None, 11, 11.8, 5)], 'retired': []}
     events = [{'time': 10.0, 'kind': 'new-identity', 'track': 7, 'playerId': 'B-08', 'message': 'Track 7 becomes new identity TeamB_Player_08'},
               {'time': 11.0, 'kind': 'new-identity', 'track': 9, 'playerId': 'REF-2', 'message': 'REF-2'}]
-    summary = {'globalIdentities': {'teamA': 1, 'teamB': 1, 'goalkeepers': 0, 'referees': 2, 'merged': 0}, 'roles': {'mergedIdentities': 0},
+    summary = {'globalIdentities': {'teamA': 1, 'teamB': 2, 'goalkeepers': 0, 'referees': 2, 'merged': 0}, 'roles': {'mergedIdentities': 0},
                'goalkeeperSlots': {'A': None, 'B': None}}
     result = {'version': 3, 'frames': frames, 'match': match, 'events': events, 'summary': summary, 'teams': {'learned': True},
               'labels': {e['id']: C.long_id(e['id']) for g in match.values() for e in g}}
@@ -54,7 +56,8 @@ def build():
     snapshot = {'registry': {'version': 1, 'counters': {'A': 1, 'B': 8, 'REF': 2},
                              'identities': [{'id': pid, 'role': role, 'team': team, 'status': 'active', 'gallery': gallery(pid), 'roleLocked': role != 'player',
                                              'lastPitch': [.5, .5], 'exitEdge': ''}
-                                            for pid, role, team in (('A-01', 'player', 'A'), ('B-08', 'player', 'B'), ('REF-1', 'referee', None), ('REF-2', 'referee', None))]},
+                                            for pid, role, team in (('A-01', 'player', 'A'), ('B-03', 'player', 'B'), ('B-08', 'player', 'B'),
+                                                                    ('REF-1', 'referee', None), ('REF-2', 'referee', None))]},
                 'teams': {'a': [1, 0], 'b': [0, 1]}, 'run': 'run-1', 'start': 10, 'end': 11.8}
     return result, snapshot
 
@@ -69,64 +72,68 @@ class CorrectionTests(unittest.TestCase):
         C.apply_result(result, list(items)+[c])
         return c
 
-    def test_player_marked_as_referee_is_relabelled_everywhere_and_remembered(self):
+    def test_marking_someone_a_referee_means_not_a_player(self):
+        # Referees are not tracked: "B-08 is really a referee" (as an older page sends it) leaves B-08 out like
+        # "not part of the match": every frame relabelled OUT, no REF-n identity, remembered to be left out.
         result, snapshot = build()
         c = C.make(result, snapshot, {'target': {'id': 'B-08', 'time': 10.4}, 'role': 'referee'}, [], 'run-1')
-        self.assertEqual((c['after']['id'], c['before']['role'], c['before']['team']), ('REF-3', 'player', 'B'))
+        self.assertEqual((c['after']['role'], c['after']['id'], c['before']['role'], c['before']['team']), ('excluded', None, 'player', 'B'))
         C.apply_result(result, [c])
         mine = people_of(result, track=7)
         self.assertEqual(len(mine), 10)
-        self.assertEqual({(p['id'], p['display'], p['role'], p['team'], p['label'], p['manual']) for p in mine}, {('REF-3', 'REF-3', 'REFEREE', None, 'REFEREE', True)})
+        self.assertEqual({(p['id'], p['display'], p['label'], p['excludedId'], p['manual']) for p in mine}, {(None, 'OUT', 'EXCLUDED_BY_YOU', 'B-08', True)})
         m = result['match']
-        self.assertEqual([e['id'] for e in m['players']], ['A-01'])
-        self.assertEqual([e['id'] for e in m['referees']], ['REF-1', 'REF-2', 'REF-3'])
-        ref = next(e for e in m['referees'] if e['id'] == 'REF-3')
-        self.assertTrue(ref['manual'] and ref['roleLocked'])
-        self.assertEqual((ref['observations'], ref['firstSeen'], ref['lastSeen']), (10, 10, 11.8))
-        self.assertEqual([(e['id'], e['retiredInto']) for e in m['retired']], [('B-08', 'REF-3')])
+        self.assertEqual([e['id'] for e in m['players']], ['A-01', 'B-03'])
+        self.assertEqual([e['id'] for e in m['referees']], ['REF-1', 'REF-2'])   # the earlier version's, untouched
+        self.assertEqual([e['id'] for e in m['excluded']], ['B-08'])
         g = result['summary']['globalIdentities']
-        self.assertEqual((g['teamA'], g['teamB'], g['referees'], g['merged']), (1, 0, 3, 1))
-        self.assertEqual(result['summary']['corrections'], 1)
-        self.assertEqual(result['labels']['REF-3'], 'Referee_03')
+        self.assertEqual((g['teamA'], g['teamB'], g['excluded']), (1, 1, 1))
         event = next(e for e in result['events'] if e['kind'] == 'manual')
-        self.assertEqual(event['time'], 10.4)
-        for line in ('CORRECTED BY YOU', 'Global ID: B-08 -> REF-3', 'Was: team B player', 'Now: referee', 'Remembered for later runs of this video: yes'):
+        for line in ('CORRECTED BY YOU', 'Global ID: B-08 -> not part of the match', 'Was: team B player', 'Now: not part of the match',
+                     'Remembered for later runs of this video: yes'):
             self.assertIn(line, event['message'])
-        self.assertEqual([e['time'] for e in result['events']], sorted(e['time'] for e in result['events']))
-        # What later runs remember: B-08's appearance as a referee you set.
         ident = c['identity']
-        self.assertEqual((ident['id'], ident['role'], ident['team'], ident['manual'], ident['roleLocked'], len(ident['gallery'])), ('REF-3', 'referee', None, True, True, 6))
-        self.assertIsNone(c['teams'])   # a referee has no team: no kit model needed
-        # Continuing identities from this run starts from the corrected registry.
+        self.assertEqual((ident['id'], ident['excluded'], ident['manual'], ident['status']), ('B-08', True, True, 'unknown'))
+        self.assertIsNone(c['teams'])
         snap = C.apply_snapshot(snapshot, [c])
-        by_id = {e['id']: e for e in snap['registry']['identities']}
-        self.assertEqual((by_id['B-08']['status'], by_id['B-08']['retiredInto']), ('retired', 'REF-3'))
-        self.assertEqual((by_id['REF-3']['role'], by_id['REF-3']['manual'], by_id['REF-3']['team']), ('referee', True, None))
-        self.assertEqual(snap['registry']['counters']['REF'], 3)
-        self.assertNotIn('REF-3', {e['id'] for e in snapshot['registry']['identities']})   # the original is untouched
+        b08 = next(e for e in snap['registry']['identities'] if e['id'] == 'B-08')
+        self.assertEqual((b08['excluded'], b08['manual'], b08['status']), (True, True, 'unknown'))
+        self.assertFalse([e for e in snap['registry']['identities'] if e['id'] not in ('A-01', 'B-03', 'B-08', 'REF-1', 'REF-2')])
 
     def test_no_change_and_two_people_at_once_are_refused(self):
         result, snapshot = build()
         with self.assertRaisesRegex(ValueError, 'already is a team A player'):
             C.make(result, snapshot, {'target': {'id': 'A-01'}, 'role': 'player', 'team': 'A'}, [], 'run-1')
-        with self.assertRaisesRegex(ValueError, 'both on the video at 00:11.00'):
-            C.make(result, snapshot, {'target': {'id': 'B-08'}, 'role': 'referee', 'into': 'REF-2'}, [], 'run-1')
+        with self.assertRaisesRegex(ValueError, 'both on the video at 00:10.00'):
+            C.make(result, snapshot, {'target': {'id': 'B-08'}, 'role': 'player', 'team': 'B', 'into': 'B-03'}, [], 'run-1')
         with self.assertRaisesRegex(ValueError, 'Choose team A or team B'):
             C.make(result, snapshot, {'target': {'id': 'B-08'}, 'role': 'goalkeeper'}, [], 'run-1')
-        with self.assertRaisesRegex(ValueError, 'REF-1 is a referee, not a team B player'):
+        with self.assertRaisesRegex(ValueError, r'REF-1 is a referee \(not a player\), not a team B player'):
             C.make(result, snapshot, {'target': {'id': 'B-08'}, 'role': 'player', 'team': 'B', 'into': 'REF-1'}, [], 'run-1')
         with self.assertRaisesRegex(ValueError, 'not in this result'):
             C.make(result, snapshot, {'target': {'id': 'B-99'}, 'role': 'referee'}, [], 'run-1')
 
     def test_unidentified_track_joins_an_identity_it_never_overlaps(self):
         result, snapshot = build()
-        c = self.correct(result, snapshot, {'target': {'track': 12}, 'role': 'referee', 'into': 'REF-1'})
-        self.assertEqual(c['after']['id'], 'REF-1')
+        c = self.correct(result, snapshot, {'target': {'track': 12}, 'role': 'player', 'team': 'B', 'into': 'B-03'})
+        self.assertEqual(c['after']['id'], 'B-03')
         self.assertIsNone(c['identity'])   # a local track only: nothing saved to recognise them by
-        self.assertEqual({p['id'] for p in people_of(result, track=12)}, {'REF-1'})
-        ref = next(e for e in result['match']['referees'] if e['id'] == 'REF-1')
-        self.assertEqual((ref['observations'], ref['firstSeen'], ref['lastSeen']), (8, 10, 11.8))
+        self.assertEqual({p['id'] for p in people_of(result, track=12)}, {'B-03'})
+        b03 = next(e for e in result['match']['players'] if e['id'] == 'B-03')
+        self.assertEqual((b03['observations'], b03['firstSeen'], b03['lastSeen']), (8, 10, 11.8))
         self.assertEqual(C.apply_snapshot(snapshot, [c]), snapshot)   # nothing to change in the saved identities
+
+    def test_an_ignored_person_can_be_made_a_player(self):
+        # Someone the tracker ignored as referee-like (NON_TARGET, no identity) who is really a team A player.
+        result, snapshot = build()
+        for f in result['frames'][6:]:
+            for p in f['people']:
+                if p['track'] == 12:
+                    p.update(id=None, display='IGNORE', label='NON_TARGET', team=None, role='NON_TARGET', state='nontarget', hint='REFEREE_LIKE')
+        c = self.correct(result, snapshot, {'target': {'track': 12}, 'role': 'player', 'team': 'A'})
+        self.assertEqual((c['before']['role'], c['after']['id']), ('nontarget', 'A-02'))
+        self.assertEqual({(p['id'], p['team'], p['state']) for p in people_of(result, track=12)}, {('A-02', 'A', 'confirmed')})
+        self.assertIn('Was: ignored (not a player)', next(e for e in result['events'] if e['kind'] == 'manual')['message'])
 
     def test_unidentified_track_becomes_a_new_identity_in_this_result_only(self):
         result, snapshot = build()
@@ -145,7 +152,7 @@ class CorrectionTests(unittest.TestCase):
         mine = people_of(result, track=7)
         self.assertEqual({(p['id'], p['display'], p['state'], p['label'], p['excludedId']) for p in mine}, {(None, 'OUT', 'rejected', 'EXCLUDED_BY_YOU', 'B-08')})
         m = result['match']
-        self.assertEqual([e['id'] for e in m['players']], ['A-01'])
+        self.assertEqual([e['id'] for e in m['players']], ['A-01', 'B-03'])
         self.assertEqual([e['id'] for e in m['excluded']], ['B-08'])
         self.assertEqual(m['retired'], [])
         self.assertEqual(result['summary']['globalIdentities']['excluded'], 1)
@@ -157,10 +164,11 @@ class CorrectionTests(unittest.TestCase):
 
     def test_a_later_correction_of_the_same_person_wins_and_undo_cascades(self):
         result, snapshot = build()
-        c1 = C.make(result, snapshot, {'target': {'id': 'B-08'}, 'role': 'referee'}, [], 'run-1')
+        c1 = C.make(result, snapshot, {'target': {'id': 'B-08'}, 'role': 'goalkeeper', 'team': 'B'}, [], 'run-1')
+        self.assertEqual(c1['after']['id'], 'GK-1')
         C.apply_result(result, [c1])
         snap = C.apply_snapshot(snapshot, [c1])
-        c2 = C.make(result, snap, {'target': {'id': 'REF-3'}, 'role': 'player', 'team': 'A'}, [c1], 'run-1')
+        c2 = C.make(result, snap, {'target': {'id': 'GK-1'}, 'role': 'player', 'team': 'A'}, [c1], 'run-1')
         self.assertEqual(c2['after']['id'], 'A-02')
         fresh, _ = build()
         C.apply_result(fresh, [c1, c2])
@@ -195,14 +203,14 @@ class CorrectionTests(unittest.TestCase):
             (run/'result.json').write_text(json.dumps(result, separators=(',', ':')), encoding='utf-8')
             (run/'identities.json').write_text(json.dumps(snapshot), encoding='utf-8')
             original = {name: (run/name).read_bytes() for name in ('result.json', 'identities.json')}
-            listed = C.add(root, run, {'target': {'id': 'B-08', 'time': 10.4}, 'role': 'referee'})
-            self.assertEqual((listed['from'], listed['to'], listed['what'], listed['remembered'], listed['thisRun']), ('B-08', 'REF-3', 'referee', True, True))
+            listed = C.add(root, run, {'target': {'id': 'B-08', 'time': 10.4}, 'role': 'goalkeeper', 'team': 'B'})
+            self.assertEqual((listed['from'], listed['to'], listed['what'], listed['remembered'], listed['thisRun']), ('B-08', 'GK-1', 'goalkeeper (team B)', True, True))
             shown = json.loads((run/'result.json').read_text(encoding='utf-8'))
-            self.assertEqual({p['id'] for p in people_of(shown, track=7)}, {'REF-3'})
-            self.assertTrue(any(e['id'] == 'REF-3' for e in json.loads((run/'identities.json').read_text(encoding='utf-8'))['registry']['identities']))
+            self.assertEqual({p['id'] for p in people_of(shown, track=7)}, {'GK-1'})
+            self.assertTrue(any(e['id'] == 'GK-1' for e in json.loads((run/'identities.json').read_text(encoding='utf-8'))['registry']['identities']))
             self.assertEqual((run/'result.raw.json').read_bytes(), original['result.json'])
             # A second correction is applied on top of the first, from the originals.
-            C.add(root, run, {'target': {'id': 'REF-3'}, 'role': 'excluded'})
+            C.add(root, run, {'target': {'id': 'GK-1'}, 'role': 'excluded'})
             shown = json.loads((run/'result.json').read_text(encoding='utf-8'))
             self.assertEqual({p['label'] for p in people_of(shown, track=7)}, {'EXCLUDED_BY_YOU'})
             self.assertEqual(len(C.load(root)), 2)

@@ -198,15 +198,22 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(len(d.ids.registry), 11, 'no new identity while missing players could be this person')
         del pb
 
-    def test_referee_is_separate_from_players(self):
+    def test_referee_is_ignored_never_an_identity(self):
+        # Referees are not match entities: no REF-n, no team, no gallery; a local track that is NON_TARGET.
         d = Driver()
         visible = {1: (Person('REF'), .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)}
         out = d.run(2, visible)
-        self.assertEqual(out[1]['id'], 'REF-1')
-        self.assertEqual((out[1]['role'], out[1]['team'], out[1]['display']), ('REFEREE', None, 'REF-1'))
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['role'], out[1]['state'], out[1]['team'], out[1]['hint']),
+                         (None, 'IGNORE', 'NON_TARGET', 'nontarget', None, 'REFEREE_LIKE'), out[1])
         groups = d.ids.summary()
-        self.assertEqual([g['id'] for g in groups['referees']], ['REF-1'])
+        self.assertEqual(groups['referees'], [])
+        self.assertFalse([g for g in d.ids.registry.values() if g.role == 'referee' or g.pid.startswith('REF')])
         self.assertEqual(sorted(g['id'] for g in groups['players']), ['A-01', 'B-01'])
+        found = [e for e in d.kinds('nontarget') if e['message'].startswith('NON-TARGET PERSON')]
+        self.assertEqual(len(found), 1)
+        for line in ('Local Track: 1', 'Hint: REFEREE_LIKE', 'Global identity: none', 'Non-target confidence'):
+            self.assertIn(line, found[0]['message'])
+        self.assertFalse(d.ids.tracks[1].player_id)
 
     def test_people_outside_the_pitch_are_never_promoted(self):
         d = Driver()
@@ -273,10 +280,11 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(len(d.ids.summary()['goalkeepers']), 1)
         self.assertTrue(any('GOALKEEPER TEAM' in e['message'] and 'Team: A' in e['message'] for e in d.kinds('role')))
 
-    def test_player_identity_that_turns_out_to_be_a_referee_is_converted(self):
-        # A referee whose jersey looks like team B's. Early on the kit model has no shorts prototypes
-        # and the detector calls them a player: they become a team B player. Then the black shorts and
-        # the detector's referee votes reveal the referee.
+    def test_referee_promoted_as_a_player_by_mistake_is_withdrawn(self):
+        # A referee whose jersey looks like team B's. Early on the kit model has no shorts prototypes and the
+        # detector calls them a player: they become a team B player. Then the black shorts and the detector's
+        # referee votes reveal the referee. The identity never became an established team B player and showed
+        # this same person from its start: it is withdrawn, and every frame it labelled becomes NON_TARGET.
         d = Driver()
         d.model = MODEL.replace(shorts_a=None, shorts_b=None, referee_shorts=None)
         ref = Person('B', shorts='REF', look='REF', cls='player')
@@ -286,42 +294,40 @@ class IdentityTests(unittest.TestCase):
         self.assertTrue(first and first.startswith('B-'), out[1])
         d.model, ref.cls = MODEL, 'referee'
         out = d.run(12, visible)
-        self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team'], out[1]['display']), ('REF-1', 'REFEREE', None, 'REF-1'))
-        update = [e for e in d.kinds('role') if 'New role: REFEREE' in e['message']]
-        self.assertEqual(len(update), 1, [e['message'] for e in d.kinds('role')])
-        for line in ('ROLE UPDATE', f'Global ID: {first} -> REF-1', 'Old role: PLAYER (team B)', 'Team A similarity', 'Team B similarity', 'Referee confidence'):
-            self.assertIn(line, update[0]['message'])
-        old = d.ids.registry[first]
-        self.assertEqual((old.status, old.retired_into), ('retired', 'REF-1'))
-        # Every observation of this person, also those labelled before the conversion, is the referee.
-        mine = [p for frame in d.people for p in frame if p['track'] == 1 and p['id']]
-        self.assertTrue(mine)
-        self.assertEqual({(p['id'], p['role'], p['team']) for p in mine}, {('REF-1', 'REFEREE', None)})
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['state'], out[1]['team']), (None, 'IGNORE', 'nontarget', None), out[1])
+        withdrawn = [e for e in d.kinds('nontarget') if e['message'].startswith('PLAYER IDENTITY WITHDRAWN')]
+        self.assertEqual(len(withdrawn), 1, [e['message'][:70] for e in d.events if e['kind'] in ('role', 'nontarget')])
+        for line in (f'Global ID: {first} (was team B)', 'Team history:', 'Same person since the identity was created: yes',
+                     'Observations relabelled NON_TARGET', 'Referee-like evidence: 4 clean checks in a row'):
+            self.assertIn(line, withdrawn[0]['message'])
+        g = d.ids.registry[first]
+        self.assertEqual(g.status, 'retired')
+        self.assertTrue(g.withdrawn)
+        self.assertFalse([p for frame in d.people for p in frame if p['track'] == 1 and p['id']], 'no frame of the referee keeps a player identity')
         groups = d.ids.summary()
-        self.assertEqual([g['id'] for g in groups['referees']], ['REF-1'])
-        self.assertEqual([(g['id'], g['retiredInto']) for g in groups['retired']], [(first, 'REF-1')])
-        self.assertNotIn(first, [g['id'] for g in groups['players']])
-        self.assertTrue(groups['referees'][0]['roleLocked'])
+        self.assertEqual([x['id'] for x in groups['withdrawn']], [first])
+        self.assertNotIn(first, [x['id'] for x in groups['players']])
+        self.assertEqual(groups['referees'], [])
+        self.assertFalse([e for e in d.kinds('role') if 'New role: REFEREE' in e['message']])
 
-    def test_returning_referee_is_reconnected_not_made_a_player(self):
-        # shorts: black shorts reveal the referee; look-only: same kit as team B, only their own
-        # appearance (OSNet) tells them apart from the team B players.
+    def test_returning_referee_is_ignored_again_not_made_a_player(self):
+        # shorts: black shorts give the referee away; look-only: same kit as team B, only their own
+        # appearance (OSNet, like the ignored official seen before) and the detector tell them apart.
         for variant, shorts in (('shorts', 'REF'), ('look-only', 'B')):
             with self.subTest(variant):
                 d = Driver()
                 ref = Person('B', shorts=shorts, look='REF', cls='referee')
                 team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
                 out = d.run(4, {1: (ref, .45, .4), **team})
-                self.assertEqual(out[1]['id'], 'REF-1')
+                self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'), out[1])
                 d.step(team, ended=[1])
                 d.run(6, team)
-                ref.cls = 'player'  # back on a new local track, and the detector now calls them a player
                 out = d.run(5, {**team, 40: (ref, .5, .45)})
-                self.assertEqual(out[40]['id'], 'REF-1')
-                ids = {p['id'] for frame in d.people for p in frame if p['track'] == 40 and p['id']}
-                self.assertEqual(ids, {'REF-1'})
-                self.assertEqual(len(d.ids.summary()['referees']), 1)
+                self.assertIsNone(out[40]['id'], out[40])
+                self.assertEqual(out[40]['state'], 'nontarget', out[40])
+                self.assertFalse({p['id'] for frame in d.people for p in frame if p['track'] in (1, 40) and p['id']})
                 self.assertEqual(sorted(g['id'] for g in d.ids.summary()['players']), ['A-01', 'A-02', 'A-03', 'B-01', 'B-02', 'B-03'])
+                self.assertFalse([g for g in d.ids.registry.values() if g.role == 'referee'])
 
     def test_track_switch_onto_the_referee_never_relabels_the_player(self):
         d = Driver()
@@ -332,37 +338,41 @@ class IdentityTests(unittest.TestCase):
         self.assertTrue(pid and pid.startswith('A-'))
         switched = len(d.people)
         d.run(10, {1: (ref, .42, .5), **team})  # the local tracker now follows the referee on track 1
-        self.assertEqual(d.ids.tracks[1].player_id, 'REF-1')
+        self.assertIsNone(d.ids.tracks[1].player_id)
+        self.assertEqual(d.ids.tracks[1].state, 'nontarget')   # the referee is ignored; the player's identity is not theirs
         self.assertNotEqual(d.ids.registry[pid].status, 'retired')
+        self.assertTrue([e for e in d.kinds('switch') if e['track'] == 1])
         before = {p['id'] for frame in d.people[:switched] for p in frame if p['track'] == 1 and p['id']}
         self.assertEqual(before, {pid}, 'the player observations before the switch keep the player identity')
         out = d.run(3, {**team, 1: (ref, .42, .5), 30: (player, .3, .55)})  # the player is back on a new track
         self.assertEqual(out[30]['id'], pid)
 
-    def test_assistant_referee_on_the_touchline_is_an_official(self):
+    def test_assistant_referee_on_the_touchline_is_ignored(self):
         d = Driver()
         visible = {1: (Person('REF', cls='player'), .5, .93)}  # the detector calls them a player
         visible.update({10+i: t for i, t in enumerate(roster('A', 3)+roster('B', 3, x0=.55))})
         out = d.run(5, visible, zone=lambda tid: 'boundary' if tid == 1 else 'inside')
-        self.assertEqual((out[1]['id'], out[1]['role']), ('REF-1', 'REFEREE'))
-        found = [e for e in d.kinds('role') if e['message'].startswith('REFEREE IDENTIFIED')]
+        self.assertEqual((out[1]['id'], out[1]['state'], out[1]['role']), (None, 'nontarget', 'NON_TARGET'), out[1])
+        found = [e for e in d.kinds('nontarget') if e['message'].startswith('NON-TARGET PERSON')]
         self.assertEqual(len(found), 1)
-        for line in ('Global ID: REF-1', 'Team A similarity', 'Team B similarity', 'Referee confidence'):
+        for line in ('Local Track: 1', 'Team A similarity', 'Team B similarity', 'Non-target confidence', 'Global identity: none'):
             self.assertIn(line, found[0]['message'])
-        self.assertEqual({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'REF-1'})
+        self.assertFalse({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']})
+        self.assertFalse([g for g in d.ids.registry.values() if g.role == 'referee'])
 
-    def test_odd_kit_alone_never_makes_a_referee(self):
+    def test_odd_kit_alone_never_makes_anyone_ignored(self):
         # A kit matching neither team (a team kit in shadow does that too) with the detector never saying
-        # referee: nobody becomes REF-n on colour alone.
+        # referee: nobody is ignored as referee-like on colour alone; they stay an undecided candidate.
         d = Driver()
         odd = Person('GK', cls='player')
         visible = {1: (odd, .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)}
         out = d.run(6, visible)
         self.assertIsNone(out[1]['id'], out[1])
-        self.assertEqual(d.ids.summary()['referees'], [])
+        self.assertIn(out[1]['state'], ('candidate', 'unknown'), out[1])
+        self.assertFalse([e for e in d.kinds('nontarget')])
         self.assertEqual(sorted(g['id'] for g in d.ids.summary()['players']), ['A-01', 'B-01'])
 
-    def test_loosely_matching_kit_with_detector_referee_votes_is_a_referee(self):
+    def test_loosely_matching_kit_with_detector_referee_votes_is_ignored(self):
         # A referee kit close to team B's colours (inside B's spread, but near its edge) and a detector
         # that calls them a referee most of the time: the detector is not held back by the loose match.
         with pink_kit():
@@ -371,7 +381,7 @@ class IdentityTests(unittest.TestCase):
             ref.cycle = ['referee', 'referee', 'player', 'referee', 'referee', 'referee', 'player', 'referee', 'referee', 'referee']
             visible = {1: (ref, .5, .5), 2: (Person('A'), .3, .6), 3: (Person('B'), .7, .6)}
             out = d.run(6, visible)
-            self.assertEqual((out[1]['id'], out[1]['role']), ('REF-1', 'REFEREE'), out[1])
+            self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'), out[1])
             self.assertGreaterEqual(len(d.ids.referee_samples(MODEL)), 3, "a loosely matching kit the detector calls referee seeds the referee kit")
             # The same kit with the detector mostly saying player stays a team B player.
             d = Driver()
@@ -381,11 +391,12 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual((out[1]['team'], out[1]['role']), ('B', 'PLAYER'), out[1])
             self.assertEqual(d.ids.referee_samples(MODEL), [])
 
-    def test_referee_in_a_team_like_kit_is_corrected_by_the_known_referees_appearance(self):
+    def test_referee_in_a_team_like_kit_is_withdrawn_once_the_officials_look_is_known(self):
         # The centre referee in a kit near team B's colours, the detector calling them a player: with no
-        # referee known they become a team B player. Once the other official (REF-1) is confirmed, their
-        # whole appearance says "like the known referees, not like team B's players" (the officials wear one
-        # uniform), the player identity is converted into REF-2 and retired, and its observations follow.
+        # official seen yet they become a team B player. Once the other official is seen (and ignored), their
+        # whole appearance says "like the officials, not like team B's players" (the officials wear one
+        # uniform) and they follow play without playing it: never an established team B player (the kit only
+        # loosely matches), the same person from the start, so the identity is withdrawn.
         with pink_kit():
             d = Driver()
             ref1 = Person('REF')
@@ -394,51 +405,50 @@ class IdentityTests(unittest.TestCase):
             out = d.run(3, {1: (centre, .5, .45), **team})
             pid = out[1]['id']
             self.assertTrue(pid and pid.startswith('B-'), out[1])
+            # From here the detector calls them a referee now and then (as the real detector does). The officials'
+            # look alone would not be enough: it must be backed by something else (see IdentityManager._supported).
+            centre.cycle = ['player', 'referee', 'player', 'player', 'referee']
             view = {1: (centre, .5, .45), 2: (ref1, .35, .4), **team}
-            out = d.run(8, view, ball=(.56, .55))  # the ball a couple of metres from the referee, never at their feet
-            self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team']), ('REF-2', 'REFEREE', None), out[1])
-            self.assertEqual(out[2]['id'], 'REF-1')
-            self.assertEqual((d.ids.registry[pid].status, d.ids.registry[pid].retired_into), ('retired', 'REF-2'))
-            self.assertEqual({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'REF-2'})
-            update = [e for e in d.kinds('role') if 'New role: REFEREE' in e['message'] and f'Global ID: {pid} -> REF-2' in e['message']]
-            self.assertEqual(len(update), 1, [e['message'] for e in d.kinds('role')])
-            for line in ('Appearance vs known referees / team A / team B:', 'Ball-following behaviour:', 'Team formation consistency:', 'Final: '):
-                self.assertIn(line, update[0]['message'])
+            out = d.run(12, view, ball=(.56, .55))  # the ball a couple of metres from the referee, never at their feet
+            self.assertEqual((out[1]['id'], out[1]['state'], out[1]['team']), (None, 'nontarget', None), out[1])
+            self.assertEqual(out[2]['state'], 'nontarget')
+            self.assertTrue(d.ids.registry[pid].withdrawn)
+            self.assertFalse({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']})
+            withdrawn = [e for e in d.kinds('nontarget') if e['message'].startswith('PLAYER IDENTITY WITHDRAWN')]
+            self.assertEqual(len(withdrawn), 1, [e['message'][:70] for e in d.events if e['kind'] in ('role', 'nontarget')])
+            self.assertIn('looks ref', withdrawn[0]['message'])
             players = d.ids.summary()['players']
             self.assertEqual(sum(1 for g in players if g['team'] == 'B'), 3)
             self.assertNotIn(pid, [g['id'] for g in players])
-            referee = next(g for g in d.ids.summary()['referees'] if g['id'] == 'REF-2')
-            self.assertIsNotNone(referee['roleEvidence'].get('refereeAppearance'))
-            self.assertIn('looks ref', out[1]['why'])
-            # Settled: the detector calling them a player for a long while never makes them B-04 again.
+            # Settled: the detector calling them a player for a long while never makes them a B player again.
+            centre.cycle = None
             out = d.run(12, {**view, 1: (centre, .55, .5)})
-            self.assertEqual((out[1]['id'], out[1]['role']), ('REF-2', 'REFEREE'))
-            self.assertEqual(len(d.ids.summary()['referees']), 2)
+            self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'))
+            self.assertFalse([g for g in d.ids.registry.values() if g.role == 'referee'])
 
-    def test_touchline_official_in_a_team_like_kit_is_an_assistant_referee(self):
+    def test_touchline_official_in_a_team_like_kit_is_ignored_as_a_sideline_official(self):
         # The officials at the near touchline: a kit near team B's colours, the detector calling them a
-        # player, on or just outside the line and moving along it. With REF-1 known, the whole appearance
-        # and the touchline behaviour make them an ASSISTANT REFEREE, never a team B player.
+        # player, on or just outside the line and moving along it. With another official already ignored, the
+        # whole appearance and the touchline behaviour make them a SIDELINE_OFFICIAL: ignored, never a team B
+        # player.
         with pink_kit():
             d = Driver()
             ref1 = Person('REF')
             official = Person('PINK', cls='player', unique=same_uniform(ref1))
             team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
             d.run(2, {2: (ref1, .35, .4), **team})
-            self.assertEqual(d.ids.tracks[2].player_id, 'REF-1')
+            self.assertEqual(d.ids.tracks[2].state, 'nontarget')
             edge = {'edge': {'side': 'near', 'metres': 1.0, 'dir': (1.0, 0.0)}}
             x = .3
             for _ in range(25):  # 5 s walking along the near touchline, a metre outside it
                 x += .006
                 out = d.step({1: (official, x, .93), 2: (ref1, .35, .4), **team}, zone=lambda tid: 'boundary' if tid == 1 else 'inside',
                              cues=lambda tid: edge if tid == 1 else {})
-            self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team']), ('REF-2', 'REFEREE', None), out[1])
-            self.assertEqual(d.ids.registry['REF-2'].official, 'assistant')
-            self.assertEqual(next(g for g in d.ids.summary()['referees'] if g['id'] == 'REF-2')['official'], 'ASSISTANT_REFEREE')
-            found = [e for e in d.kinds('role') if e['message'].startswith('REFEREE IDENTIFIED') and 'Global ID: REF-2' in e['message']]
-            self.assertEqual(len(found), 1, [e['message'] for e in d.kinds('role')])
-            for line in ('Appearance vs known referees / team A / team B:', 'Time on or outside the touchline: 100%', 'movement along it: 1.00',
-                         'Final: ASSISTANT REFEREE'):
+            self.assertEqual((out[1]['id'], out[1]['state'], out[1]['team'], out[1]['hint']), (None, 'nontarget', None, 'SIDELINE_OFFICIAL'), out[1])
+            found = [e for e in d.kinds('nontarget') if e['message'].startswith('NON-TARGET PERSON') and e['track'] == 1]
+            self.assertEqual(len(found), 1, [e['message'][:60] for e in d.kinds('nontarget')])
+            for line in ("Appearance vs the officials' look / team A / team B:", 'Time on or outside the touchline: 100%', 'movement along it: 1.00',
+                         'Final: ASSISTANT REFEREE', 'Hint: SIDELINE_OFFICIAL'):
                 self.assertIn(line, found[0]['message'])
             self.assertIn('ASSISTANT REFEREE', out[1]['why'])
             self.assertEqual(sum(1 for g in d.ids.summary()['players'] if g['team'] == 'B'), 3)
@@ -457,13 +467,14 @@ class IdentityTests(unittest.TestCase):
             out = d.step({1: (coach, x, .93), **visible}, zone=lambda tid: 'boundary' if tid == 1 else 'inside', cues=lambda tid: edge if tid == 1 else {})
         self.assertIsNone(out[1]['id'], out[1])
         self.assertEqual(out[1]['role'], 'UNKNOWN')
-        self.assertEqual(len(d.ids.summary()['referees']), 1)
+        self.assertEqual(d.ids.tracks[2].state, 'nontarget')   # the referee is ignored, the coach is not referee-like
+        self.assertEqual(d.ids.summary()['referees'], [])
 
     def test_full_team_doubts_another_team_kit_player_the_detector_calls_a_referee(self):
-        # Team B already has its full count of identities. Another person in team B's kit whom the detector
-        # calls a referee more often than not is then a referee, not one more B player; with room in the
-        # team the same evidence, held back by the team kit, leaves them a team B player.
-        for cap, expected in ((3, ('REF', 'REFEREE', None)), (11, ('B-', 'PLAYER', 'B'))):
+        # Team B already has its full count of identities on the pitch. Another person in team B's kit whom the
+        # detector calls a referee more often than not is then ignored as referee-like, not one more B player;
+        # with room in the team the same evidence, held back by the team kit, leaves them a team B player.
+        for cap in (3, 11):
             with self.subTest(cap=cap):
                 d = Driver(Options(max_per_team=cap))
                 team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
@@ -471,21 +482,24 @@ class IdentityTests(unittest.TestCase):
                 extra = Person('B', cls='player')
                 extra.cycle = ['referee', 'referee', 'player', 'referee', 'player']
                 out = d.run(4, {1: (extra, .5, .45), **team})
-                self.assertTrue(out[1]['id'] and out[1]['id'].startswith(expected[0]), out[1])
-                self.assertEqual((out[1]['role'], out[1]['team']), expected[1:], out[1])
                 if cap == 3:
-                    self.assertIn('Team already has its full count of identities', [e for e in d.kinds('role') if 'REFEREE IDENTIFIED' in e['message']][0]['message'])
+                    self.assertEqual((out[1]['id'], out[1]['state'], out[1]['team']), (None, 'nontarget', None), out[1])
+                    found = [e for e in d.kinds('nontarget') if e['message'].startswith('NON-TARGET PERSON')]
+                    self.assertIn('Team already has its full count of identities', found[0]['message'])
+                else:
+                    self.assertTrue(out[1]['id'] and out[1]['id'].startswith('B-'), out[1])
+                    self.assertEqual((out[1]['role'], out[1]['team']), ('PLAYER', 'B'), out[1])
 
-    def test_locked_referee_is_never_turned_into_a_player(self):
+    def test_ignored_referee_stays_ignored_while_the_detector_wavers(self):
         d = Driver()
         ref = Person('REF')
         visible = {1: (ref, .5, .5), 2: (Person('B'), .7, .6), 3: (Person('A'), .3, .6)}
         d.run(3, visible)
-        self.assertTrue(d.ids.registry['REF-1'].role_locked)
-        ref.cls = 'player'  # the detector changes its mind for a long while
+        self.assertEqual(d.ids.tracks[1].state, 'nontarget')
+        ref.cls = 'player'  # the detector changes its mind for a long while; the kit is still the referee's
         out = d.run(12, visible)
-        self.assertEqual((out[1]['id'], out[1]['role'], out[1]['display']), ('REF-1', 'REFEREE', 'REF-1'))
-        self.assertEqual(len(d.ids.registry), 3)
+        self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'))
+        self.assertEqual(len(d.ids.registry), 2)
 
     @staticmethod
     def keeper_scene(keeper, x=.04):
@@ -516,21 +530,19 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual((out[1]['id'], out[1]['role']), ('GK-1', 'GOALKEEPER'))
         self.assertEqual(d.ids.summary()['referees'], [])
 
-    def test_unconfirmed_referee_that_is_the_goalkeeper_is_converted(self):
+    def test_keeper_first_ignored_as_referee_like_becomes_the_goalkeeper(self):
         d = Driver()
         keeper = Person('GK', cls='player')
         keeper.cycle = ['referee', 'player', 'player', 'referee', 'player']  # the detector sometimes takes the odd kit for a referee
-        out = d.run(3, self.keeper_scene(keeper, x=.38))  # away from the goal: an unconfirmed referee
-        self.assertEqual(out[1]['id'], 'REF-1')
+        out = d.run(3, self.keeper_scene(keeper, x=.38))  # away from the goal: referee-like, ignored
+        self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'), out[1])
         keeper.cycle, keeper.cls = None, 'player'
-        self.assertFalse(d.ids.registry['REF-1'].role_locked)
         at_goal = {'near_goal': True, 'goal_side': 'left', 'extreme': True, 'isolated': True}
-        out = d.run(12, self.keeper_scene(keeper), cues=lambda tid: at_goal if tid == 1 else {})
-        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['role']), ('GK-1', 'GK-A', 'GOALKEEPER'))
+        out = d.run(15, self.keeper_scene(keeper), cues=lambda tid: at_goal if tid == 1 else {})
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['role']), ('GK-1', 'GK-A', 'GOALKEEPER'), out[1])
         found = [e for e in d.kinds('role') if e['message'].startswith('GOALKEEPER IDENTIFIED')]
         self.assertEqual(len(found), 1)
-        self.assertIn('Global ID: REF-1 -> GK-1 (REF-1 retired', found[0]['message'])
-        self.assertEqual((d.ids.registry['REF-1'].status, d.ids.registry['REF-1'].retired_into), ('retired', 'GK-1'))
+        self.assertTrue([e for e in d.kinds('nontarget') if e['message'].startswith('NON-TARGET PERSON RECONSIDERED')])
         self.assertEqual({p['display'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'GK-A'})
         self.assertEqual(d.ids.summary()['referees'], [])
 
@@ -779,21 +791,22 @@ class IdentityTests(unittest.TestCase):
         return {'id': pid, 'role': role, 'team': team, 'status': 'unknown' if excluded else 'missing', 'gallery': gallery,
                 'roleLocked': not excluded, 'manual': True, 'excluded': excluded, 'firstSeen': 0.0, 'lastSeen': 0.0}
 
-    def test_referee_you_corrected_is_recognised_by_appearance_in_a_later_run(self):
+    def test_referee_you_corrected_is_recognised_and_left_out_in_a_later_run(self):
         # The referee wears a jersey like team B's and the detector calls them a player: on their own they
-        # would become a team B player. You corrected them to REF-4 in an earlier run.
+        # would become a team B player. You corrected them to a referee (REF-4) in an earlier version: referees
+        # are not identities now, so they are recognised by appearance and left out, never a B player first.
         ref = Person('B', look='REF', cls='player')
         d = Driver(saved={'identities': [self.remembered('REF-4', 'referee', None, ref)], 'counters': {}})
         team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
         out = d.run(4, {1: (ref, .45, .5), **team})
-        self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team'], out[1]['display'], out[1].get('manual')), ('REF-4', 'REFEREE', None, 'REF-4', True), out[1])
-        self.assertEqual({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']}, {'REF-4'})   # never a B player first
-        self.assertTrue(any(e['message'].startswith('RECOGNISED: IDENTIFIED BY YOU') and 'REF-4' in e['message'] for e in d.kinds('reid')))
-        self.assertTrue(any(e['message'].startswith('REMEMBERED FROM YOUR CORRECTIONS') and 'REF-4: referee' in e['message'] for e in d.kinds('manual')))
+        self.assertEqual((out[1]['id'], out[1]['display'], out[1]['label'], out[1].get('excludedId')), (None, 'OUT', 'EXCLUDED_BY_YOU', 'REF-4'), out[1])
+        self.assertFalse({p['id'] for frame in d.people for p in frame if p['track'] == 1 and p['id']})   # never a B player first
+        self.assertTrue(any(e['message'].startswith('RECOGNISED: NOT PART OF THE MATCH') for e in d.kinds('manual')))
+        self.assertTrue(any(e['message'].startswith('REMEMBERED FROM YOUR CORRECTIONS') and 'REF-4: not part of the match' in e['message'] for e in d.kinds('manual')))
         self.assertEqual(sum(1 for g in d.ids.summary()['players'] if g['team'] == 'B'), 3)
-        # Your call stands: the detector and the kit never turn REF-4 into a player.
+        self.assertEqual([g['id'] for g in d.ids.summary()['excluded']], ['REF-4'])
         out = d.run(12, {1: (ref, .45, .5), **team})
-        self.assertEqual((out[1]['id'], out[1]['role']), ('REF-4', 'REFEREE'))
+        self.assertEqual((out[1]['id'], out[1]['display']), (None, 'OUT'))
         self.assertTrue(d.ids.registry['REF-4'].manual)
 
     def test_player_you_corrected_is_never_converted_to_a_referee(self):
@@ -847,7 +860,8 @@ class IdentityTests(unittest.TestCase):
         d = Driver(saved={'identities': [self.remembered('REF-4', 'referee', None, ref), self.remembered('B-08', 'player', 'B', Person('GK'), excluded=True)], 'counters': {}})
         snap = d.ids.snapshot()
         nxt = Driver(saved=snap)
-        self.assertEqual((nxt.ids.registry['REF-4'].manual, nxt.ids.registry['REF-4'].role_locked, nxt.ids.registry['REF-4'].status), (True, True, 'missing'))
+        # A referee you corrected is remembered as someone to leave out (referees are not identities).
+        self.assertEqual((nxt.ids.registry['REF-4'].manual, nxt.ids.registry['REF-4'].excluded, nxt.ids.registry['REF-4'].status), (True, True, 'unknown'))
         self.assertEqual((nxt.ids.registry['B-08'].excluded, nxt.ids.registry['B-08'].status), (True, 'unknown'))
 
     def test_identity_is_never_deleted(self):

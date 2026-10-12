@@ -8,6 +8,6 @@ Flow per frame:
     audience, size) -> local tracker (BoT-SORT) -> appearance descriptors ->
     teams (kit model, role votes) -> identity.IdentityManager (global players)
 
-Local track IDs are temporary. Global identities (A-07, GK-1, REF-1) persist
+Local track IDs are temporary. Global identities (A-07, GK-1) persist
 for the whole run and can be continued into the next run.
 """

@@ -12,13 +12,17 @@ sees, and it does **not** treat a new tracker ID as a new player:
   considered. Spectators, staff, bench, photographers and people behind the
   boards are rejected, with a reason you can see.
 - Short-lived **local track IDs** (BoT-SORT) are separated from persistent
-  **global identities** (`A-07`, `B-03`, `GK-1`, `REF-1`). A player who leaves the
+  **global identities** (`A-07`, `B-03`, `GK-1`). A player who leaves the
   view and comes back is re-identified and keeps their global identity.
 - When identity is uncertain, the person stays *identity uncertain* instead of
   being guessed. A wrong merge is worse than a short unknown.
-- Identity, team and role are separate. Referees (`REF-1`, `REF-2`) are tracked
-  separately and never counted as players; goalkeepers are recognised from
-  position and kit and shown by team (`GK-A`, `GK-B`).
+- Identity, team and role are separate. Only match entities get identities: team
+  players and goalkeepers (recognised from position and kit, shown by team as
+  `GK-A`, `GK-B`). Referees, assistant referees, coaches and staff are **ignored
+  people** (`NON_TARGET`): they keep a local box, so the tracker knows when
+  someone overlaps a player, but never get an identity, a team, an appearance
+  memory or a place in the 2D view, and stay unmarked in the normal overlay
+  (debug shows them faintly as `IGNORE`). A confirmed player never becomes one.
 - One match ball is followed as a persistent track (`BALL-1`), never rediscovered
   frame by frame. Painted lines, static spots and things fixed to players (wrist
   tape, boots) are rejected; while hidden the ball is predicted; when it cannot
@@ -140,7 +144,7 @@ imported lazily), so all of its logic is unit-tested without a GPU.
 - Assistant referees patrol just outside the touchline. A lone person just
   beyond the near touchline whom the detector confidently calls a referee is
   kept (in the `boundary` zone); a track that stays there can only ever become
-  an official, never a player.
+  an ignored person (`NON_TARGET`), never a player.
 - Turning off **Only track people on the pitch** keeps everyone (for review).
 
 ### 2. Candidates before players
@@ -165,12 +169,13 @@ person stands (in or near a penalty area, the deepest person towards a goal,
 isolated from everyone, on the touchline):
 
 - `PLAYER_TEAM_A/B`: at least 70% of kit votes for one team, and the person does
-  not look more like the known referees than like that team's players (then they
+  not look more like the officials than like that team's players (then they
   stay a candidate rather than becoming a wrong player).
-- `REFEREE`, by the strongest of four routes: the detector's referee votes; the
-  person's **whole appearance** (OSNet embedding plus jersey, shorts, socks and
-  body-layout colours, over the last few clean crops) looking more like the
-  known referees than like either team's players; **touchline behaviour** (time
+- `REFEREE` (a filter, not an identity: an unidentified person read this way
+  becomes `NON_TARGET`, see below), by the strongest of four routes: the
+  detector's referee votes; the person's **whole appearance** (OSNet embedding
+  plus jersey, shorts, socks and body-layout colours, over the last few clean
+  crops) looking more like the officials than like either team's players; **touchline behaviour** (time
   on or up to 4 m outside one pitch edge, moving along it) together with
   referee appearance, the referee kit or detector votes (an assistant referee);
   or a kit like the learned referee kit, or matching neither team and backed by
@@ -182,13 +187,18 @@ isolated from everyone, on the touchline):
   that team's colour spread: a pink referee next to a garnet kit); it never
   holds back the appearance and touchline routes, which already weigh the
   person against that team's players. When that team already has its full
-  count of identities, another "team player" is doubted and the referee
-  threshold drops. Once a referee is locked, every crop in its gallery joins
-  the referee appearance gallery, so the other officials in the same uniform
-  are found by looking like them; a person the detector mostly calls a referee
-  also seeds the referee kit. Central-referee behaviour (following the ball
-  without playing it, sitting outside the supposed team's shape, moving with
-  neither team) adds to the appearance route; it never decides alone.
+  count of identities *on the pitch now*, another "team player" is doubted and
+  the referee threshold drops. The **officials' look** is anonymous: the clean
+  crops of people ignored as referee-like in the last minute whose reading had
+  independent support (detector votes, the referee kit or the touchline), so the
+  other officials in the same uniform are found by looking like them; nobody is
+  identified by it. It never decides alone: a referee reading that nothing but
+  the officials' look supports (no detector votes, referee kit, touchline,
+  referee movement or kit matching neither team) is decided again without it. A
+  person the detector mostly calls a referee also seeds the referee kit.
+  Central-referee behaviour (following the ball without playing it, sitting
+  outside the supposed team's shape, moving with neither team) adds to the
+  appearance route.
 - `GOALKEEPER`: the detector's goalkeeper votes; or time in or near a penalty
   area in a kit unlike the outfield kits (or like a known goalkeeper kit) while
   being the deepest or most isolated person. At least one strong cue (detector,
@@ -198,10 +208,38 @@ isolated from everyone, on the touchline):
 - Otherwise the person stays `CANDIDATE` (later `UNKNOWN`) and is never forced
   into team A or B.
 
-Roles keep being re-evaluated after promotion, about once a second. A referee or
+Roles keep being re-evaluated after promotion, about once a second. A confirmed
 goalkeeper role with a role confidence of at least 0.7 is **locked**: it
 survives leaving the goal area, odd frames or a detector that changes its mind,
 and is never turned back into a team player by a few frames.
+
+**Referees are ignored people, not identities.** A person whose own evidence
+reads referee-like becomes `NON_TARGET` (display `IGNORE`, a `hint` of
+`REFEREE_LIKE` or `SIDELINE_OFFICIAL`; event `NON-TARGET PERSON`): no global
+identity, team, gallery or 2D position, only the local box, which still counts
+for overlaps (a player overlapping them has their memory frozen) and for the
+ball's boot check. Identity comes first: before a referee-like reading ignores
+someone, the missing players they may be are compared (a missing player scoring
+near the reconnection threshold on their crops and place keeps them a player
+candidate, `ROLE UPDATE DEFERRED`), and no new player identity is ever created
+from referee-like evidence. Being ignored is not final: two seconds of clear
+player or goalkeeper evidence make the person a candidate again (`NON-TARGET
+PERSON RECONSIDERED`), and their frames are kept for retroactive labelling and
+the offline pass. A **confirmed player is never turned into an ignored person**
+by a role reading: the reading is logged as `ROLE UPDATE IGNORED` (raw role
+`NON_TARGET`, the reason, "identity, team and role kept"); a local track that
+moved to someone else is split by the switch check instead. The only exception
+is a player identity that never became an *established* player — fewer than 25
+clean kit votes, or under 60% of them clearly (not loosely) in its team's kit —
+and that showed the same referee-like person from its start (its first crops
+look like the crops now), read as referee-like on four clean checks in a row
+with independent support: a non-target person promoted by mistake (a pink
+referee next to a garnet kit, promoted before any official was seen). It is
+**withdrawn** (`PLAYER IDENTITY WITHDRAWN`, status `WITHDRAWN`, kept in
+`match.withdrawn`), every frame it labelled becomes `NON_TARGET` and leaves the
+2D view, and the person is ignored from then on. Referee identities saved by an
+earlier version are not loaded; a referee you corrected is recognised by
+appearance and left out like someone you marked as not part of the match.
 
 **Goalkeeper is a role with a place.** A goalkeeper candidate never creates,
 converts or locks a goalkeeper identity (`GK-n`, shown as `GK-A` / `GK-B`) until
@@ -211,8 +249,8 @@ in at least half the observations; or consistently the deepest person, alone or
 with detector / kit support; or sustained detector votes in a distinct kit plus
 some goal-area or deepest-person evidence), and nothing that says sideline:
 feet on or outside the touchline in more than 20% of observations, the touchline
-corridor (on the line to 4 m out) in 30% or more, or referee evidence of 0.5 veto
-it. The detector calling someone a goalkeeper is never enough on its own, and a
+corridor (on the line to 4 m out) in 30% or more, or referee-like evidence of 0.5
+veto it. The detector calling someone a goalkeeper is never enough on its own, and a
 person whose feet say sideline is not even promoted as a candidate. Until then
 the track shows `GK-?` and `GOALKEEPER CANDIDATE` events list the evidence
 (detector votes, pitch state inside / on or outside the touchline, goal
@@ -224,7 +262,8 @@ Each team's goalkeeper **slot** is a live relationship, not a historical fact
 (`goalkeeperSlots` in the result summary: `{"A": "GK-2", "B": null}`). It stays
 empty until a confirmed candidate exists; `GK-?` is better than the wrong person
 as `GK-B`. A confirmed goalkeeper is **revoked** only by sustained contradictory
-evidence about that person: referee evidence of 0.7, outside the pitch for half
+evidence about that person: referee-like evidence of 0.7 away from any goal (a
+keeper at their goal is never made non-target by a reading), outside the pitch for half
 of the last 10 s away from any goal, or patrolling the touchline away from any
 goal, on three consecutive checks (about 3 s) over a full 10 s window, and never
 in the first 5 s after a track was bound. Walking upfield while the detector
@@ -240,34 +279,27 @@ candidate confirmed at that goal (revoked when absent, de-teamed when visible);
 an owner itself confirmed at a goal only loses the *team* once it has been out
 of view for 10 s while another keeper stands in that goal (`GOALKEEPER TEAM
 RELEASED`: it stays a goalkeeper, re-identifiable, re-teamed by the side votes).
-The keeper-kit team vote is evidence, never ownership. A goalkeeper or referee
+The keeper-kit team vote is evidence, never ownership. A goalkeeper
 candidate in a clearly different jersey from a missing one is never held as
 that identity's possible return, and a candidate confirmed at a goal for 10 s
 is decided (re-identified at a lower bar or created) rather than deferred
 forever behind a similar-looking stale owner. A track whose feet say sideline
 (vetoed) is neither promoted as a goalkeeper candidate nor matched to any
-missing goalkeeper identity. A confirmed player changes role
-only after two consecutive checks (about 2 s) ask for the same new role, so a
-label never flips back and forth. A player identity whose evidence
-becomes clearly referee is converted: a matching missing referee identity, or a
-new `REF-n`, takes over the track; if the player identity only ever followed
-this person it is merged into the referee (`RETIRED`) and every observation
-already labelled with it is relabelled, so a referee never stays `B-15`. A
-player identity that turns out to be the goalkeeper keeps its ID, gets the
-locked goalkeeper role and is shown as `GK-A` / `GK-B`, earlier observations
-included. A returning referee or goalkeeper is matched by their own appearance
-even when the detector or the kit vote calls them a player. Every change is
-logged (`ROLE UPDATE`, `GOALKEEPER CANDIDATE`, `GOALKEEPER IDENTIFIED`,
-`GOALKEEPER TEAM`, `GOALKEEPER REVOKED`), with the
-evidence behind it: appearance against the known referees and both teams,
+missing goalkeeper identity. A confirmed player becomes a goalkeeper only after
+four consecutive clean checks (about 4 s) ask for it, so a label never flips
+back and forth. A player identity that turns out to be the goalkeeper keeps its
+ID, gets the locked goalkeeper role and is shown as `GK-A` / `GK-B`, earlier
+observations included. A returning goalkeeper is matched by their own
+appearance even when the detector or the kit vote calls them a player. Every
+change is logged (`ROLE UPDATE`, `GOALKEEPER CANDIDATE`, `GOALKEEPER
+IDENTIFIED`, `GOALKEEPER TEAM`, `GOALKEEPER REVOKED`, `NON-TARGET PERSON`), with
+the evidence behind it: appearance against the officials' look and both teams,
 detector votes, touchline time and movement along the line, formation
 consistency, ball-following behaviour, team count. The same evidence is kept
 as `roleEvidence` on every identity and shown as a one-line `why` under each
-person in the debug overlay. Referees also carry the kind of official the
-evidence suggests (`ASSISTANT_REFEREE` on the touchline, `CENTER_REFEREE`
-inside the pitch, `UNKNOWN_OFFICIAL`); all are shown as `REF-n`. An
-established team only changes after 80% of the last 15 votes point to the other
-kit (the identity is then released and re-identified).
+person in the debug overlay. An established team only changes after 80% of the
+last 15 votes point to the other kit (the identity is then released and
+re-identified).
 
 Team kits are learned automatically from the torso (upper jersey) colour of people
 the detector calls players, so referees and keepers do not pull a team prototype.
@@ -291,15 +323,21 @@ them. The **global identity manager** keeps a registry of real people:
 
 | Field | Meaning |
 |---|---|
-| `id`, `longId` | `A-07` / `TeamA_Player_07`, `GK-1` / `Goalkeeper_01`, `REF-1` / `Referee_01`: the persistent identity |
-| `display` | what the overlay shows: `A-07`, `GK-A` / `GK-B` (goalkeepers by team), `REF-1` |
-| `team`, `role`, `label` | `A` / `B` / none; `PLAYER`, `GOALKEEPER`, `REFEREE`; combined `PLAYER_TEAM_A`, `GOALKEEPER_TEAM_B`, `REFEREE` |
-| `status` | `ACTIVE`, `MISSING`, `OFF_SCREEN` (left at an image edge), `RETIRED` (merged into the referee or goalkeeper it really was) |
-| `roleLocked`, `roleHistory` | whether the referee / goalkeeper role is locked, and when and why the role changed |
-| `official`, `roleEvidence` | referees: `ASSISTANT_REFEREE` / `CENTER_REFEREE` / `UNKNOWN_OFFICIAL`; the latest role decision's evidence scores |
+| `id`, `longId` | `A-07` / `TeamA_Player_07`, `GK-1` / `Goalkeeper_01`: the persistent identity (players and goalkeepers only) |
+| `display` | what the overlay shows: `A-07`, `GK-A` / `GK-B` (goalkeepers by team) |
+| `team`, `role`, `label` | `A` / `B` / none; `PLAYER`, `GOALKEEPER`; combined `PLAYER_TEAM_A`, `GOALKEEPER_TEAM_B` |
+| `status` | `ACTIVE`, `MISSING`, `OFF_SCREEN` (left at an image edge), `RETIRED` (merged into the goalkeeper it really was), `WITHDRAWN` (a referee-like person promoted by mistake) |
+| `roleLocked`, `roleHistory` | whether the goalkeeper role is locked, and when and why the role changed |
+| `teamHistory`, `roleEvidence` | clean kit votes and how many clearly wore the team's kit (`established`); the latest role decision's evidence scores |
 | gallery | up to 6 diverse, high-quality samples (OSNet embedding + kit colours) |
 | last seen | time, image box, pitch position, camera-compensated velocity, exit edge |
-| confidences | identity, team, role, referee and goalkeeper confidence; recent history |
+| confidences | identity, team, role, non-target (referee-like) and goalkeeper confidence; recent history |
+
+An ignored person in the per-frame output has `id: null`, `display: IGNORE`,
+`role` and `label` `NON_TARGET`, `state: nontarget` and a `hint`
+(`REFEREE_LIKE`, `SIDELINE_OFFICIAL`). `match.referees` stays in the result
+(always empty) so pages and tools that read results of earlier versions keep
+working.
 
 Identities are never deleted. When a promoted track appears, it is first compared
 with every missing identity of the same team and role. The score combines
@@ -338,12 +376,14 @@ are left alone. A crop joins an identity's gallery only when it is clean, of
 decent quality, on the pitch, the binding has settled (0.6 s old, not after a
 crossing) and it still looks like the gallery (OSNet cosine ≥ 0.45), so a local
 track that silently moved to the person next door cannot write them into the
-identity (`memory: updated / frozen: …` on each tick). A player and an official
-overlapping at IoU ≥ 0.25 is logged as an `OCCLUSION EVENT` with the freeze.
+identity (`memory: updated / frozen: …` on each tick). A player (or goalkeeper)
+and an ignored person overlapping at IoU ≥ 0.25 is logged as an `OCCLUSION
+EVENT` with the freeze; the ignored person has no identity that could take the
+player's.
 
 **Identity first, role second.** A new local track that may be a missing player
-is compared with that player before any role reading may turn it into an
-official: while the best missing candidate still scores near the reconnection
+is compared with that player before a referee-like reading may make it
+non-target: while the best missing candidate still scores near the reconnection
 threshold, or too few comparisons exist, or the recent evidence is mostly
 contaminated, or a referee reading rests on one gallery resemblance that
 neither the batch appearance, the detector nor the kit shares, the role stays
@@ -352,22 +392,19 @@ identity's own track (IoU ≥ 0.2 in its first 0.6 s, a split detection) is the
 same person, not someone "seen together" with them, so the spatial evidence
 counts. A missing player leaves room in a "full" team (only players on the
 pitch now count), so the referee threshold is not lowered against a returning
-teammate. A gallery resemblance to a referee never converts a track whose own
-temporal evidence says team player, and no referee identity is ever created
-from player evidence (`ROLE UPDATE REVERTED`).
+teammate. No new player identity is created from referee-like evidence: once
+no missing player fits, such a person is ignored instead.
 
-**Role hysteresis.** `UNKNOWN → PLAYER / REFEREE` needs the usual window;
-`confirmed PLAYER → REFEREE / GOALKEEPER` needs four consecutive clean checks
-(about 4 s) asking for the same role, at least 60% clean evidence in the
+**Role hysteresis.** `UNKNOWN → PLAYER` or `UNKNOWN → NON_TARGET` needs the
+usual window; `NON_TARGET → candidate` needs two seconds of clear player or
+goalkeeper evidence; `confirmed PLAYER → GOALKEEPER` needs four consecutive
+clean checks (about 4 s) asking for it, at least 60% clean evidence in the
 window, no overlap with another person in the last 3 s and no crossing in the
-last 5 s; a settled player (50+ observations, a stable team) read as a referee
-on the appearance route alone needs the detector, the kit or the touchline to
-agree. A conversion of a settled player whose current crops no longer resemble
-their own gallery is treated as what it is — the local track switched to an
-official — the player keeps their identity (missing) and only the track's
-recent observations follow the official. Refused changes are logged as
-`ROLE UPDATE IGNORED` with the raw reading and the reason; each person carries
-`stableRole` (the identity's) next to `rawRole` (the latest window reading).
+last 5 s; `confirmed PLAYER → NON_TARGET` does not exist (see the withdrawal
+exception above, which needs the same four clean checks). Refused changes are
+logged as `ROLE UPDATE IGNORED` with the raw reading and the reason; each
+person carries `stableRole` (the identity's) next to `rawRole` (the latest
+window reading, `NON_TARGET` for a referee-like one).
 
 **Track switches.** The local tracker can hand a track from one person to
 another when they cross (on the Veo clip, a B player's track continued on the
@@ -378,8 +415,9 @@ the track's own first clean crops nor its identity's gallery (OSNet cosine
 crop never counts), is such a switch: `TRACK SWITCH` is logged, the track is
 re-born at the first of those crops (evidence, kit votes, first crops and
 birth time restart, so the "seen together" rule no longer counts its past and
-the person it now shows is re-identified from scratch, missing officials
-included), the identity it carried goes missing with its last sighting moved
+the person it now shows is decided from scratch: compared with the missing
+players first, ignored if referee-like), the identity it carried goes missing
+with its last sighting moved
 back to the last crop that still matched, and the frames since then lose that
 label (`?`) rather than showing the player on the referee's body.
 
@@ -390,26 +428,30 @@ clean crops stop looking like the ones before (the pairs across the cut
 average below OSNet cosine 0.55 while each side agrees with itself at ≥ 0.6;
 `TRACKLET SPLIT`; four or more tracks changing together within 0.75 s is a
 scene change, a zoom or the light, and cuts nothing). A
-fragment after such a cut is unidentified whatever label it still wears, and
-every fragment without a confident player
-identity — `?`, `B-?`, `REF-?`, or a referee identity that only ever was such a
-fragment and whose own creation evidence said player — is compared with the
-dormant player identities around it in time (and, for a fragment that wore an
-official's label or follows a cut, the dormant referees too; the best wins):
-its own clean crops against the gallery (appearance ≥ 0.5 required), camera-compensated image distance from the
+fragment after such a cut is unidentified whatever label it still wears (a
+team label like `B-?` becomes `?`), and every fragment without a confident
+player identity — `?`, `B-?`, or `IGNORE` — is compared with the dormant player
+identities around it in time: its own clean crops against the gallery
+(appearance ≥ 0.5 required; ≥ 0.65, and never on position alone, for a fragment
+that was ignored as referee-like), camera-compensated image distance from the
 identity's last sighting before the fragment and first sighting after it (both
 directions), the time gap (≤ 10 s; a fragment without usable crops only within
 3 s, position alone says little after that) and team compatibility; an identity
 seen elsewhere during the fragment is never a candidate. A fragment is connected at
 a combined score ≥ 0.6 with a 0.1 lead, every frame takes the identity's id,
-team and role (`evidence: connected offline`, `firstPassLabel` kept), the
-phantom referee identity is retired, and `TRACKLET CONNECT` events give the
-scores. The 2D match view reads these finalized labels, so a player who was
-B-02 → B-? → REF-? in the causal pass stays B-02 throughout. `summary.identity`
-reports id switches, mixed tracklets, track switches found online, offline
-splits, player ↔ referee transitions, ignored / deferred / reverted role
-updates, close encounters and how many players came through them, fragments
-connected (officials included) and frames restored to players.
+team and role (`evidence: connected offline`, `firstPassLabel` kept), and
+`TRACKLET CONNECT` events give the scores. There are no referee identities to
+connect anything to. The 2D match view reads these finalized labels, so a
+player who was B-02 → B-? → ignored in the causal pass stays B-02 throughout.
+`summary.identity` reports id switches, mixed tracklets, track switches found
+online, offline splits, confirmed-player tracks that continued as an ignored
+person (and how many no track switch or release explains: the number that
+should stay at zero), referee identities (always 0), ignored tracks and frames
+by hint, withdrawn identities, ignored / deferred role updates, close
+encounters with ignored people, how many players came through them and were
+re-identified after them, new player identities, teams over their count,
+fragments connected (ignored fragments included) and frames restored to
+players.
 
 ### 4. Pitch coordinates and the pitch model
 
@@ -669,12 +711,17 @@ rejected candidates with their reasons, boxes and frames.
 ## Debug view (how to test)
 
 - **Identity debug** labels every tracked person, e.g. `A-07 · Track 91 · Team A ·
-  Role: PLAYER 92% · Identity: 94%`; goalkeepers `GK-A (GK-1)`, referees
-  `REF-1`; unresolved people `A-?`, `REF-?`, `GK-?`, `UNK-3`, with the reason they
-  are not yet identified; and under each person the role evidence in one line
-  (`looks ref 0.84 A 0.16 B 0.72 | touchline 94% along 0.91 | ASSISTANT REFEREE 0.98`). Colours: violet team A, orange team B, pink goalkeepers,
-  yellow referees, dotted while the identity is uncertain, grey for unknown,
-  white dashed for candidates, red dashed for people rejected outside the field.
+  Role: PLAYER 92% · Identity: 94%`; goalkeepers `GK-A (GK-1)`; unresolved people
+  `A-?`, `GK-?`, `UNK-3`, with the reason they are not yet identified; ignored
+  people faintly as `IGNORE · referee like` (or `sideline official`) with their
+  local track; and under each person the role evidence in one line (`looks ref
+  0.84 A 0.16 B 0.72 | touchline 94% along 0.91 | ASSISTANT REFEREE 0.98`).
+  Colours: violet team A, orange team B, pink goalkeepers, dotted while the
+  identity is uncertain, grey for unknown and ignored people, white dashed for
+  candidates, red dashed for people rejected outside the field. Without debug
+  only the people that matter for the match analysis are drawn (players,
+  goalkeepers, candidates, the ball): ignored, rejected and unknown people stay
+  unmarked.
 - **Pitch boundary** shows the playable region in light blue (teal when it comes
   from the pitch model: solid from a calibration, long dashes when predicted;
   red dashes while the confidence is LOW) with the status line, e.g.
@@ -719,14 +766,15 @@ Second best: A-04 0.61
   **Roles** and **Ball tracking**):
 
 ```
-ROLE UPDATE
-Global ID: B-15 -> REF-2 (B-15 retired: it was this referee)
+NON-TARGET PERSON
 Local Track: 37
-Old role: PLAYER (team B)
-New role: REFEREE
+Was: CAND
+Hint: REFEREE_LIKE
+Why: referee-like from the start
+Global identity: none (ignored; the local box still counts for overlaps and the ball)
 Team A similarity: 0.08
 Team B similarity: 0.61
-Appearance vs known referees / team A / team B: 0.84 / 0.16 / 0.52
+Appearance vs the officials' look / team A / team B: 0.84 / 0.16 / 0.52
 Kit matches neither team: 74% of observations
 Referee kit: 70%
 Detector referee / goalkeeper votes: 74% / 0%
@@ -734,7 +782,15 @@ Team formation consistency: 0.31
 Ball-following behaviour: 0.79
 Referee movement behaviour: 0.68
 Final: CENTRE REFEREE 0.83
-Referee confidence: 0.83
+Non-target confidence: 0.83
+
+ROLE UPDATE IGNORED
+Global ID: B-02
+Local Track: 191
+Stable role: PLAYER (team B)
+Raw role: NON_TARGET 0.78 (referee-like)
+Reason: an established team player (61 of 70 clean kit votes clearly team B): a referee-like reading never changes who they are
+Decision: identity, team and role kept
 
 GOALKEEPER IDENTIFIED
 Global ID: A-01 (shown as GK-A)
@@ -778,14 +834,15 @@ Rejected candidates since the last update: STATIC 48, FIELD_LINE 12, PLAYER_ATTA
   breakdown) explain every change of the ball track.
 
   The same log is written to `events.log` in the run folder.
-- **Match identities** lists team A, team B, goalkeepers, referees and merged
-  identities (for example `B-15 → REF-2`). Hover for the role history; click an
+- **Match identities** lists team A, team B and goalkeepers (results of earlier
+  versions also list their referees). Hover for the role history; click an
   identity to highlight it and jump to its first observation.
 
 Suggested checks on a real clip: nobody in the stands or on the bench gets a
 label; the light-blue boundary sits on the white lines, not on the boards;
-referees (including the assistants on the near touchline) show as `REF-n`, never
-as a team player; each goalkeeper shows as `GK-A` or `GK-B` and keeps it away
+referees (including the assistants on the near touchline) are never a team
+player and never get an identity (turn on debug to see them as `IGNORE`); a
+player who runs past the referee keeps their ID; each goalkeeper shows as `GK-A` or `GK-B` and keeps it away
 from the goal; a white spot or a line is never `BALL`; a player who leaves and
 returns keeps their ID (look for a RE-ID EVENT) or stays uncertain, never a
 different player's ID; no team grows far beyond 11 identities.
@@ -808,8 +865,10 @@ coordinates, so the board stays fixed while the camera pans and zooms and
 shows the whole pitch however little of it the camera sees. Without
 calibration keyframes there are no positions and the board says so; where the
 calibration is dropped (unreliable camera motion, a cut) nothing is placed
-until the next keyframe. Who is drawn comes from the final registry, so a
-player identity later found to be a referee is not shown as a player anywhere.
+until the next keyframe. Who is drawn comes from the final registry: team
+players and goalkeepers only. Ignored people (referees, staff) never appear,
+and a withdrawn identity (a referee-like person promoted by mistake) is not
+shown anywhere.
 
 Between frames the markers are linearly interpolated, and positions are
 smoothed with a short centred window (the whole history is known, so there is
@@ -848,7 +907,7 @@ A correction is remembered for the video (`runs/<video>/corrections.json`):
 - The run it was made on is rebuilt from the untouched originals (`result.raw.json`,
   `identities.raw.json`, copied on the first correction), so removing a correction
   restores the original files exactly. Removing a correction also removes later ones
-  that built on it (for example a correction of the referee it created).
+  that built on it (for example a correction of the goalkeeper it created).
 - **Continue identities from the previous run** starts from the corrected identities.
 - Every later run of the video starts with the people you corrected as *manual
   identities*: their saved appearance with the role and team you gave them (the
@@ -896,11 +955,12 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `boundary`, `cameraReliable`, `cut`, `segment`, `calibrated`, `ball`,
   `ballCandidates`.
 - `people[]`: `id` (global identity or `null`), `display` (`A-07`, `GK-A`,
-  `REF-1`, `A-?`, `UNK-3`), `track` (local), `team` (`A`, `B` or `null`), `role`
-  (`PLAYER`, `GOALKEEPER`, `REFEREE`, `UNKNOWN`), `label` (combined:
-  `PLAYER_TEAM_A`, `GOALKEEPER_TEAM_B`, `REFEREE`, `IDENTITY_UNCERTAIN`,
-  `CANDIDATE`, …), `state` (`candidate`, `uncertain`, `confirmed`, `unknown`,
-  `rejected`), `identityConfidence`, `roleConfidence`, `box` (normalized screen
+  `A-?`, `UNK-3`, `IGNORE`), `track` (local), `team` (`A`, `B` or `null`), `role`
+  (`PLAYER`, `GOALKEEPER`, `NON_TARGET`, `UNKNOWN`), `label` (combined:
+  `PLAYER_TEAM_A`, `GOALKEEPER_TEAM_B`, `NON_TARGET`, `IDENTITY_UNCERTAIN`,
+  `CANDIDATE`, …), `state` (`candidate`, `uncertain`, `confirmed`, `nontarget`,
+  `unknown`, `rejected`), `hint` for ignored people (`REFEREE_LIKE`,
+  `SIDELINE_OFFICIAL`), `identityConfidence`, `roleConfidence`, `box` (normalized screen
   coordinates), optional `pitch` with `pitchConfidence` and `pitchSource` (or
   `pitchStatus: unresolved` when no registration covers the frame or the feet
   do not land on the pitch), `zone`, `cls` (detector class), `evidence`
@@ -986,10 +1046,15 @@ centre and penalty spots, debris on the ball's path; occlusions, a long hide at
 the tape-wearer's feet, an undetected spell with re-acquisition of the same
 ball, the ball leaving the scene, confident static spots, a calibrated pitch),
 and the identity manager (promotion, exits and returns,
-deferral of look-alikes, referees, a referee first labelled as a team player,
-returning referees, assistant referees, goalkeepers found from position and
-kit, role locking, touchline candidates, team limits, crossings, goalkeeper
-team, continuation across runs). `test_integration.py` runs rendered frames
+deferral of look-alikes, referees ignored as NON_TARGET, a referee first
+labelled as a team player and withdrawn, returning referees ignored again,
+assistant referees, goalkeepers found from position and kit, role locking,
+touchline candidates, team limits, crossings, goalkeeper team, continuation
+across runs). `test_identity_encounters.py` covers a player running beside the
+referee, a player lost and back on a new track, a track handed to the referee,
+two tracks swapped with an ignored person, the officials' look never deciding
+alone, and the offline pass (an ignored fragment reconnected to the player, or
+never on position alone). `test_integration.py` runs rendered frames
 through the real BoT-SORT and OSNet with spectators, a coach, a referee, a pan
 and a player who leaves and returns. `test_registration.py` covers the low
 sideline camera: observability ranking (spread landmarks vs one line,
@@ -1057,7 +1122,8 @@ No global Python packages are changed.
   sanity checks above (a warning is logged).
 - Role decisions are heuristic and need about 5–10 s of evidence; a referee whose
   kit, shorts and detector class all look like a team player's can stay a
-  player until the evidence changes. Goalkeeper team inference stays unknown
+  player until the evidence changes (then the identity is withdrawn, unless it
+  had become an established team player, which a role reading never changes). Goalkeeper team inference stays unknown
   without enough evidence. Assistant referees on the far touchline are
   rejected with the audience.
 - Processing speed depends on the CPU too: OSNet embeddings run on the CPU for

@@ -115,7 +115,8 @@ class SoccerTracker:
         return (lambda y: heights[len(heights)//2]) if heights else None
 
     def _live_boxes(self, time):
-        return [tr.last_box for tr in self.ids.tracks.values() if tr.state in ('confirmed', 'uncertain') and time-tr.last_time < 1]
+        # Ignored (non-target) people count too: their boxes are what tells a player "someone is overlapping you".
+        return [tr.last_box for tr in self.ids.tracks.values() if tr.state in ('confirmed', 'uncertain', 'nontarget') and time-tr.last_time < 1]
 
     def _confirm_far(self, box, live, time):
         """A far-tile detection counts when it continues a tracked person or repeats on consecutive frames."""

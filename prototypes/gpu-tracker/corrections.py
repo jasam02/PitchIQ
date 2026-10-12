@@ -1,5 +1,7 @@
-"""Corrections made in the review page: "B-08 is really a referee", "this is the same person as A-03",
-"this person is not part of the match".
+"""Corrections made in the review page: "B-08 is really a goalkeeper", "this is the same person as A-03",
+"this person is not a player" (a referee, staff: not part of the match). Referees are not tracked as
+identities: a request for "referee" (from an older page) is "not a player". Results of earlier versions
+that still contain REF-n identities can be corrected like any other identity.
 
 A correction is stored per video in runs/<video>/corrections.json and does three things:
 
@@ -26,9 +28,9 @@ import time
 import uuid
 from pathlib import Path
 
-ROLES = ('player', 'goalkeeper', 'referee', 'excluded')
-GROUPS = ('players', 'goalkeepers', 'referees')
-ALL_GROUPS = GROUPS+('retired', 'excluded')
+ROLES = ('player', 'goalkeeper', 'referee', 'excluded')   # 'referee' (older pages) means not a player: 'excluded'
+GROUPS = ('players', 'goalkeepers', 'referees')         # 'referees' only in results of earlier versions
+ALL_GROUPS = GROUPS+('retired', 'excluded', 'withdrawn')
 ROLE_OUT = {'player': 'PLAYER', 'goalkeeper': 'GOALKEEPER', 'referee': 'REFEREE'}
 GROUP_OF = {'player': 'players', 'goalkeeper': 'goalkeepers', 'referee': 'referees'}
 ROLE_IN = {'PLAYER': 'player', 'GOALKEEPER': 'goalkeeper', 'REFEREE': 'referee'}
@@ -46,16 +48,18 @@ def long_id(pid):
 
 
 def describe(role, team=None):
-    """'team B player', 'goalkeeper (team A)', 'referee', 'not part of the match', 'unknown'."""
+    """'team B player', 'goalkeeper (team A)', 'referee (not a player)', 'not part of the match', 'unknown'."""
     role = ROLE_IN.get(role, role)
     if role == 'player':
         return f'team {team} player' if team else 'player (team unknown)'
     if role == 'goalkeeper':
         return f'goalkeeper (team {team})' if team else 'goalkeeper (team unknown)'
     if role == 'referee':
-        return 'referee'
+        return 'referee (not a player)'
     if role == 'excluded':
         return 'not part of the match'
+    if role == 'nontarget':
+        return 'ignored (not a player)'
     return 'unknown'
 
 
@@ -390,7 +394,9 @@ def make(result, snapshot, request, items, run, now=None):
         raise ValueError('Choose a person on the video.')
     role, team, into = request.get('role'), request.get('team'), request.get('into') or None
     if role not in ROLES:
-        raise ValueError('Choose team A or B player, goalkeeper, referee or not part of the match.')
+        raise ValueError('Choose team A or B player, goalkeeper, or not a player.')
+    if role == 'referee':
+        role = 'excluded'   # referees are not tracked: "a referee" is "not a player", recognised and left out
     if role in ('player', 'goalkeeper'):
         if team not in ('A', 'B'):
             raise ValueError('Choose team A or team B.')
@@ -419,6 +425,8 @@ def make(result, snapshot, request, items, run, now=None):
         before = {'id': None, 'track': track, 'role': ROLE_IN.get(sample.get('role'), 'unknown'), 'team': sample.get('team'), 'display': sample.get('display')}
         if sample.get('label') == 'EXCLUDED_BY_YOU':
             before['role'] = 'excluded'
+        elif sample.get('label') == 'NON_TARGET':
+            before['role'] = 'nontarget'
     if into is not None:
         joined = find_entry(match, into)
         if joined is None or joined[0] not in GROUPS or into == pid:

@@ -1,13 +1,18 @@
 """Temporal role classification: PLAYER (team A/B), GOALKEEPER, REFEREE or still undecided.
 
+REFEREE is a filter, not an identity: the identity manager makes a person read this way an ignored
+NON_TARGET person (no global identity), never a referee identity, and never changes a confirmed player
+because of it.
+
 Every evidence tick (5 per second) a track adds one record: the detector's class (player /
 goalkeeper / referee) and score, the kit vote against both teams and against the referee and
 goalkeeper kits, where the person is (near a goal, the deepest person on the pitch, isolated, how far
 from the nearest pitch edge and which way that edge runs), how fast they move, how far the ball is and
 where they sit in each team's shape. Decisions use the last ~10 seconds, never one crop. On top of the
 kit vote, the person's whole appearance (learned OSNet embedding plus jersey, shorts, socks and body
-layout colours, from several recent crops) is compared with the known referees and with each team's
-players, so "looks like the referees" can win over "the shirt colour is near team B's".
+layout colours, from several recent crops) is compared with the officials' look (anonymous crops of
+people ignored as referee-like) and with each team's players, so "looks like the officials" can win
+over "the shirt colour is near team B's" (the identity manager only lets it count with other support).
 
 Referee routes (the strongest wins; a referee needs >= 0.55):
 - detector: the soccer detector's referee votes;

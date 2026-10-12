@@ -1,6 +1,6 @@
-"""A person's global identity, team and role must survive close encounters with officials, local-track
-changes and contaminated crops; and the offline tracklet refinement reconnects what the causal pass
-left in pieces. Driven on the synthetic people of test_identity.py with box overlaps measured."""
+"""A person's global identity, team and role must survive close encounters with officials (ignored,
+NON_TARGET people: never identities), local-track changes and contaminated crops; and the offline
+tracklet refinement reconnects what the causal pass left in pieces. Driven on the synthetic people of test_identity.py with box overlaps measured."""
 import math
 import unittest
 
@@ -72,7 +72,7 @@ class CloseEncounterTests(unittest.TestCase):
         out = d.run(4, {1: (player, .40, .50), 2: (ref, .55, .50), **team})
         pid = out[1]['id']
         self.assertTrue(pid and pid.startswith('B-'), out[1])
-        self.assertEqual(out[2]['id'], 'REF-1')
+        self.assertEqual((out[2]['id'], out[2]['state']), (None, 'nontarget'))   # the referee: an ignored local track only
         gallery_before = [s.time for s in d.ids.registry[pid].gallery]
         t_start = d.t
         mixed_player = Mixed(player, ref)
@@ -84,15 +84,19 @@ class CloseEncounterTests(unittest.TestCase):
         self.assertTrue(all(p['id'] == pid and p['role'] == 'PLAYER' and p['team'] == 'B' for p in during), [(p['id'], p['role']) for p in during])
         self.assertTrue(all(str(p.get('memory', '')).startswith('frozen') for p in during), [p.get('memory') for p in during])
         self.assertTrue(all(p.get('occlusion', 0) >= .15 for p in during))
-        self.assertTrue(any(e['kind'] == 'occlusion' and 'FREEZE APPEARANCE' in e['message'] for e in d.events))
+        occlusion = [e for e in d.events if e['kind'] == 'occlusion']
+        self.assertTrue(occlusion and 'FREEZE APPEARANCE' in occlusion[0]['message'] and 'ignored person' in occlusion[0]['message'], occlusion)
         out = d.run(5, {1: (player, .60, .50), 2: (ref, .35, .50), **team})
         self.assertEqual((out[1]['id'], out[1]['role'], out[1]['team']), (pid, 'PLAYER', 'B'))
-        self.assertEqual((out[2]['id'], out[2]['role']), ('REF-1', 'REFEREE'))
-        self.assertFalse([e for e in d.kinds('role') if 'New role: REFEREE' in e['message']], 'nobody changed role')
+        self.assertEqual((out[2]['id'], out[2]['role'], out[2]['state']), (None, 'NON_TARGET', 'nontarget'))
+        self.assertFalse([e for e in d.kinds('nontarget') if e['message'].startswith('PLAYER IDENTITY WITHDRAWN')], 'nobody lost their identity')
         g = d.ids.registry[pid]
         self.assertFalse([s.time for s in g.gallery if t_start-1e-6 <= s.time <= t_end+1e-6], 'no overlap crop in the gallery')
         self.assertEqual(g.status, 'active')
-        self.assertEqual(len(d.ids.summary()['referees']), 1)
+        self.assertFalse([x for x in d.ids.registry.values() if x.role == 'referee'], 'no referee identity exists to steal anything')
+        self.assertEqual([p['id'] for frame in d.people for p in frame if p['track'] == 2 and p['id']], [])
+        m = tracklets.metrics(d.ids, [{'time': round(k*.2, 3), 'people': list(f)} for k, f in enumerate(d.people)], d.events, {})
+        self.assertEqual((m['closeEncounters'], m['playersPreservedThroughEncounters'], m['playersLostAfterEncounter'], m['playerToNonTargetUnexplained']), (1, 1, 0, 0))
 
     def test_player_lost_and_back_on_a_new_track_is_restored_before_any_role_change(self):
         # Regression 2. B-02 is confirmed; a second box (a split detection) appears on them for a few frames,
@@ -102,7 +106,7 @@ class CloseEncounterTests(unittest.TestCase):
         ref = Person('REF')
         team = team_scene()
         out = d.run(4, {**team, 1: (ref, .3, .35)})
-        self.assertEqual(out[1]['id'], 'REF-1')
+        self.assertEqual(out[1]['state'], 'nontarget')
         target = team[13][0]            # B-01's person (the first B of the roster)
         pid = out[13]['id']
         self.assertTrue(pid.startswith('B-'))
@@ -118,32 +122,32 @@ class CloseEncounterTests(unittest.TestCase):
         out = d.run(4, {**rest, 1: (ref, .3, .35), 94: (target, team[13][1]+.01, team[13][2])})
         self.assertEqual((out[94]['id'], out[94]['role'], out[94]['team']), (pid, 'PLAYER', 'B'), out[94])
         labels = [p['display'] for frame in d.people for p in frame if p['track'] == 94]
-        self.assertNotIn('REF-?', labels, labels)
+        self.assertFalse({'REF-?', 'IGNORE'} & set(labels), labels)
+        self.assertFalse([p for frame in d.people for p in frame if p['track'] == 94 and p['state'] == 'nontarget'])
         self.assertFalse([e for e in d.kinds('new-identity') if e['track'] == 94])
-        self.assertEqual(len(d.ids.summary()['referees']), 1)
+        self.assertEqual(d.ids.summary()['referees'], [])
         self.assertEqual(len(d.ids.summary()['players']), 6)
         reid = [e for e in d.kinds('reid') if e['track'] == 94]
         self.assertTrue(reid and f'Matched Global Player: TeamB_Player_{pid[2:]}' in reid[0]['message'], [e['message'][:80] for e in d.events if e['track'] == 94])
 
-    def test_gallery_resemblance_never_makes_a_referee_of_a_player_whose_evidence_says_player(self):
-        # The referee's gallery was contaminated by this B player's crops (an earlier hidden overlap). The
-        # player's own temporal evidence says team B player; a gallery resemblance alone must not turn them
-        # into an official, and no referee identity may be created from player evidence.
+    def test_officials_look_alone_never_makes_a_player_non_target(self):
+        # The officials' look (the crops of ignored officials) resembles a team B player: as if the ignored
+        # referee's crops had been those of a player who hid them. The player's kit, detector and position say
+        # team B player; a resemblance to the officials alone never makes them non-target, before or after
+        # they are identified.
         d = EncounterDriver()
         ref = Person('REF')
         team = team_scene()
         out = d.run(3, {**team, 1: (ref, .3, .35)})
-        self.assertEqual(out[1]['id'], 'REF-1')
+        self.assertEqual(out[1]['state'], 'nontarget')
         player = Person('B', cls='player')
-        contaminated = d.ids.registry['REF-1']
-        for k in range(4):
-            contaminated.gallery = add_to_gallery(contaminated.gallery, player.descriptor(), 100+k, 6, trusted=True)
-        d.ids._looks = lambda tr, t: {'referee': 0.0, 'A': 0.1, 'B': .6, 'probes': 3}   # the batch measure, as on the real clip
-        out = d.run(6, {**team, 1: (ref, .3, .35), 40: (player, .5, .45)})
+        real = d.ids._looks
+        d.ids._looks = lambda tr, t: dict(real(tr, t), referee=.95) if tr.id == 40 else real(tr, t)
+        out = d.run(8, {**team, 1: (ref, .3, .35), 40: (player, .5, .45)})
         self.assertEqual((out[40]['role'], out[40]['team']), ('PLAYER', 'B'), out[40])
         self.assertTrue(out[40]['id'] and out[40]['id'].startswith('B-'), out[40])
-        self.assertEqual(len(d.ids.summary()['referees']), 1, [g['id'] for g in d.ids.summary()['referees']])
-        self.assertFalse([e for e in d.kinds('role') if 'REFEREE IDENTIFIED' in e['message'] and 'REF-2' in e['message']])
+        self.assertFalse([p for frame in d.people for p in frame if p['track'] == 40 and p['state'] == 'nontarget'])
+        self.assertFalse([x for x in d.ids.registry.values() if x.role == 'referee'])
 
     def test_a_missing_player_leaves_room_in_a_full_team(self):
         # Team B is at its cap. B-03 leaves; a track in B's kit the detector sometimes calls a referee appears
@@ -162,40 +166,42 @@ class CloseEncounterTests(unittest.TestCase):
         self.assertEqual((out[50]['id'], out[50]['role'], out[50]['team']), (pid, 'PLAYER', 'B'), out[50])
         self.assertEqual(d.ids.summary()['referees'], [])
 
-    def test_a_confirmed_player_needs_sustained_clean_referee_evidence_to_change_role(self):
+    def test_a_confirmed_player_is_never_made_non_target_by_role_readings(self):
         d = EncounterDriver()
         player = Person('B', cls='player')
         team = team_scene()
         out = d.run(4, {**team, 1: (player, .5, .45)})
         pid = out[1]['id']
         # The detector calls them a referee for nine seconds (kit and look stay the player's): the raw role
-        # reaches REFEREE after ~8 s, but one or two checks never change a confirmed player; then the
-        # detector returns to normal and the role was never touched.
+        # reaches NON_TARGET after ~8 s, but a confirmed, established player is never changed by it; then the
+        # detector returns to normal and nothing was ever touched.
         player.cls = 'referee'
         d.run(9.5, {**team, 1: (player, .5, .45)})
         self.assertEqual(d.ids.tracks[1].raw_role[0], 'referee')
+        self.assertEqual(d.people[-1][[p['track'] for p in d.people[-1]].index(1)]['rawRole'], 'NON_TARGET')
         player.cls = 'player'
         out = d.run(5, {**team, 1: (player, .5, .45)})
-        self.assertEqual((out[1]['id'], out[1]['role']), (pid, 'PLAYER'))
+        self.assertEqual((out[1]['id'], out[1]['role'], out[1]['state']), (pid, 'PLAYER', 'confirmed'))
         ignored = [e for e in d.kinds('role') if e['message'].startswith('ROLE UPDATE IGNORED')]
         self.assertTrue(ignored, [e['message'][:60] for e in d.kinds('role')])
-        self.assertIn('Raw role: REFEREE', ignored[0]['message'])
+        self.assertIn('Raw role: NON_TARGET', ignored[0]['message'])
         self.assertIn('Stable role: PLAYER (team B)', ignored[0]['message'])
-        self.assertFalse([e for e in d.kinds('role') if 'New role: REFEREE' in e['message']])
+        self.assertTrue(any('an established team player' in e['message'] for e in ignored), [e['message'] for e in ignored])
+        self.assertFalse([e for e in d.kinds('nontarget') if e['message'].startswith('PLAYER IDENTITY WITHDRAWN')])
+        self.assertFalse([p for frame in d.people for p in frame if p['track'] == 1 and p['state'] == 'nontarget'])
 
-    def test_track_that_jumps_onto_the_referee_is_reborn_and_the_referee_reconnected(self):
+    def test_track_that_jumps_onto_the_referee_is_reborn_and_the_referee_ignored(self):
         # The local tracker hands the player's track to the referee when they cross (the referee's own track
-        # ends). The track must be re-born: the player's identity goes missing (neither converted nor
-        # retired), the track is re-identified as the known referee (not REF-? or a new REF-2), the player's
-        # body on its new track gets the identity back, and no frame since the swap shows the player on the
-        # referee's body.
+        # ends). The track must be re-born: the player's identity goes missing (never converted or withdrawn),
+        # the track now showing the referee is ignored (no identity at all), the player's body on its new track
+        # gets the identity back, and no frame since the swap shows the player on the referee's body.
         d = EncounterDriver()
         player, ref = Person('B'), Person('REF')
         team = team_scene()
         out = d.run(4, {1: (player, .40, .50), 2: (ref, .45, .50), **team})
         pid = out[1]['id']
         self.assertTrue(pid and pid.startswith('B-'), out[1])
-        self.assertEqual(out[2]['id'], 'REF-1')
+        self.assertEqual(out[2]['state'], 'nontarget')
         swap = d.t
         d.step({1: (Mixed(player, ref), .425, .50), 2: (Mixed(ref, player), .428, .50), **team})
         d.step({1: (ref, .43, .50), 3: (player, .415, .50), **team}, ended=[2])
@@ -205,22 +211,44 @@ class CloseEncounterTests(unittest.TestCase):
         self.assertTrue(switch, [e['message'][:70] for e in d.events if e['track'] == 1])
         self.assertTrue(switch[0]['message'].startswith('TRACK SWITCH'))
         self.assertIn(f'Global {pid}', switch[0]['message'])
-        self.assertEqual((out[1]['id'], out[1]['role']), ('REF-1', 'REFEREE'), out[1])
+        self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'), out[1])
         self.assertEqual((out[3]['id'], out[3]['role'], out[3]['team']), (pid, 'PLAYER', 'B'), out[3])
-        self.assertEqual(len(d.ids.summary()['referees']), 1)
+        self.assertEqual(d.ids.summary()['referees'], [])
         self.assertEqual(len(d.ids.summary()['players']), 7)
         self.assertNotEqual(d.ids.registry[pid].status, 'retired')
-        self.assertFalse([e for e in d.kinds('role') if 'New role: REFEREE' in e['message']], 'no role change: the identity was never the referee')
         after = [p for frame in d.people for p in frame if p['track'] == 1 and p['time'] >= swap+.2-1e-6]
         self.assertFalse([p['time'] for p in after if p['id'] == pid], 'no frame after the swap shows the player on the referee')
         self.assertEqual(len(d.ids.tracks[1].switches), 1)
-        self.assertFalse([e for e in d.kinds('new-identity') if e['track'] == 1 and e['time'] >= swap], 'no new referee identity')
+        self.assertFalse([e for e in d.kinds('new-identity') if e['track'] == 1 and e['time'] >= swap], 'no identity for the referee')
+
+    def test_tracks_swapped_with_an_ignored_person_keep_the_player_identity_on_the_player(self):
+        # Association after an overlap with an ignored person: the local tracker swaps the two tracks while they
+        # overlap (both live on). The player's identity must end on the player's body (the other track), never
+        # on the ignored person, and the ignored person never gets an identity.
+        d = EncounterDriver()
+        player, ref = Person('B'), Person('REF')
+        team = team_scene()
+        out = d.run(4, {1: (player, .40, .50), 2: (ref, .48, .50), **team})
+        pid = out[1]['id']
+        self.assertEqual(out[2]['state'], 'nontarget')
+        for k in range(4):   # 0.8 s side by side, crops mixed
+            d.step({1: (Mixed(player, ref), .44+.002*k, .50), 2: (Mixed(ref, player), .446+.002*k, .50), **team})
+        swap = d.t
+        for k in range(30):  # the tracks come out swapped: track 1 follows the referee, track 2 the player
+            out = d.step({1: (ref, .46+.004*k, .50), 2: (player, .45-.004*k, .50), **team})
+        self.assertEqual((out[2]['id'], out[2]['role'], out[2]['team']), (pid, 'PLAYER', 'B'), out[2])
+        self.assertEqual((out[1]['id'], out[1]['state']), (None, 'nontarget'), out[1])
+        self.assertFalse([p for frame in d.people[-20:] for p in frame if p['track'] == 1 and p['id'] == pid], 'the ignored person never carries the identity')
+        self.assertFalse([x for x in d.ids.registry.values() if x.role == 'referee'])
+        self.assertEqual(len(d.ids.summary()['players']), 7)
+        self.assertTrue([e for e in d.kinds('switch') if e['track'] in (1, 2) and e['time'] >= swap-1e-6])
 
 
 class OfflineTrackletTests(unittest.TestCase):
-    def test_fragment_labelled_ref_is_reconnected_to_the_dormant_player(self):
+    def test_fragment_ignored_as_referee_like_is_reconnected_to_the_dormant_player(self):
         # The causal pass left B-xx on track 13 until 4.0 s, then an uncertain fragment on track 60 (first
-        # B-?, then REF-?) in the same place: the refinement connects it, and the 2D roster keeps the player.
+        # B-?, then ignored as referee-like) in the same place: the refinement connects it (the crops clearly
+        # show B-xx), and the 2D roster keeps the player.
         d = EncounterDriver()
         team = team_scene()
         out = d.run(4, team)
@@ -234,10 +262,11 @@ class OfflineTrackletTests(unittest.TestCase):
         fragment = []
         for k in range(12):
             t = t0+.2*k
-            label = 'B-?' if k < 5 else 'REF-?'
+            ignored = k >= 5
             p = {'time': round(t, 3), 'track': 60, 'box': [round(v, 5) for v in box_at(x+.002*k, y)], 'score': .9, 'cls': 'player', 'zone': 'inside',
-                 'evidence': 'observed', 'id': None, 'display': label, 'label': 'IDENTITY_UNCERTAIN', 'team': 'B' if k < 5 else None,
-                 'role': 'PLAYER' if k < 5 else 'REFEREE', 'state': 'uncertain', 'identityConfidence': 0.0, 'roleConfidence': .5}
+                 'evidence': 'observed', 'id': None, 'display': 'IGNORE' if ignored else 'B-?', 'label': 'NON_TARGET' if ignored else 'IDENTITY_UNCERTAIN',
+                 'team': None if ignored else 'B', 'role': 'NON_TARGET' if ignored else 'PLAYER', 'state': 'nontarget' if ignored else 'uncertain',
+                 'identityConfidence': 0.0, 'roleConfidence': .5, **({'hint': 'REFEREE_LIKE'} if ignored else {})}
             frames.append({'time': round(t, 3), 'people': [p]})
             fragment.append(p)
         tr = TrackState(60, t0, 0, Stab(x, y, .12), None, 'inside', '', box_at(x, y), Stab(x, y, .12), 0)
@@ -248,12 +277,43 @@ class OfflineTrackletTests(unittest.TestCase):
         report = tracklets.refine(manager, frames, motions, 1280, 720)
         self.assertEqual(report['connected'], 1, report)
         self.assertTrue(all(p['id'] == pid and p['role'] == 'PLAYER' and p['team'] == 'B' and p['evidence'] == 'connected offline' for p in fragment), fragment[-1])
-        self.assertEqual(fragment[-1]['firstPassLabel'], 'REF-?')
+        self.assertEqual(fragment[-1]['firstPassLabel'], 'IGNORE')
         self.assertTrue(report['events'] and report['events'][0]['message'].startswith('TRACKLET CONNECT'))
         self.assertIn(f'-> TeamB_Player_{pid[2:]}', report['events'][0]['message'])
+        self.assertIn('Was ignored as referee-like on 7 frames', report['events'][0]['message'])
         m = tracklets.metrics(manager, frames, report['events'], report)
-        self.assertEqual((m['trackletsConnected'], m['framesRestoredToPlayers']), (1, 12))
-        self.assertEqual(m['restoredFromLabels'], {'B-?': 5, 'REF-?': 7})
+        self.assertEqual((m['trackletsConnected'], m['framesRestoredToPlayers'], m['ignoredFragmentsRestored']), (1, 12, 1))
+        self.assertEqual(m['restoredFromLabels'], {'B-?': 5, 'IGNORE': 7})
+
+    def test_an_ignored_fragment_is_never_revived_on_position_alone(self):
+        # The same place and timing, but the ignored fragment's crops are another person's (the referee standing
+        # where the player vanished): it stays ignored.
+        d = EncounterDriver()
+        team = team_scene()
+        out = d.run(4, team)
+        pid = out[13]['id']
+        rest = {k: v for k, v in team.items() if k != 13}
+        d.step(rest, ended=[13])
+        manager = d.ids
+        frames = [{'time': k*.2, 'people': list(frame)} for k, frame in enumerate(d.people)]
+        t0 = frames[-1]['time']+.2
+        x, y = team[13][1]+.006, team[13][2]-.004
+        fragment = []
+        for k in range(10):
+            t = round(t0+.2*k, 3)
+            p = {'time': t, 'track': 60, 'box': [round(v, 5) for v in box_at(x, y)], 'score': .9, 'cls': 'referee', 'zone': 'inside', 'evidence': 'observed',
+                 'id': None, 'display': 'IGNORE', 'label': 'NON_TARGET', 'team': None, 'role': 'NON_TARGET', 'state': 'nontarget', 'hint': 'REFEREE_LIKE',
+                 'identityConfidence': 0.0, 'roleConfidence': .8}
+            frames.append({'time': t, 'people': [p]})
+            fragment.append(p)
+        tr = TrackState(60, t0, 0, Stab(x, y, .12), None, 'inside', '', box_at(x, y), Stab(x, y, .12), 0)
+        for k in range(4):
+            tr.descs.append((Person('REF').descriptor(), t0+.2*k, False))
+        manager.ended[60] = tr
+        report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+        self.assertEqual(report['connected'], 0, report['events'])
+        self.assertTrue(all(p['id'] is None and p['state'] == 'nontarget' for p in fragment))
+        self.assertNotIn(pid, {p['id'] for p in fragment})
 
     def test_a_fragment_seen_while_the_player_was_seen_elsewhere_is_never_connected(self):
         d = EncounterDriver()
@@ -277,14 +337,14 @@ class OfflineTrackletTests(unittest.TestCase):
     def test_offline_cut_where_the_crops_change_person(self):
         # One local track (60) that the tracker handed from a B player to the referee, labelled B-? throughout
         # by the causal pass. The refinement cuts it where its clean crops change, connects the first part to
-        # the dormant player and the second to the dormant referee, and the label the second part wore counts
-        # for nothing.
+        # the dormant player, and the second part (the referee: no identity to connect to) loses the team label
+        # it wore.
         d = EncounterDriver()
         ref = Person('REF')
         team = team_scene()
         out = d.run(4, {**team, 1: (ref, team[13][1]+.03, team[13][2])})
         pid, person = out[13]['id'], team[13][0]
-        self.assertEqual(out[1]['id'], 'REF-1')
+        self.assertEqual(out[1]['state'], 'nontarget')
         rest = {k: v for k, v in team.items() if k != 13}
         d.step(rest, ended=[13, 1])
         manager = d.ids
@@ -304,24 +364,26 @@ class OfflineTrackletTests(unittest.TestCase):
         manager.ended[60] = tr
         report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
         self.assertEqual(report['splits'], 1, report)
-        self.assertEqual(report['connected'], 2, report)
+        self.assertEqual(report['connected'], 1, report)
         self.assertTrue(all(p['id'] == pid and p['role'] == 'PLAYER' for p in fragment[:8]), fragment[7])
-        self.assertTrue(all(p['id'] == 'REF-1' and p['role'] == 'REFEREE' and p['team'] is None for p in fragment[8:]), fragment[8])
-        self.assertTrue([e for e in report['events'] if e['message'].startswith('TRACKLET SPLIT')])
+        # After the cut: the referee, who is nobody's identity; the team label earned before the cut goes.
+        self.assertTrue(all(p['id'] is None and p['team'] is None and p['display'] == '?' for p in fragment[8:]), fragment[8])
+        split = [e for e in report['events'] if e['message'].startswith('TRACKLET SPLIT')]
+        self.assertTrue(split and 'shown as ?' in split[0]['message'], split)
         m = tracklets.metrics(manager, frames, report['events'], report)
-        self.assertEqual((m['trackletsSplit'], m['officialsConnected'], m['trackletsConnected']), (1, 1, 2))
+        self.assertEqual((m['trackletsSplit'], m['trackletsConnected'], m['refereeIdentities']), (1, 1, 0))
 
     def test_a_label_that_continues_across_a_cut_is_dropped_for_the_person_the_crops_show(self):
         # The causal pass kept B-xx on track 13 although its crops became the referee's half-way (the swap
         # went unnoticed online, the referee's own track had ended). Offline the track is cut where the crops
-        # change; the label after the cut is stale, the fragment goes to the dormant referee, and the
-        # player's observations after the cut are no longer theirs.
+        # change; the label after the cut is stale and no dormant player fits the referee, so those frames are
+        # unidentified (?) and the player's observations after the cut are no longer theirs.
         d = EncounterDriver()
         ref = Person('REF')
         team = team_scene()
         out = d.run(4, {**team, 1: (ref, team[13][1]+.03, team[13][2])})
         pid, person = out[13]['id'], team[13][0]
-        self.assertEqual(out[1]['id'], 'REF-1')
+        self.assertEqual(out[1]['state'], 'nontarget')
         rest = {k: v for k, v in team.items() if k != 13}
         d.step({**rest, 13: (person, team[13][1], team[13][2])}, ended=[1])
         manager = d.ids
@@ -346,11 +408,11 @@ class OfflineTrackletTests(unittest.TestCase):
         report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
         self.assertEqual(report['splits'], 1, report['events'])
         self.assertTrue(all(p['id'] == pid for p in rows[:6]), [p['id'] for p in rows[:6]])
-        self.assertTrue(all(p['id'] == 'REF-1' and p['role'] == 'REFEREE' and p['evidence'] == 'connected offline' for p in rows[6:]), rows[6])
+        self.assertTrue(all(p['id'] is None and p['display'] == '?' and p['evidence'] == 'split offline' for p in rows[6:]), rows[6])
         self.assertEqual(g.observations, before+6)
         self.assertFalse([p for p in rows[6:] if p in g.emitted_all])
         split = [e for e in report['events'] if e['message'].startswith('TRACKLET SPLIT')]
-        self.assertTrue(split and '-> REF-1' in split[0]['message'], split)
+        self.assertTrue(split and f'{pid} removed, shown as ?' in split[0]['message'], split)
 
     def test_a_scene_wide_appearance_change_cuts_nothing(self):
         # A zoom or a change of light makes every track's crops change at once: that is not a swap.

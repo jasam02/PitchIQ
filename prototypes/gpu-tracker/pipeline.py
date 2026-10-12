@@ -166,7 +166,7 @@ def detect(model, frame, detail):
 def _colour(person):
     if person['state'] == 'candidate':
         return (255, 255, 255)
-    if person['state'] in ('rejected', 'unknown'):
+    if person['state'] in ('rejected', 'unknown', 'nontarget'):
         return COLORS['UNCERTAIN']
     return COLORS.get(person['role'], COLORS.get(person['team'], COLORS['UNCERTAIN']))
 
@@ -184,6 +184,8 @@ def preview(frame, observation, path, pitch=None, trail=()):
         x, y, bw, bh = rejected['box']
         cv2.rectangle(image, (int(x*w), int(y*h)), (int((x+bw)*w), int((y+bh)*h)), (80, 80, 235), 1)
     for person in observation['people']:
+        if person['state'] == 'nontarget':
+            continue   # ignored people (referees, staff) stay unmarked
         x, y, bw, bh = person['box']
         color = _colour(person)
         a, b = (int(x*w), int(y*h)), (int((x+bw)*w), int((y+bh)*h))
@@ -415,7 +417,7 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             info['observations'] += 1
             if person['id']:
                 info['ids'][person['id']] = info['ids'].get(person['id'], 0)+1
-            if person['state'] not in ('rejected', 'unknown'):
+            if person['state'] not in ('rejected', 'unknown', 'nontarget'):   # ignored people are nobody's identity by design
                 people += 1
                 identified += person['id'] is not None
     match = tracker.ids.summary()
@@ -441,14 +443,14 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             'droppedFirstPassRuns': len(ball_report['dropped']) if ball_report else 0, 'firstPass': first_pass,
             'reacquisitions': first_pass['reacquisitions'], 'lost': first_pass['lost'],
             'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
-    roles = {'refereeConversions': sum(1 for e in events if e['kind'] == 'role' and 'New role: REFEREE' in e['message']),
+    nontarget = [p for f in frames for p in f['people'] if p.get('state') == 'nontarget']
+    roles = {'playerIdentitiesWithdrawn': len(match.get('withdrawn', [])),
+             'nonTargetTracks': len({p['track'] for p in nontarget}),
              'goalkeepersIdentified': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER IDENTIFIED')),
              'goalkeepersRevoked': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER REVOKED')),
              'goalkeeperCandidatesDropped': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER CANDIDATE DROPPED')),
              'goalkeeperTeams': sum(1 for e in events if e['kind'] == 'role' and e['message'].startswith('GOALKEEPER TEAM')),
-             'mergedIdentities': len(match['retired']),
-             'assistantReferees': sum(1 for p in match['referees'] if p.get('official') == 'ASSISTANT_REFEREE'),
-             'centreReferees': sum(1 for p in match['referees'] if p.get('official') == 'CENTER_REFEREE')}
+             'mergedIdentities': len(match['retired'])}
     # For the 2D match view: how much of the run has pitch coordinates, and which team defends which end
     # (pitch x = 0 is the left goal line as the calibration names it, which is the image's left).
     sides = tracker.ids.goal_sides()
@@ -477,8 +479,10 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
              'modelEvents': sum(1 for e in events if e['kind'] == 'pitch')}
     summary = {'processedFrames': len(frames), 'localTrackSegments': len(tracks),
                'globalIdentities': {'teamA': count('A'), 'teamB': count('B'), 'goalkeepers': sum(1 for g in match['goalkeepers'] if not g.get('revoked')),
-                                    'referees': len(match['referees']),
-                                    'merged': len(match['retired']), 'excluded': len(match.get('excluded', []))},
+                                    'referees': len(match['referees']),   # always 0: referees are not tracked as identities
+                                    'merged': len(match['retired']), 'excluded': len(match.get('excluded', [])), 'withdrawn': len(match.get('withdrawn', []))},
+               'nonTarget': {'tracks': roles['nonTargetTracks'], 'frames': len(nontarget),
+                             'hints': dict(Counter(p.get('hint') or 'REFEREE_LIKE' for p in nontarget))},
                'remembered': sorted(p['id'] for key in ('players', 'goalkeepers', 'referees', 'excluded') for p in match.get(key, []) if p.get('manual')), 'corrections': 0,
                'reidentifications': kinds.get('reid', 0), 'deferredDecisions': kinds.get('deferred', 0), 'newIdentities': kinds.get('new-identity', 0),
                'swapCorrections': kinds.get('swap-corrected', 0), 'crossingWarnings': kinds.get('swap-uncertain', 0), 'sanityWarnings': kinds.get('sanity', 0),
@@ -492,9 +496,10 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             'events': events, 'issues': tracker.issues[-500:], 'pitchIssues': pitch_issues, 'teams': tracker.model.to_json(), 'tactical': tactical,
             'continuedFrom': (previous or {}).get('run'), 'status': 'cancelled' if cancelled else 'complete', 'summary': summary,
             'labels': {p['id']: long_id(p['id']) for group in match.values() for p in group},
-            'limitations': ['Global IDs (A-07, GK-1, REF-1) are tracking identities, not jersey numbers or names. Goalkeepers are shown by team (GK-A, GK-B).',
+            'limitations': ['Global IDs (A-07, GK-1) are tracking identities, not jersey numbers or names. Goalkeepers are shown by team (GK-A, GK-B).',
+                            'Referees, assistant referees, coaches and staff are not tracked as identities: they are ignored people (NON_TARGET) with a local box only, used to know when someone overlaps a player, never shown in the 2D view.',
                             'Identity is kept only when the evidence is clear; uncertain people stay unidentified rather than guessed.',
-                            'Roles come from about ten seconds of detector, kit and position evidence; a player identity later found to be a referee is merged into a referee identity and its observations are relabelled.',
+                            'Roles come from about ten seconds of detector, kit and position evidence. A referee-like reading never changes a confirmed player; only an identity that was never an established player and showed the same referee-like person from its start is withdrawn (its observations become NON_TARGET).',
                             'OSNet is a general pedestrian model: same-kit teammates can look alike, so some returns stay unresolved.',
                             'Pitch coordinates exist where the pitch model is trusted: anchored by a calibration keyframe, carried through the camera motion (also backwards, in the offline pass) and confirmed by painted lines; on sustained low confidence a section asks for confirmation instead of guessing.',
                             'People you corrected in the review page are remembered by appearance: a run recognises them only when they look clearly like the person you corrected.',

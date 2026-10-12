@@ -105,9 +105,11 @@ class IntegrationTest(unittest.TestCase):
         for name in ('FAN0', 'FAN1', 'FAN2', 'FAN3', 'COACH'):
             self.assertEqual(self.ids(name), set(), name)
 
-    def test_referee_is_tracked_separately(self):
-        self.assertEqual({i[:3] for i in self.ids('REF')}, {'REF'})
-        self.assertEqual(len(self.tracker.ids.summary()['referees']), 1)
+    def test_referee_is_ignored_never_an_identity(self):
+        self.assertEqual(self.ids('REF'), set())
+        self.assertEqual(self.tracker.ids.summary()['referees'], [])
+        seen = [p for t, p in self.assigned.get('REF', []) if t >= 3]
+        self.assertTrue(seen and sum(p['state'] == 'nontarget' for p in seen) >= .8*len(seen), [p['state'] for p in seen][:20])
 
     def test_each_player_has_one_identity(self):
         for name in ('A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'B4'):
