@@ -21,6 +21,19 @@ GOALKEEPER or REFEREE). Roles are re-evaluated from accumulated evidence; a conf
 goalkeeper role is locked and survives leaving the goal area or a few odd frames. A player identity
 that turns out to be a referee is retired into a referee identity (REF-n) and its observations are
 relabelled, so a referee never stays a team player.
+
+Close encounters. A crop whose box overlaps another person's is contaminated: it updates no
+appearance gallery, no kit vote and no detector vote (the position cues still count), and a crop
+must look like the identity it would be stored under. Identity comes before role: a track that
+may be a missing player is compared with that player before any role reading may turn it into an
+official; a track born as a duplicate box on an identity's own track is the same person, not someone
+"seen together" with them; a confirmed player changes role only after several clean checks in a row,
+and a settled player (many observations, a stable team) is treated as an identity switch of the
+local track rather than a change of role. A local track whose clean crops stop looking like its
+own first crops (and its identity's gallery) several ticks in a row was handed to another person
+by the local tracker: it is re-born there (evidence restarted, re-identified from scratch, officials
+included) and the identity it carried goes missing. tracklets.py cuts the tracks at those points and
+where the crops change, and connects the fragments offline.
 """
 import math
 from collections import Counter, deque
@@ -28,7 +41,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .appearance import Sample, add_to_gallery, batch_similarity, compare, decode_descriptor, encode_descriptor
+from .appearance import Sample, add_to_gallery, batch_similarity, compare, decode_descriptor, embedding_cosine, encode_descriptor
 from .geometry import clamp, edge_of, iou
 from .roles import RoleDecision, RoleEvidence, decide_role
 from .teams import role_label
@@ -60,6 +73,17 @@ MANUAL_EVERY = 1.0       # seconds between those appearance checks, per track
 MANUAL_PROBES = 3        # only a track's latest crops are compared: after two people cross, older crops show the other one
 MANUAL_LOST = .45        # a track carrying someone you identified that looks less like them than this, three checks
                          # in a row, has moved to someone else and lets the identity go
+OVERLAP_FREEZE = .15     # IoU with another person's box above which a crop is contaminated: it updates no memory
+ROLE_FLIP_CHECKS = 4     # consecutive clean role checks (~4 s) before a confirmed player identity may change role
+SETTLED_OBSERVATIONS = 50   # observations after which a player identity is settled: a referee reading is then an
+                            # identity switch of the local track, never a change of the person's role
+SETTLED_CONFIDENCE = .85 # ... unless the referee evidence is this strong, six checks in a row
+GALLERY_MIN_COSINE = .45 # a crop stored under an identity must look like that identity's gallery
+DUPLICATE_BIRTH = .2     # IoU at birth with an identity's own track that makes a new track the same person
+SWITCH_COSINE = .55      # a clean crop this unlike the track's own first crops (and its identity's gallery) shows someone else
+                         # (OSNet on small crops: another kit scores .36-.5, the same person .75-.95, one odd crop may dip to .5)
+SWITCH_CHECKS = 3        # ... that many ticks in a row, the crops alike each other (SWITCH_ALIKE): the local track moved to another
+SWITCH_ALIKE = .7        # person (an id switch inside one track); unlike crops are noise (a shadow, a half-hidden body)
 
 
 def r3(v):
@@ -160,6 +184,8 @@ class GlobalPlayer:
     manual: bool = False                                 # identified by you: role and team are yours, never changed automatically
     anchor: list = field(default_factory=list)           # identified by you: their appearance as you corrected it (never updated in a run)
     excluded: bool = False                               # identified by you as not part of the match (recognised, then left out)
+    last_track: int | None = None                        # the local track this identity was last carried by
+    tracks: list = field(default_factory=list)           # every local track that carried this identity (fragmentation)
 
     @property
     def role_label(self):
@@ -243,6 +269,18 @@ class TrackState:
     manual_score: tuple = (0.0, 0.0)                # (similarity to them, best similarity to an automatic identity)
     manual_doubt: int = 0                           # consecutive checks on which a track no longer looked like the person you identified
     excluded: str | None = None                     # the identity you marked as not part of the match that this track is
+    overlap: float = 0.0                            # IoU of this frame's box with the nearest other person's box
+    overlap_with: int | None = None                 # that person's local track
+    born_over: dict = field(default_factory=dict)   # {other track: max IoU} during the first 0.6 s (a duplicate box of them?)
+    contaminated_at: float = -math.inf              # last frame whose crop overlapped another person
+    memory: str = ''                                # what happened to the identity's appearance memory on this tick
+    raw_role: tuple = ('unknown', 0.0)              # the latest frame-window role reading (role, confidence), never the stable role
+    clean_history: list = field(default_factory=list)   # (time, descriptor) of clean crops over the whole track, thinned, for the offline pass
+    switch_miss: int = 0                            # consecutive clean crops unlike the track's own first crops
+    switch_since: float = -math.inf                 # when those started
+    last_match: float = -math.inf                   # the last clean crop that did look like the track's own first crops
+    switch_crops: deque = field(default_factory=lambda: deque(maxlen=SWITCH_CHECKS))   # (time, descriptor) of those unlike crops
+    switches: list = field(default_factory=list)    # times at which this local track was found to show another person (re-born)
 
 
 class IdentityManager:
@@ -261,6 +299,8 @@ class IdentityManager:
         self.last_tick = -math.inf
         self.events_log = []
         self.pools, self.pools_at = None, -math.inf
+        self.ended = {}          # every finished local track, kept for the offline tracklet refinement
+        self.encounters = {}     # (track a, track b) -> {'start', 'ids', 'max'}: close player / official overlaps
         if saved:
             self.restore(saved)
 
@@ -335,6 +375,15 @@ class IdentityManager:
             self._observe(s, ctx, tick)
             seen.add(s['id'])
         live = sorted((self.tracks[i] for i in seen if i in self.tracks), key=lambda x: x.id)
+        for tr in live:
+            # A track born on top of another one is a second box on the same person (a split detection),
+            # not someone seen together with them: remembered for the re-identification.
+            if t-tr.born <= .6:
+                for other in live:
+                    if other is not tr:
+                        o = iou(tr.box, other.box)
+                        if o > tr.born_over.get(other.id, 0.0):
+                            tr.born_over[other.id] = o
         if tick:
             self._behaviour_cues(live, ctx)
             for tr in live:
@@ -363,11 +412,12 @@ class IdentityManager:
         tr = self.tracks.pop(tid, None)
         if tr is None:
             return
+        self.ended[tid] = tr
         self._drop_pairs(tid, out)
         g = self.registry.get(tr.player_id) if tr.player_id else None
         if g is not None and g.track == tid:
             edge = edge_of(tr.last_box)
-            g.track = None
+            g.track, g.last_track = None, tid
             g.exit_edge = edge
             if g.status != 'substituted':
                 g.status = 'offscreen' if edge else 'missing'
@@ -386,6 +436,10 @@ class IdentityManager:
         tr.reacquired = t-tr.last_time > LOST and tr.hits > 0
         tr.box, tr.score, tr.cls, tr.seen_at, tr.stab, tr.pitch = s['box'], s['score'], s['cls'], t, s['stab'], s.get('pitch')
         tr.zone, tr.occluded = s['zone'], s['occluded']
+        tr.overlap, tr.overlap_with = float(s.get('overlap', 0.0)), s.get('overlapWith')
+        contaminated = tr.overlap >= OVERLAP_FREEZE
+        if contaminated:
+            tr.contaminated_at = t
         if tr.segment != ctx['segment']:
             tr.segment, tr.velocity, tr.pitch_velocity = ctx['segment'], (0.0, 0.0), None
             tr.hist.clear()
@@ -402,9 +456,12 @@ class IdentityManager:
             if d is not None:
                 tr.current = d
                 if d.quality >= .2:
-                    tr.descs.append((d, t, s['occluded']))
-                    if not s['occluded'] and len(tr.first) < 2:
+                    tr.descs.append((d, t, s['occluded'] or contaminated))
+                    if not s['occluded'] and not contaminated and len(tr.first) < 2:
                         tr.first.append(d)
+                    if not s['occluded'] and not contaminated and d.quality >= .3 and len(tr.clean_history) < 600 and \
+                            (len(tr.clean_history) < 12 or t-tr.clean_history[-1][0] >= 1.0):
+                        tr.clean_history.append((t, d))
             if tr.hist:
                 prev = tr.hist[-1]
                 dt = t-prev[0]
@@ -415,8 +472,11 @@ class IdentityManager:
             vote = s.get('vote')
             h = max(tr.stab.h, .005)
             motion = (tr.velocity[0]*ctx['aspect']/h*PLAYER_HEIGHT, tr.velocity[1]/h*PLAYER_HEIGHT)  # metres per second
-            tr.evidence.add(s['cls'], s['score'], vote, dict(s.get('cues', {}), zone=tr.zone, v=motion))
-            if vote is not None and vote.valid:
+            # A contaminated crop (two people in one box) says nothing about the kit or the detector's class;
+            # only where the person is still counts.
+            tr.evidence.add(None if contaminated else s['cls'], s['score'], None if contaminated else vote,
+                            dict(s.get('cues', {}), zone=tr.zone, v=motion, clean=not contaminated))
+            if vote is not None and vote.valid and not contaminated:
                 tr.team_votes.append(vote.team or ('x' if vote.outlier else '-'))
             if tr.pitch is not None and tr.last_pitch is not None and 1e-3 < t-tr.last_time <= 1.5:
                 dt = t-tr.last_time
@@ -503,6 +563,8 @@ class IdentityManager:
             ok = tr.hits >= need and (not recent or zr >= .8 or runner)
         elif ok:
             ok = tr.hits >= need if runner else zr >= .8 and (not born or (tr.hits >= o.boundary_hits and tr.inside >= 3))
+        if d is not None:
+            tr.raw_role = (d.role, r3(d.referee_confidence if d.role == 'referee' else d.goalkeeper_confidence if d.role == 'goalkeeper' else d.role_confidence))
         if ok:
             tr.state, tr.team, tr.role = 'uncertain', d.team, d.role
             tr.team_confidence, tr.role_confidence, tr.reason = d.team_confidence, d.role_confidence, ''
@@ -535,7 +597,16 @@ class IdentityManager:
                 tr.role_checked = t
                 d = tr.decision = self._decide(tr, ctx)
                 confidence = d.referee_confidence if d.role == 'referee' else d.goalkeeper_confidence if d.role == 'goalkeeper' else 0
-                if d.role in ('referee', 'goalkeeper') and d.role != tr.role and confidence >= ROLE_LOCK:
+                tr.raw_role = (d.role, r3(confidence if d.role in ('referee', 'goalkeeper') else d.role_confidence))
+                flip = d.role in ('referee', 'goalkeeper') and d.role != tr.role and confidence >= ROLE_LOCK
+                if flip and tr.role == 'player':
+                    why = self._identity_first(tr, d, t)
+                    if why:
+                        flip = False
+                        if self._allow('role-wait-'+str(tr.id), t, 5):
+                            out['events'].append(self._event('role', tr.id, None, '\n'.join(['ROLE UPDATE DEFERRED', f'Local Track: {tr.id}',
+                                                                                              f'Raw role: {ROLE_OUT[d.role]} {confidence:.2f}', f'Identity first: {why}', 'Decision: role kept, re-identification continues'])))
+                if flip:
                     old = self._describe(tr.role, tr.team)
                     tr.role, tr.team, tr.role_confidence = d.role, (d.team if d.role == 'goalkeeper' else None), confidence
                     tr.reid.clear()
@@ -604,15 +675,34 @@ class IdentityManager:
                 elif g.role_locked and d.role == 'player' and d.role_confidence >= .9 and self._allow('role-doubt-'+g.pid, t, 30):
                     out['issues'].append({'id': g.pid, 'time': t, 'reason': f'{g.display} now looks like a team {d.team} player; role kept (locked). Check.'})
                 continue
+            tr.raw_role = (d.role, r3(d.referee_confidence if d.role == 'referee' else d.goalkeeper_confidence if d.role == 'goalkeeper' else d.role_confidence))
             if g.role_locked:
                 continue
-            # A confirmed player changes role only after two checks in a row (about 2 s) ask for the same
-            # new role: the evidence accumulates, and the label never flips back and forth.
+            # A confirmed player changes role only after several clean checks in a row ask for the same new
+            # role: the evidence accumulates, crops contaminated by an overlap never count, and a settled
+            # player (many observations, a stable team) needs stronger, longer evidence still.
             want = 'referee' if d.role == 'referee' and d.referee_confidence >= ROLE_LOCK else \
                 'goalkeeper' if d.role == 'goalkeeper' and d.goalkeeper_confidence >= ROLE_LOCK else None
             tr.role_streak = tr.role_streak+1 if want is not None and want == tr.role_wanted else (1 if want else 0)
             tr.role_wanted = want
-            if want is None or tr.role_streak < 2:
+            if want is None:
+                continue
+            confidence = d.referee_confidence if want == 'referee' else d.goalkeeper_confidence
+            settled = g.observations >= SETTLED_OBSERVATIONS and g.team_confidence >= .6
+            clean = self._clean_share(tr)
+            contact = t-tr.contaminated_at < 3.0 or t-g.crossed_at < 5.0
+            # A settled player read as a referee on the appearance route alone (a gallery resemblance, which
+            # a contaminated gallery can fake) needs the detector, the kit or the touchline to agree.
+            unsupported = settled and want == 'referee' and d.scores.get('detectorReferee', 0.0) < .3 and d.scores.get('refereeKit', 0.0) < .3                 and (d.scores.get('touchlineBehaviour') or 0.0) < .5
+            if tr.role_streak < ROLE_FLIP_CHECKS or clean < .6 or contact or unsupported:
+                if self._allow('role-ignored-'+g.pid, t, 10):
+                    reason = (f'overlapped another person {t-tr.contaminated_at:.1f} s ago; contaminated crops change no role' if contact else
+                              f'only {clean:.0%} of the recent evidence is clean' if clean < .6 else
+                              'a settled player: a gallery resemblance alone, without detector, kit or touchline evidence, does not make a referee' if unsupported else
+                              f'{tr.role_streak} check(s) in a row, {ROLE_FLIP_CHECKS} needed')
+                    out['events'].append(self._event('role', tr.id, g.pid, '\n'.join(['ROLE UPDATE IGNORED', f'Global ID: {g.pid}', f'Local Track: {tr.id}',
+                                                                                        f'Stable role: {self._old_role(g)}', f'Raw role: {ROLE_OUT[want]} {confidence:.2f}',
+                                                                                        f'Reason: {reason}', 'Decision: role kept'])))
                 continue
             if want == 'referee':
                 self._to_referee(tr, g, d, ctx, out)
@@ -977,7 +1067,17 @@ class IdentityManager:
             self.registry[target.pid] = target
             self._seed_gallery(target, tr, g if self._always_this_person(g, tr) else None)
         old = self._old_role(g)
-        born_here = self._hand_over(tr, g, target, t, out)
+        settled = g.role == 'player' and g.observations >= SETTLED_OBSERVATIONS and g.team_confidence >= .6
+        if settled and not self._resembles(g.gallery, tr):
+            # A person does not become a referee in the middle of a match: the crops no longer look like the
+            # player's gallery, so the local track switched to an official. The player keeps their identity
+            # (missing now), and only this track's recent observations follow the official.
+            g.track, g.status = None, 'missing'
+            self._move_observations(g, target, only_track=tr.id, since=t-ROLE_FLIP_CHECKS*1.0-1.0)
+            out['issues'].append({'id': g.pid, 'time': t, 'reason': f'Track {tr.id} switched from {g.pid} to the referee {target.pid}; {g.pid} is missing. Check.'})
+            born_here = False
+        else:
+            born_here = self._hand_over(tr, g, target, t, out)
         tr.role, tr.team = 'referee', None
         tr.team_votes.clear()
         self._bind(tr, target, t, max(.6, g.identity_confidence))
@@ -986,7 +1086,7 @@ class IdentityManager:
         target.role_scores = d.scores
         if d.official:
             target.official = d.official
-        lines = ['ROLE UPDATE', f'Global ID: {g.pid} -> {target.pid}' + (f' ({g.pid} retired: it was this referee)' if born_here else ''),
+        lines = ['ROLE UPDATE', f'Global ID: {g.pid} -> {target.pid}' + (f' ({g.pid} retired: it was this referee)' if born_here else f' (identity switch of track {tr.id}; {g.pid} kept, missing)' if settled else ''),
                  f'Local Track: {tr.id}', f'Old role: {old}', 'New role: REFEREE'] + self._role_lines(d) + [f'Referee confidence: {d.referee_confidence:.2f}']
         out['events'].append(self._event('role', tr.id, target.pid, '\n'.join(lines), {'referee': d.referee_confidence, **d.scores}))
 
@@ -1056,17 +1156,48 @@ class IdentityManager:
                                                                             'Old role: PLAYER', 'New role: GOALKEEPER'] + lines), {'goalkeeper': d.goalkeeper_confidence, **s}))
 
     # ---------- evidence for the role decision ----------
+    @staticmethod
+    def _clean_share(tr):
+        """Share of the recent evidence ticks whose crop overlapped nobody."""
+        records = list(tr.evidence.records)
+        return sum(1 for r in records if r.get('clean', True))/len(records) if records else 1.0
+
+    def _identity_first(self, tr, d, t):
+        """Why an uncertain player track must not be turned into an official yet ('' when it may): a missing
+        player it resembles is still being compared, its evidence is contaminated, or the referee reading
+        rests on one gallery resemblance that the batch appearance and the detector do not share."""
+        # A missing player still in the running: a score near the reconnection threshold, or too few
+        # comparisons so far. A candidate the comparisons have already ruled out does not hold the role.
+        pending = max((s['final'] for steps in tr.reid.values() for s in steps), default=0.0)
+        if pending >= self.o.reid_min-.1:
+            best = max(tr.reid, key=lambda pid: max(s['final'] for s in tr.reid[pid]))
+            return f'{best} is still a possible match ({pending:.2f}); identity is decided before the role'
+        if tr.reid and max(len(steps) for steps in tr.reid.values()) < 3:
+            return 're-identification has too few comparisons yet'
+        if tr.blind:
+            return f"{', '.join(pid for pid, _ in tr.blind)} cannot be compared yet"
+        clean = self._clean_share(tr)
+        if clean < .6:
+            return f'only {clean:.0%} of the recent evidence is clean (overlaps)'
+        if d.role == 'referee':
+            looks = self._looks(tr, t)
+            if (looks.get('referee') or 0.0) < .55 and d.scores.get('detectorReferee', 0.0) < .5 and d.scores.get('refereeKit', 0.0) < .5:
+                return 'neither the batch appearance, the detector nor the kit says referee'
+        return ''
+
     def _decide(self, tr, ctx):
         """The temporal role decision with this person's whole-appearance similarity to the known referees
         and to each team's players, and whether the kit's team already has its full count of identities."""
         return decide_role(tr.evidence, ctx['model'], self.o.min_hits, self._looks(tr, ctx['time']), self._crowded(tr))
 
     def _crowded(self, tr):
-        """{team: True} where that team already has max_per_team identities other than this track's own."""
+        """{team: True} where that team already has max_per_team identities *on the pitch now* other than
+        this track's own. A missing player leaves room: the new track may well be them."""
         own = self.registry.get(tr.player_id) if tr.player_id else None
         out = {}
         for team in ('A', 'B'):
-            n = self._count(team)-(1 if own is not None and own.role == 'player' and own.team == team else 0)
+            n = sum(1 for g in self.registry.values() if g.role == 'player' and g.team == team and g is not own and
+                    g.status not in ('retired', 'substituted', 'unknown') and g.track is not None and self._lost_for(g) < 5.0)
             out[team] = n >= self.o.max_per_team
         return out
 
@@ -1208,7 +1339,13 @@ class IdentityManager:
         for tr in uncertain:
             if tr.retired or tr.role != 'player' or len(tr.descs) < 3:
                 continue
-            # A returning referee or goalkeeper whose kit voted for a team: their own appearance decides.
+            # A returning referee or goalkeeper whose kit voted for a team: their own appearance decides,
+            # unless this person's own temporal evidence plainly says team player (a gallery can be
+            # contaminated by the crops of a player who hid the official).
+            d = tr.decision
+            if d is not None and d.role == 'player' and d.role_confidence >= .6 and d.referee_confidence < .4 and d.goalkeeper_confidence < .4 \
+                    and (self._looks(tr, ctx['time']).get('referee') or 0.0) < .55:
+                continue
             match = self._special_match(tr, ('referee', 'goalkeeper'))
             if match is None or match[1] < .8:
                 continue
@@ -1390,8 +1527,10 @@ class IdentityManager:
             final = combine({'appearance': appearance, 'uniform': uniform, 'spatial': spatial, 'temporal': 1.0, 'team': team})
             return {'appearance': appearance, 'jersey': jersey, 'uniform': uniform, 'team': team, 'spatial': spatial,
                     'movement': None, 'temporal': 1.0, 'final': final, 'missing': dt, 'cosine': c.get('cosine') if c else None}
-        # Detected while the identity was still detected on another track: two different people.
-        together = same and tr.born < g.last_seen-1e-3 and not released
+        # Detected while the identity was still detected on another track: two different people, unless this
+        # track was born as a second box on that very track (a split detection of the same person).
+        duplicate = g.last_track is not None and tr.born_over.get(g.last_track, 0.0) >= DUPLICATE_BIRTH
+        together = same and tr.born < g.last_seen-1e-3 and not released and not duplicate
         spatial = movement = None
         sigma = 3+7*gap
         if tr.first_pitch is not None and g.last_pitch is not None and sigma <= SPATIAL_HORIZON:
@@ -1464,6 +1603,8 @@ class IdentityManager:
         lines += [f"Team match: {'yes' if best['team'] else 'no'}", f"Jersey similarity: {best['jersey']:.2f}"]
         lines.append(f"Spatial plausibility: {best['spatial']:.2f}" if best['spatial'] is not None else 'Spatial plausibility: not comparable (camera cut or long gap)')
         lines += [f"Time missing: {best['missing']:.1f} seconds", f"Final identity confidence: {best['final']:.2f}"]
+        if tr.decision is not None and tr.decision.role not in ('unknown', g.role):
+            lines.append(f'Raw current role prediction: {ROLE_OUT.get(tr.decision.role, "UNKNOWN")} {tr.raw_role[1]:.2f} -> IGNORED (identity history: {self._old_role(g)})')
         lines.append(f"Second best: {second['id']} {second['final']:.2f}" if second else
                      f"Second best: none ({', '.join(pid for pid, _ in tr.blind)} not comparable)" if tr.blind else 'Second best: none (only missing candidate)')
         if crossed:
@@ -1496,6 +1637,18 @@ class IdentityManager:
         if tr.role == 'goalkeeper' and not self._keeper_confirmed(tr.decision):
             # A provisional goalkeeper never creates (and so never reserves) a goalkeeper identity.
             self._hold_keeper_candidate(tr, tr.decision, ctx, out, 'No goalkeeper identity created yet')
+            return False
+        d = tr.decision
+        if tr.role == 'referee' and d is not None and d.role == 'player' and d.role_confidence >= .6 and d.referee_confidence < .4:
+            # The role came from a gallery resemblance, but this person's own evidence says team player: no
+            # referee identity is created from player evidence; the track goes back to being a player.
+            tr.role, tr.team, tr.role_confidence = 'player', d.team, d.role_confidence
+            tr.reid.clear()
+            tr.reason = f'resembled a referee gallery, but plays like a team {d.team} player: re-identifying as a player'
+            if self._allow('no-ref-'+str(tr.id), ctx['time'], 5):
+                out['events'].append(self._event('role', tr.id, None, '\n'.join(['ROLE UPDATE REVERTED', f'Local Track: {tr.id}', 'Raw role: REFEREE (gallery resemblance)',
+                                                                                  f'Temporal evidence: PLAYER team {d.team} {d.role_confidence:.2f}, referee {d.referee_confidence:.2f}',
+                                                                                  'Decision: no referee identity from player evidence'])))
             return False
         group = 'referee' if tr.role == 'referee' else 'goalkeeper' if tr.role == 'goalkeeper' else tr.team
         n, cap = self._count(group), self._cap(group)
@@ -1598,6 +1751,9 @@ class IdentityManager:
         if tr.team is None and g.team is not None:
             tr.team = g.team
         g.track, g.status, g.here, g.bound_at, g.restored = tr.id, 'active', True, time, False
+        g.last_track = tr.id
+        if not g.tracks or g.tracks[-1] != tr.id:
+            g.tracks.append(tr.id)
         g.identity_confidence = r3(clamp(conf))
         g.team_confidence = r3(tr.team_confidence) if g.role == 'player' else g.team_confidence
         g.role_confidence = r3(max(g.role_confidence, tr.role_confidence) if g.role_locked else tr.role_confidence)
@@ -1646,11 +1802,11 @@ class IdentityManager:
             if person.get('id') == g.pid:
                 person.update(display=g.display, team=g.team, role=ROLE_OUT.get(g.role, 'UNKNOWN'), label=g.role_label)
 
-    def _move_observations(self, old, new, only_track=None):
-        """Relabel observations of `old` (all, or one local track's) as identity `new`."""
+    def _move_observations(self, old, new, only_track=None, since=-math.inf):
+        """Relabel observations of `old` (all, or one local track's, from `since` on) as identity `new`."""
         keep = []
         for person in old.emitted_all:
-            if person.get('id') == old.pid and (only_track is None or person.get('track') == only_track):
+            if person.get('id') == old.pid and (only_track is None or person.get('track') == only_track) and person.get('time', 0) >= since:
                 self._style(person, new, min(person.get('identityConfidence', 1), new.identity_confidence or 1))
                 person['evidence'] = 'relabelled'
                 new.emitted_all.append(person)
@@ -1882,12 +2038,21 @@ class IdentityManager:
             if tr.state == 'confirmed' and (g is None or g.track != tr.id):
                 tr.player_id, tr.state = None, 'uncertain'
                 g = None
+            if tick and self._check_switch(tr, g, ctx, out):
+                g = None
             person = {'time': t, 'track': tr.id, 'box': [round(float(v), 5) for v in tr.box], 'score': round(float(tr.score), 3),
                       'cls': tr.cls, 'zone': tr.zone, 'evidence': 'observed'}
             if tr.pitch is not None:
                 person['pitch'] = [round(float(tr.pitch[0]), 4), round(float(tr.pitch[1]), 4)]
             if tick and tr.decision is not None and tr.decision.why:
                 person['why'] = tr.decision.why
+            if tick:
+                person['rawRole'], person['rawRoleConfidence'] = ROLE_OUT.get(tr.raw_role[0], 'UNKNOWN'), tr.raw_role[1]
+                person['occlusion'] = round(tr.overlap, 2)
+                if tr.overlap_with is not None:
+                    other = self.tracks.get(tr.overlap_with)
+                    og = self.registry.get(other.player_id) if other is not None and other.player_id else None
+                    person['occludedWith'] = og.display if og is not None else f'track {tr.overlap_with}'
             if g is not None and tick:
                 self._check_mismatch(tr, g, ctx, out)
                 if tr.player_id != g.pid:
@@ -1914,8 +2079,8 @@ class IdentityManager:
             else:
                 g.last_pitch = g.pitch_velocity = None
             if tick:
-                if tr.current is not None and not tr.occluded and tr.zone != 'outside' and self._conf(g, t) >= .6:
-                    g.gallery = add_to_gallery(g.gallery, tr.current, t, self.o.gallery_size)
+                self._remember(tr, g, t, out)
+                person['stableRole'], person['memory'] = ROLE_OUT.get(g.role, 'UNKNOWN'), tr.memory
                 g.history.append({'t': r3(t), 'box': person['box'], **({'pitch': person['pitch']} if 'pitch' in person else {})})
             visible.append(g)
             if tr.zone == 'outside' and tr.outside_run > 10:
@@ -1935,6 +2100,152 @@ class IdentityManager:
             for j in range(i+1, len(visible)):
                 if visible[i].team and visible[i].team == visible[j].team:
                     self.together.add(tuple(sorted((visible[i].pid, visible[j].pid))))
+
+    def _remember(self, tr, g, t, out):
+        """Selective memory: this tick's crop joins the identity's appearance gallery only when it is clean
+        (overlapping nobody, good quality, on the pitch), the binding has settled (not just made, not
+        after a crossing) and it looks like the gallery already there. Otherwise the memory is frozen
+        for this tick, and a close encounter between a player and an official is logged."""
+        cur = tr.current
+        if cur is None:
+            tr.memory = 'frozen: no crop'
+            return
+        if tr.overlap >= OVERLAP_FREEZE:
+            tr.memory = f'frozen: overlap {tr.overlap:.2f}' + (f' with track {tr.overlap_with}' if tr.overlap_with is not None else '')
+            other = self.tracks.get(tr.overlap_with) if tr.overlap_with is not None else None
+            og = self.registry.get(other.player_id) if other is not None and other.player_id else None
+            if og is not None and {g.role, og.role} == {'player', 'referee'} and tr.overlap >= .25:
+                key = (min(tr.id, other.id), max(tr.id, other.id))
+                e = self.encounters.setdefault(key, {'start': t, 'ids': (g.pid, og.pid), 'max': 0.0})
+                e['max'] = max(e['max'], tr.overlap)
+                if self._allow(f'occlusion-{key[0]}-{key[1]}', t, 5):
+                    out['events'].append(self._event('occlusion', tr.id, g.pid, '\n'.join(['OCCLUSION EVENT', f'Track {tr.id}: Global {g.pid} ({ROLE_OUT[g.role]})',
+                                                                                             f'Track {other.id}: Global {og.pid} ({ROLE_OUT[og.role]})', f'IoU: {tr.overlap:.2f}',
+                                                                                             'Action: FREEZE APPEARANCE + ROLE MEMORY (contaminated crops update neither identity)'])))
+            return
+        if tr.occluded:
+            tr.memory = 'frozen: occluded'
+            return
+        if cur.quality < .3 or tr.zone == 'outside':
+            tr.memory = 'frozen: low quality' if cur.quality < .3 else 'frozen: outside the pitch'
+            return
+        if t-g.bound_at < .6 or t < g.cap_until or t-tr.crossed_at <= 2.0:
+            tr.memory = 'frozen: identity just bound or after a crossing'
+            return
+        if self._conf(g, t) < .6:
+            tr.memory = 'frozen: identity confidence low'
+            return
+        if len(g.gallery) >= 2:
+            c = compare(g.gallery, [cur])
+            if c is not None and c.get('cosine') is not None and c['cosine'] < GALLERY_MIN_COSINE:
+                tr.memory = f"frozen: crop unlike the identity (cosine {c['cosine']:.2f})"
+                return
+        g.gallery = add_to_gallery(g.gallery, cur, t, self.o.gallery_size)
+        tr.memory = 'updated'
+
+    def _check_switch(self, tr, g, ctx, out):
+        """An id switch inside one local track: the tracker handed the track from one person to another
+        when they crossed. A clean crop that looks like neither the track's own first clean crops nor its
+        identity's gallery, SWITCH_CHECKS ticks in a row, means the track now shows someone else. The track
+        is re-born at the first such crop: evidence, kit votes, first crops and birth time start afresh, so
+        the "seen together" rule no longer counts its past and the person it shows now is re-identified from
+        scratch (a missing official included). A bound identity is released, missing, with its last sighting
+        moved back to before the switch; the frames since the switch lose that label (the offline pass
+        reconnects them). Returns True when the track was re-born."""
+        cur = tr.current
+        if cur is None or tr.retired or tr.excluded or tr.occluded or tr.overlap >= OVERLAP_FREEZE or cur.quality < .3 or \
+                cur.embedding is None or len(tr.first) < 2:
+            return False
+        refs = [f.embedding for f in tr.first]+([x.d.embedding for x in g.gallery] if g is not None else [])
+        cosines = [c for c in (embedding_cosine(r, cur.embedding) for r in refs) if c is not None]
+        if not cosines:
+            return False
+        best = max(cosines)
+        t = ctx['time']
+        if best >= SWITCH_COSINE:
+            tr.switch_miss, tr.switch_since, tr.last_match = 0, -math.inf, t
+            tr.switch_crops.clear()
+            return False
+        if tr.switch_miss == 0:
+            tr.switch_since = t
+        tr.switch_miss += 1
+        tr.switch_crops.append((t, cur))
+        if tr.switch_miss < SWITCH_CHECKS:
+            return False
+        # One other person, not noise: the unlike crops must look like each other.
+        recent = list(tr.switch_crops)
+        alike = [c for c in (embedding_cosine(a.embedding, b.embedding) for k, (_, a) in enumerate(recent) for _, b in recent[k+1:]) if c is not None]
+        if not alike or min(alike) < SWITCH_ALIKE:
+            return False
+        # The switch happened somewhere after the last crop that still matched (the overlap in between is
+        # ambiguous): the labels since then go, at most 3 s before the first of the unlike crops; the track's
+        # new life starts at that crop (the person it shows may have been on their own track until just
+        # before: "seen together" counts from here).
+        born = recent[0][0]
+        since = max(tr.last_match+1e-3, born-3.0) if tr.last_match > -math.inf else born
+        was = self._describe(tr.role, tr.team) if tr.state in ('uncertain', 'confirmed') else 'CANDIDATE'
+        lines = ['TRACK SWITCH', f'Local Track: {tr.id}',
+                 f'Before: {was}' + (f', Global {g.pid}' if g is not None else ' (no global identity yet)'),
+                 f'Now: a different person (OSNet cosine {best:.2f} vs the track\'s own first crops' + (' and the identity gallery' if g is not None else '') +
+                 f', {SWITCH_CHECKS} clean crops since {born:.2f} s that agree with each other at {min(alike):.2f})']
+        stale = []
+        if g is not None:
+            self._unbind(g)
+            g.last_track = tr.id
+            g.last_seen = min(g.last_seen, since-1e-3)
+            for when, person in tr.emitted:
+                if when >= since-1e-6 and person.get('id') == g.pid:
+                    if person in g.emitted_all:
+                        g.emitted_all.remove(person)
+                        g.observations -= 1
+                    stale.append(person)
+            lines.append(f'Action: {g.pid} released (MISSING, last seen before {since:.2f} s); identity, team and role unchanged')
+        else:
+            stale = [person for person in tr.pending if person.get('time', 0) >= since-1e-6]
+        for person in stale:
+            person.update(id=None, display='?', label='IDENTITY_UNCERTAIN', team=None, role='UNKNOWN', state='uncertain',
+                          identityConfidence=0.0, reason=f'track switched person at {since:.2f} s')
+            for key in ('stableRole', 'memory'):
+                person.pop(key, None)
+        lines.append('Action: track re-born: evidence restarted, re-identification from scratch (missing players and officials)')
+        self._rebirth(tr, since, born, ctx)
+        tr.pending.extend(stale)
+        out['events'].append(self._event('switch', tr.id, g.pid if g is not None else None, '\n'.join(lines)))
+        if g is not None:
+            out['issues'].append({'id': g.pid, 'time': r3(t), 'reason': f'Track {tr.id} switched from {g.pid} to someone else at {since:.2f} s; {g.pid} is missing.'})
+        return True
+
+    def _rebirth(self, tr, since, born, ctx):
+        """The track starts afresh: cut at `since`, born at `born`, with only what it showed from then on."""
+        tr.switches.append(r3(since))
+        tr.born, tr.born_segment = born, ctx['segment']
+        tr.first_stab, tr.first_pitch, tr.first_zone, tr.entry_edge = tr.stab, tr.pitch, tr.zone, ''
+        tr.hits = tr.inside = tr.boundary = tr.outside = tr.outside_run = 0
+        tr.zones.clear()
+        tr.evidence, tr.decision = RoleEvidence(), None
+        tr.team_votes.clear()
+        tr.hist.clear()
+        tr.velocity, tr.pitch_velocity = (0.0, 0.0), None
+        recent = [(d, when, occluded) for d, when, occluded in tr.descs if when >= since-1e-6]
+        tr.descs.clear()
+        tr.descs.extend(recent)
+        tr.first = [d for d, _, occluded in recent if not occluded][:2]
+        tr.player_id, tr.state, tr.team, tr.role = None, 'candidate', None, 'unknown'
+        tr.team_confidence = tr.role_confidence = tr.best = 0.0
+        tr.reid.clear()
+        tr.blind, tr.released, tr.looks = [], None, None
+        tr.former.clear()
+        tr.born_over = {}
+        tr.role_streak, tr.role_wanted, tr.role_checked = 0, None, -math.inf
+        tr.kit_miss = tr.look_miss = tr.switch_miss = 0
+        tr.switch_since = tr.last_match = -math.inf
+        tr.switch_crops.clear()
+        tr.last_deferred, tr.deferrals = -math.inf, 0
+        tr.manual_checked, tr.manual_hits, tr.manual_pid, tr.manual_doubt = -math.inf, 0, None, 0
+        tr.raw_role, tr.reacquired = ('unknown', 0.0), False
+        tr.pending.clear()
+        tr.emitted.clear()
+        tr.reason = f'track switched person at {since:.2f} s: re-identifying'
 
     def _check_mismatch(self, tr, g, ctx, out):
         """A crop whose jersey (or learned appearance) clearly contradicts the identity is not this

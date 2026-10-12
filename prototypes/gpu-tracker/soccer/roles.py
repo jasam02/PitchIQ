@@ -75,7 +75,7 @@ class RoleEvidence:
                              'near_goal': bool(cues.get('near_goal')), 'goal_side': cues.get('goal_side'),
                              'extreme': bool(cues.get('extreme')), 'isolated': bool(cues.get('isolated')),
                              'zone': cues.get('zone', 'inside'), 'edge': cues.get('edge'), 'v': cues.get('v'),
-                             'ball_m': None, 'formation': None, 'move': None})
+                             'clean': bool(cues.get('clean', True)), 'ball_m': None, 'formation': None, 'move': None})
         return self.records[-1]
 
     @property

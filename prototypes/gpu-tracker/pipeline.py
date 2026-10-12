@@ -21,7 +21,7 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import ball_path, pitch_model, registration
+from soccer import ball_path, pitch_model, registration, tracklets
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -287,12 +287,14 @@ def run(video_path, output, config, progress, cancelled, previous=None):
         log.close()
     if not frames:
         raise RuntimeError('No video frames were processed.')
+    progress({'stage': 'Refining tracklets over the whole segment (split mixed tracks, reconnect fragments)'})
+    identity_report = finalize_identities(frames, tracker)
     progress({'stage': 'Registering the pitch over the whole segment and remapping the tracks'})
     propagated, timeline = finalize_pitch(frames, tracker)
     progress({'stage': 'Decoding the final ball trajectory over the whole segment'})
     ball_report = finalize_ball(frames, tracker, timeline)
     progress({'stage': 'Writing global identities and tracking data'})
-    report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous, ball_report)
+    report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous, ball_report, identity_report)
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
     report['summary']['pitch']['registration'] = tracker.registration
@@ -359,6 +361,20 @@ def finalize_pitch(frames, tracker):
     return filled, timeline
 
 
+def finalize_identities(frames, tracker):
+    """Offline tracklet refinement (soccer/tracklets.py): local tracks are cut where their identity label
+    changed, and fragments without a confident player identity are reconnected to the dormant identities
+    around them in time. Relabels the frames in place; returns the report, or None."""
+    log = tracker.frame_log
+    if len(log) != len(frames) or not frames:
+        return None
+    motions = [(e['M'], e['reliable'], e['cut']) for e in log]
+    report = tracklets.refine(tracker.ids, frames, motions, tracker.width, tracker.height)
+    tracker.events += report['events']
+    tracker.events.sort(key=lambda e: e['time'])
+    return report
+
+
 def finalize_ball(frames, tracker, timeline):
     """Offline pass 4 (soccer/ball_path.py): the final ball trajectory decoded from every frame's candidates
     and an explicit "not visible" node over the whole segment. Rewrites each frame's `ball` (the causal
@@ -390,7 +406,7 @@ def finalize_ball(frames, tracker, timeline):
     return report
 
 
-def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previous, ball_report=None):
+def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previous, ball_report=None, identity_report=None):
     tracks, people, identified = {}, 0, 0
     for frame in frames:
         for person in frame['people']:
@@ -469,6 +485,7 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                'identifiedShare': round(identified/people, 3) if people else 0.0, 'rejectedDetections': tracker.rejected_counts,
                'cameraCuts': tracker.cuts, 'meanVisiblePeople': round(sum(len(f['people']) for f in frames)/len(frames), 1),
                'ball': ball, 'roles': roles, 'goalSides': tracker.ids.goal_sides(), 'goalkeeperSlots': tracker.ids.keeper_slots(), 'pitch': pitch,
+               'identity': tracklets.metrics(tracker.ids, frames, events, identity_report or {}) if hasattr(tracker.ids, 'encounters') else None,
                'elapsedSeconds': round(elapsed, 2), 'processingFPS': round(len(frames)/elapsed, 2),
                'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2) if torch.cuda.is_available() else 0.0}
     return {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,

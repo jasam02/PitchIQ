@@ -328,6 +328,89 @@ too similar to tell, both identities are kept, their confidence is capped, and a
 crossing warning is logged. A track whose crops repeatedly stop matching its
 identity (other kit, or very different OSNet appearance) releases it.
 
+**Close encounters and contaminated crops.** Local track id, global identity,
+team and role are four different things, and a local tracker interruption must
+not erase the real person. Every sample carries the IoU of its box with the
+nearest other person's box (`occlusion`, `occludedWith`); above 0.15 the crop is
+contaminated and updates nothing: no kit vote, no detector vote (the position
+cues still count), no appearance gallery, and the track's "first clean crops"
+are left alone. A crop joins an identity's gallery only when it is clean, of
+decent quality, on the pitch, the binding has settled (0.6 s old, not after a
+crossing) and it still looks like the gallery (OSNet cosine ≥ 0.45), so a local
+track that silently moved to the person next door cannot write them into the
+identity (`memory: updated / frozen: …` on each tick). A player and an official
+overlapping at IoU ≥ 0.25 is logged as an `OCCLUSION EVENT` with the freeze.
+
+**Identity first, role second.** A new local track that may be a missing player
+is compared with that player before any role reading may turn it into an
+official: while the best missing candidate still scores near the reconnection
+threshold, or too few comparisons exist, or the recent evidence is mostly
+contaminated, or a referee reading rests on one gallery resemblance that
+neither the batch appearance, the detector nor the kit shares, the role stays
+and `ROLE UPDATE DEFERRED` is logged. A track born as a second box on an
+identity's own track (IoU ≥ 0.2 in its first 0.6 s, a split detection) is the
+same person, not someone "seen together" with them, so the spatial evidence
+counts. A missing player leaves room in a "full" team (only players on the
+pitch now count), so the referee threshold is not lowered against a returning
+teammate. A gallery resemblance to a referee never converts a track whose own
+temporal evidence says team player, and no referee identity is ever created
+from player evidence (`ROLE UPDATE REVERTED`).
+
+**Role hysteresis.** `UNKNOWN → PLAYER / REFEREE` needs the usual window;
+`confirmed PLAYER → REFEREE / GOALKEEPER` needs four consecutive clean checks
+(about 4 s) asking for the same role, at least 60% clean evidence in the
+window, no overlap with another person in the last 3 s and no crossing in the
+last 5 s; a settled player (50+ observations, a stable team) read as a referee
+on the appearance route alone needs the detector, the kit or the touchline to
+agree. A conversion of a settled player whose current crops no longer resemble
+their own gallery is treated as what it is — the local track switched to an
+official — the player keeps their identity (missing) and only the track's
+recent observations follow the official. Refused changes are logged as
+`ROLE UPDATE IGNORED` with the raw reading and the reason; each person carries
+`stableRole` (the identity's) next to `rawRole` (the latest window reading).
+
+**Track switches.** The local tracker can hand a track from one person to
+another when they cross (on the Veo clip, a B player's track continued on the
+referee whose own track had just ended). A clean crop that looks like neither
+the track's own first clean crops nor its identity's gallery (OSNet cosine
+< 0.55; on these small crops another kit scores 0.36–0.5 and the same person
+0.75–0.95), three ticks in a row that look like each other (≥ 0.7, so one odd
+crop never counts), is such a switch: `TRACK SWITCH` is logged, the track is
+re-born at the first of those crops (evidence, kit votes, first crops and
+birth time restart, so the "seen together" rule no longer counts its past and
+the person it now shows is re-identified from scratch, missing officials
+included), the identity it carried goes missing with its last sighting moved
+back to the last crop that still matched, and the frames since then lose that
+label (`?`) rather than showing the player on the referee's body.
+
+**Offline tracklet refinement** (`soccer/tracklets.py`, after the causal pass).
+Every finished local track is kept. Each track is cut where its identity label
+changed (a mixed tracklet), where a `TRACK SWITCH` was found, and where its
+clean crops stop looking like the ones before (the pairs across the cut
+average below OSNet cosine 0.55 while each side agrees with itself at ≥ 0.6;
+`TRACKLET SPLIT`; four or more tracks changing together within 0.75 s is a
+scene change, a zoom or the light, and cuts nothing). A
+fragment after such a cut is unidentified whatever label it still wears, and
+every fragment without a confident player
+identity — `?`, `B-?`, `REF-?`, or a referee identity that only ever was such a
+fragment and whose own creation evidence said player — is compared with the
+dormant player identities around it in time (and, for a fragment that wore an
+official's label or follows a cut, the dormant referees too; the best wins):
+its own clean crops against the gallery (appearance ≥ 0.5 required), camera-compensated image distance from the
+identity's last sighting before the fragment and first sighting after it (both
+directions), the time gap (≤ 10 s; a fragment without usable crops only within
+3 s, position alone says little after that) and team compatibility; an identity
+seen elsewhere during the fragment is never a candidate. A fragment is connected at
+a combined score ≥ 0.6 with a 0.1 lead, every frame takes the identity's id,
+team and role (`evidence: connected offline`, `firstPassLabel` kept), the
+phantom referee identity is retired, and `TRACKLET CONNECT` events give the
+scores. The 2D match view reads these finalized labels, so a player who was
+B-02 → B-? → REF-? in the causal pass stays B-02 throughout. `summary.identity`
+reports id switches, mixed tracklets, track switches found online, offline
+splits, player ↔ referee transitions, ignored / deferred / reverted role
+updates, close encounters and how many players came through them, fragments
+connected (officials included) and frames restored to players.
+
 ### 4. Pitch coordinates and the pitch model
 
 There is no automatic metric calibration (no field keypoint model ships with
