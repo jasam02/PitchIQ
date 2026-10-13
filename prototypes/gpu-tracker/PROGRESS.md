@@ -251,7 +251,16 @@ up — met (87 → 88, 40 → 39, 102 → 102 tracked on the counted frames); `t
 passes <= 1 % of frames — passes on 1.3 % of frames (69), accepted detections on 0.02 % (1): the target is met for what enters the result, slightly missed for the passes; far-tile track starts on the broadcast = 0 — met (0); broadcast label agreement >= 99 % —
 met (1.000 against Phase 2 and against the baseline where both label a person; 0.9947 overall against the baseline, the difference being labels added offline); fps >= 4.7 — not measurable here (GPU shared with another application; reported as measured).
 
-## Phase 4 — off-screen estimation, benchmarked on full-pitch data
+Small-object tracker tuning, measured after the Phase 3 commit (`p0/p4b/*`: the Veo and the two amateur windows with
+`SMALL_OBJECT_TRACKING` on, i.e. a second-stage threshold of 0.05 and a 90-frame buffer while the far band exists): on the Veo and the
+amateur 0-60 s windows every box and label is identical to the final run (the tuning was active on 189 and 8 frames and changed no
+association); on the 150-210 s window, where it was active on 1 227 frames, it tracked 0.33 more people per frame and raised the
+identified share from 0.695 to 0.723, but it created one more identity (team B 12 → 13, over the cap by two), raised the identity
+fragmentation from 1.83 to 2.54 (29 → 46 fragments reconnected offline) and relabelled 5 % of the co-labelled people, with online
+switches unchanged at 2. The rule was to keep it only if fragmentation fell without more switches: it stays off (`False`), available
+for a later measurement with ground truth.
+
+## Phase 4 — off-screen estimation, benchmarked on full-pitch data — commit `278c716`
 
 What changed (new `soccer/imputation.py`, `tools/metrica_bench.py`, `tests/test_imputation.py`; `pipeline.py` writes `timeline`,
 `corrections.py` re-derives it after a correction): every roster slot gets, on every frame, a position with a kind and a sigma: O observed,
@@ -317,7 +326,7 @@ Unmeasured: the simulated window has no occlusion and no detector misses inside 
 registration's view polygon and the tracker); only Metrica games 1-2 were used (DFL open data and SkillCorner visibility flags were not);
 on the real clips the true off-screen positions are unknown, so only consistency is measured there.
 
-## Phase 5 — tactical view kinds, full lineup, camera footprint, export — commit `pending`
+## Phase 5 — tactical view kinds, full lineup, camera footprint, export — commit `7fe810d`
 
 What changed (`tactical.js`, `index.html`, `tools/compare.py`, `tests/test_tactical.py`, and in `soccer/visibility.py` the off-screen
 rule below): the 2D view draws every roster slot from the `timeline` when the result has one (older results are drawn from their

@@ -143,6 +143,11 @@ imported lazily), so all of its logic is unit-tested without a GPU.
   handling, because a crop there finds the other person and would carry the
   lost identity onto them (measured on the broadcast clip, where it swapped
   two players' teams for 25 and 56 s). Nothing new is ever created from a crop.
+- A BoT-SORT small-object setting (second-stage threshold 0.05 and a 90-frame
+  buffer while the far band exists; `SMALL_OBJECT_TRACKING` in
+  `soccer/tracker.py`) exists but is off: measured on the test clips it changed
+  nothing on two windows and added a duplicate identity and fragmentation on
+  the third (`PROGRESS.md`, Phase 3).
 - Feet a little beyond (5% of the frame height) a far edge that is not a painted
   line (a predicted or grass edge), continuing a tracked person, stay in the
   `boundary` zone instead of being rejected as audience
