@@ -75,31 +75,32 @@ def metrics(result, name=''):
     size = (result.get('tactical') or {}).get('pitchSize') or {}
     length, width = float(size.get('length', 105.0)), float(size.get('width', 68.0))
     block = result.get('timeline') or {}
-    # Jumps: at a change of kind (an estimate meeting an observation, or an observation turning into an estimate) the
-    # speed between the two consecutive samples; within a run of observations the speed over one second (consecutive
-    # observations jitter by their own noise, which says nothing about consistency).
+    # Jumps: where a prediction meets a measurement (observed or interpolated between observations) or a measurement
+    # turns into a prediction, the speed between the two consecutive samples; within a run of measurements the speed
+    # over one second (consecutive observations jitter by their own noise, which says nothing about consistency).
     jumps = Counter()
+    measured = {'O', 'I'}
     if block.get('ids') and block.get('frameTimes'):
         times = block['frameTimes']
         for pid, cols in block['ids'].items():
-            run_start = None   # index where the current run of one kind began
+            run_start = 0   # index where the current run of measurements began
             for i in range(1, len(times)):
                 k0, k1 = cols['kind'][i-1], cols['kind'][i]
-                if k1 != k0:
+                if (k1 in measured) != (k0 in measured):
                     run_start = i
                 if k1 == 'U' or k0 == 'U' or cols['x'][i] is None or cols['x'][i-1] is None:
                     continue
-                if k1 != k0:
+                if (k1 in measured) != (k0 in measured):
                     dt = times[i]-times[i-1]
                     if dt > 0 and math.hypot((cols['x'][i]-cols['x'][i-1])*length, (cols['y'][i]-cols['y'][i-1])*width)/dt > 12.0:
                         jumps[f'{k0}->{k1}'] += 1
-                elif k1 == 'O':
+                elif k1 in measured:
                     j = i-1
-                    while j > (run_start or 0) and times[i]-times[j] < 1.0:
+                    while j > run_start and times[i]-times[j] < 1.0:
                         j -= 1
                     if times[i]-times[j] >= 1.0 and cols['x'][j] is not None:
                         if math.hypot((cols['x'][i]-cols['x'][j])*length, (cols['y'][i]-cols['y'][j])*width)/(times[i]-times[j]) > 12.0:
-                            jumps['O->O (1 s)'] += 1
+                            jumps['measured (1 s)'] += 1
     footprint = sum(1 for f in frames if f.get('view'))
     s = result.get('summary', {})
     ident = s.get('identity') or {}

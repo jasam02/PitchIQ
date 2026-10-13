@@ -24,12 +24,15 @@ const PITCH = {length: 105, width: 68, penaltyDepth: 16.5, penaltyHalf: 20.16, g
 const RULES = {
   interpolateGap: 1.0,     // s: an identity observed on both sides of a gap this long is interpolated across it
   holdAfter: 0.6,          // s: after its last observation a marker stays (fading) this long, then hides
+  anonymousGap: 0.3,       // s: an unidentified person's observations are joined only across this much
+  anonymousHold: 0.3,      // s: ... and held this long
   ballHold: 0.2,           // s: the ball tracker already predicts while hidden; hold only a little longer
   ballInterpolateGap: 0.15, // s: a lost ball is never bridged by a straight line; only a dropped frame or two is
   smoothWindow: 0.14,      // s: centred averaging window over a player's observations (offline, no lag)
   ballSmoothWindow: 0.06,
   ballPredictedMin: 0.5,   // ball confidence needed to draw a predicted (hidden) ball
   outside: 0.1,            // normalized: how far beyond the lines a position may still be drawn
+  uncertainSigma: 8.0,     // m: a prediction less certain than this is faded and marked, and hidden unless the full lineup is shown
 };
 const DEFAULT_COLOURS = {A: '#b98cff', B: '#f6b564'};
 const NEUTRAL = '#8d99a6';   // a goalkeeper whose team is not known yet
@@ -38,12 +41,14 @@ const NEUTRAL = '#8d99a6';   // a goalkeeper whose team is not known yet
 class Track {
   constructor(info) {
     this.info = info;
-    this.t = []; this.x = []; this.y = []; this.c = []; this.predicted = []; this.q = [];
+    this.t = []; this.x = []; this.y = []; this.c = []; this.predicted = []; this.q = []; this.k = []; this.s = [];
   }
-  push(t, x, y, confidence, predicted, quality = 1) {
+  push(t, x, y, confidence, predicted, quality = 1, kind = null, sigma = null) {
     if (this.t.length && t <= this.t[this.t.length - 1]) return;   // frames arrive in time order
     this.t.push(t); this.x.push(x); this.y.push(y); this.c.push(confidence); this.predicted.push(!!predicted);
     this.q.push(Number.isFinite(quality) ? quality : 1);   // pitch position confidence: the registration's, times the local projection certainty
+    this.k.push(kind || (predicted ? 'P' : 'O'));            // the sample's kind: O observed, I interpolated, P predicted
+    this.s.push(Number.isFinite(sigma) ? sigma : null);      // its sigma in metres, when the timeline gives one
   }
   smooth(window) {
     // Centred average of the samples within ±window/2: the whole history is known, so no lag.
@@ -56,6 +61,19 @@ class Track {
       let sx = 0, sy = 0;
       for (let j = lo; j <= hi; j++) { sx += this.x[j]; sy += this.y[j]; }
       xs[i] = sx / (hi - lo + 1); ys[i] = sy / (hi - lo + 1);
+    }
+    this.x = xs; this.y = ys; this.t = Float64Array.from(this.t); this.c = Float64Array.from(this.c); this.q = Float64Array.from(this.q);
+    return this;
+  }
+  smoothObserved(window) {
+    // The smoothing of smooth(), restricted to observed samples: estimates are left as the timeline gives them.
+    const n = this.t.length, xs = Float64Array.from(this.x), ys = Float64Array.from(this.y);
+    for (let i = 0; i < n; i++) {
+      if (this.k[i] !== 'O') continue;
+      let sx = 0, sy = 0, m = 0;
+      for (let j = i; j >= 0 && this.t[i] - this.t[j] <= window / 2 && this.k[j] === 'O'; j--) { sx += this.x[j]; sy += this.y[j]; m++; }
+      for (let j = i + 1; j < n && this.t[j] - this.t[i] <= window / 2 && this.k[j] === 'O'; j++) { sx += this.x[j]; sy += this.y[j]; m++; }
+      xs[i] = sx / m; ys[i] = sy / m;
     }
     this.x = xs; this.y = ys; this.t = Float64Array.from(this.t); this.c = Float64Array.from(this.c); this.q = Float64Array.from(this.q);
     return this;
@@ -80,12 +98,39 @@ function finalRoster(result) {
 function buildTimeline(result, info) {
   const roster = finalRoster(result), tracks = new Map(), ball = new Track({id: 'BALL'});
   const frames = result.frames || [], frameTimes = new Float64Array(frames.length), calibrated = new Uint8Array(frames.length);
-  let observed = 0, ballFrames = 0;
+  let observed = 0, ballFrames = 0, anonymous = 0, estimated = 0;
+  const block = result.timeline && result.timeline.ids && result.timeline.frameTimes && result.timeline.frameTimes.length === frames.length ? result.timeline : null;
+  if (block) {
+    // The finished timeline: every roster slot on every frame with its kind and sigma (estimates included).
+    for (const [id, cols] of Object.entries(block.ids)) {
+      if (!roster.has(id)) continue;
+      const track = new Track(roster.get(id));
+      for (let i = 0; i < frames.length; i++) {
+        const kind = cols.kind[i];
+        if (kind === 'U' || cols.x[i] === null || cols.y[i] === null || !validPosition([cols.x[i], cols.y[i]])) continue;
+        const sigma = Array.isArray(cols.sigma[i]) ? Math.max(cols.sigma[i][0], cols.sigma[i][1]) : null;
+        track.push(frames[i].time, cols.x[i], cols.y[i], kind === 'O' ? 1 : .5, kind === 'P', kind === 'O' ? 1 : Math.max(.3, 1 - (sigma || 0) / 20), kind, sigma);
+        if (kind === 'O') observed++; else estimated++;
+      }
+      if (track.t.length) tracks.set(id, track);
+    }
+  }
   frames.forEach((f, i) => {
     frameTimes[i] = f.time;
     calibrated[i] = f.calibrated ? 1 : 0;
     for (const p of f.people || []) {
-      if (!p.id || !roster.has(p.id) || !validPosition(p.pitch)) continue;
+      if (!validPosition(p.pitch)) continue;
+      if (!p.id) {
+        // A tracked person with a team but no identity: a real observation, shown as a '?' of that team.
+        if (p.state !== 'uncertain' || (p.team !== 'A' && p.team !== 'B')) continue;
+        const key = 'anon:' + p.track;
+        let track = tracks.get(key);
+        if (!track) tracks.set(key, track = new Track({id: null, display: '?', team: p.team, role: 'PLAYER', anonymous: true, track: p.track}));
+        track.push(f.time, p.pitch[0], p.pitch[1], .3, false, p.pitchConfidence);
+        anonymous++;
+        continue;
+      }
+      if (!roster.has(p.id) || block) continue;   // with a timeline block the identities are already built from it
       let track = tracks.get(p.id);
       if (!track) tracks.set(p.id, track = new Track(roster.get(p.id)));
       track.push(f.time, p.pitch[0], p.pitch[1], Number.isFinite(p.identityConfidence) ? p.identityConfidence : .5, false, p.pitchConfidence);
@@ -97,12 +142,13 @@ function buildTimeline(result, info) {
       ballFrames++;
     }
   });
-  for (const track of tracks.values()) track.smooth(RULES.smoothWindow);
+  for (const track of tracks.values()) if (block && !track.info.anonymous) track.smoothObserved(RULES.smoothWindow); else track.smooth(RULES.smoothWindow);
   ball.smooth(RULES.ballSmoothWindow);
   let step = info && info.video && info.video.fps > 0 ? 1 / info.video.fps : 0;
   if (!step && frames.length > 1) step = (frames[frames.length - 1].time - frames[0].time) / (frames.length - 1);
   const calibratedFrames = calibrated.reduce((a, v) => a + v, 0);
-  return {tracks, ball, frameTimes, calibrated, frameStep: step || .04, observed, ballFrames, calibratedFrames, frames: frames.length,
+  return {tracks, ball, frameTimes, calibrated, frameStep: step || .04, observed, estimated, anonymous, ballFrames, calibratedFrames, frames: frames.length,
+          identities: [...tracks.values()].filter(t => !t.info.anonymous).length, hasTimeline: !!block, frames_: frames,
           goalEnds: (result.tactical && result.tactical.goalEnds) || {}};
 }
 
@@ -117,19 +163,23 @@ function sampleAt(track, t, frameStep, hold = RULES.holdAfter, gapLimit = RULES.
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (track.t[mid] <= t) lo = mid; else hi = mid - 1; }
   const k = lo, t0 = track.t[k], dt = t - t0;
   const quality = (i) => track.q && track.q.length > i ? track.q[i] : 1;
-  const observed = (i) => ({x: track.x[i], y: track.y[i], confidence: track.c[i], source: track.predicted[i] ? 'PREDICTED' : 'OBSERVED', alpha: 1, quality: quality(i)});
+  const kindOf = (i) => track.k && track.k.length > i ? track.k[i] : (track.predicted[i] ? 'P' : 'O');
+  const sigmaOf = (i) => track.s && track.s.length > i ? track.s[i] : null;
+  const observed = (i) => ({x: track.x[i], y: track.y[i], confidence: track.c[i], source: kindOf(i) === 'P' ? 'PREDICTED' : kindOf(i) === 'I' ? 'INTERPOLATED' : 'OBSERVED',
+                            kind: kindOf(i), sigma: sigmaOf(i), alpha: 1, quality: quality(i)});
   if (dt < 0 || dt <= same) return observed(dt < 0 ? 0 : k);
   if (k + 1 < n) {
     const t1 = track.t[k + 1], gap = t1 - t0;
     if (t1 - t <= same) return observed(k + 1);
     if (gap <= gapLimit) {
       const u = dt / gap;
+      const kind = kindOf(k) === 'P' || kindOf(k + 1) === 'P' ? 'P' : 'I';
       return {x: track.x[k] + (track.x[k + 1] - track.x[k]) * u, y: track.y[k] + (track.y[k + 1] - track.y[k]) * u,
-              confidence: Math.min(track.c[k], track.c[k + 1]), source: track.predicted[k] || track.predicted[k + 1] ? 'PREDICTED' : 'INTERPOLATED', alpha: 1,
-              quality: Math.min(quality(k), quality(k + 1))};
+              confidence: Math.min(track.c[k], track.c[k + 1]), source: kind === 'P' ? 'PREDICTED' : 'INTERPOLATED', kind, alpha: 1,
+              sigma: Math.max(sigmaOf(k) || 0, sigmaOf(k + 1) || 0) || null, quality: Math.min(quality(k), quality(k + 1))};
     }
   }
-  if (dt <= hold) return {x: track.x[k], y: track.y[k], confidence: track.c[k] * (1 - dt / hold), source: 'HELD', alpha: 1 - .7 * dt / hold, quality: quality(k)};
+  if (dt <= hold) return {x: track.x[k], y: track.y[k], confidence: track.c[k] * (1 - dt / hold), source: 'HELD', kind: kindOf(k), sigma: sigmaOf(k), alpha: 1 - .7 * dt / hold, quality: quality(k)};
   return null;
 }
 
@@ -168,7 +218,7 @@ class TacticalView {
       input.value = this.colours[key === 'colourA' ? 'A' : 'B'];
       input.addEventListener('input', () => { this.colours[key === 'colourA' ? 'A' : 'B'] = input.value; this.persist(); redraw(); });
     }
-    for (const key of ['labels', 'debug']) if (this.controls[key]) this.controls[key].addEventListener('change', () => { this.persist(); redraw(); });
+    for (const key of ['labels', 'debug', 'lineup', 'footprint']) if (this.controls[key]) this.controls[key].addEventListener('change', () => { this.persist(); redraw(); });
     if (typeof ResizeObserver === 'function') new ResizeObserver(() => this.resize()).observe(this.canvas);
     this.resize();
   }
@@ -194,6 +244,8 @@ class TacticalView {
   }
   showLabels() { return this.controls.labels ? this.controls.labels.checked : true; }
   showDebug() { return this.controls.debug ? this.controls.debug.checked : false; }
+  showLineup() { return this.controls.lineup ? this.controls.lineup.checked : false; }
+  showFootprint() { return this.controls.footprint ? this.controls.footprint.checked : true; }
 
   load(result, info) {
     this.timeline = result && result.frames ? buildTimeline(result, info) : null;
@@ -203,7 +255,10 @@ class TacticalView {
     if (this.status) {
       const tl = this.timeline;
       this.status.textContent = !tl ? '' : !tl.calibratedFrames ? 'No pitch coordinates in this result.' :
-        `Pitch calibrated on ${Math.round(100 * tl.calibratedFrames / Math.max(1, tl.frames))}% of frames · ${tl.tracks.size} players with positions · ball placed on ${Math.round(100 * tl.ballFrames / Math.max(1, tl.frames))}% of frames`;
+        `Pitch calibrated on ${Math.round(100 * tl.calibratedFrames / Math.max(1, tl.frames))}% of frames · ${tl.identities} players with positions` +
+        (tl.hasTimeline ? ` · ${tl.observed} observed and ${tl.estimated} estimated samples` : '') +
+        (tl.anonymous ? ` · ${tl.anonymous} observations of unidentified people shown as ?` : '') +
+        ` · ball placed on ${Math.round(100 * tl.ballFrames / Math.max(1, tl.frames))}% of frames`;
     }
   }
 
@@ -272,7 +327,8 @@ class TacticalView {
     const tl = this.timeline, players = [];
     if (!tl) return {time: t, frame: -1, calibrated: false, players, ball: null};
     for (const track of tl.tracks.values()) {
-      const s = sampleAt(track, t, tl.frameStep);
+      const anonymous = !!track.info.anonymous;
+      const s = sampleAt(track, t, tl.frameStep, anonymous ? RULES.anonymousHold : RULES.holdAfter, anonymous ? RULES.anonymousGap : RULES.interpolateGap);
       if (s) players.push({...track.info, ...s});
     }
     players.sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : 1));   // far players first, so near ones draw on top
@@ -283,7 +339,7 @@ class TacticalView {
 
   render(t, options = {}) {
     const selected = options.selected || null;
-    const key = `${t.toFixed(4)}|${this.colours.A}|${this.colours.B}|${this.showLabels()}|${this.showDebug()}|${selected}|${this.timeline ? 1 : 0}|${this.canvas.width}`;
+    const key = `${t.toFixed(4)}|${this.colours.A}|${this.colours.B}|${this.showLabels()}|${this.showDebug()}|${this.showLineup()}|${this.showFootprint()}|${selected}|${this.timeline ? 1 : 0}|${this.canvas.width}`;
     if (key === this.lastKey) return this.last;
     this.lastKey = key;
     const g = this.geometry(), ctx = this.ctx;
@@ -291,6 +347,7 @@ class TacticalView {
     ctx.clearRect(0, 0, g.width, g.height);
     ctx.drawImage(this.pitchLayer, 0, 0);
     const state = this.positions(t);
+    if (this.showFootprint()) this.drawFootprint(ctx, g, state);   // layer 2b: what the camera sees of the pitch
     for (const overlay of this.overlays) overlay(ctx, g, state);   // layer 3: future analytics
     this.drawPlayers(ctx, g, state, selected);                     // layers 4 and 5
     this.drawBall(ctx, g, state);                                  // layer 6
@@ -300,15 +357,52 @@ class TacticalView {
     return state;
   }
 
+  drawFootprint(ctx, g, state) {
+    const tl = this.timeline;
+    if (!tl || state.frame < 0 || !tl.frames_) return;
+    const view = tl.frames_[state.frame] && tl.frames_[state.frame].view;
+    if (!Array.isArray(view) || view.length < 3) return;
+    ctx.save();
+    ctx.beginPath();
+    view.forEach(([vx, vy], i) => { const [px, py] = g.toPx(vx, vy); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff14'; ctx.fill();
+    ctx.setLineDash([g.scale * .8, g.scale * .6]); ctx.lineWidth = Math.max(1, g.scale * .12); ctx.strokeStyle = '#ffffff77'; ctx.stroke();
+    ctx.restore();
+  }
+
+  visible(p) {
+    // Estimates are shown when they are reasonably certain; the full lineup shows every estimate the timeline has.
+    if (p.kind !== 'P') return true;
+    return this.showLineup() || (Number.isFinite(p.sigma) ? p.sigma <= RULES.uncertainSigma : true);
+  }
+
   drawPlayers(ctx, g, state, selected) {
     const r = g.playerRadius, labels = this.showLabels();
     ctx.lineWidth = Math.max(1, r * .16);
     for (const p of state.players) {
+      if (!this.visible(p)) continue;
       const [x, y] = g.toPx(p.x, p.y), colour = p.team ? this.colours[p.team] : NEUTRAL;
       const q = Number.isFinite(p.quality) ? p.quality : 1, uncertain = q < .5;
-      ctx.globalAlpha = p.alpha * (.45 + .55 * q) * (selected && selected !== p.id ? .35 : 1);
-      ctx.fillStyle = uncertain ? colour + '55' : colour; ctx.strokeStyle = uncertain ? colour : '#0d1a24b8';
+      if (p.anonymous) {
+        // An observation without an identity: the team's colour, hollow with a dashed ring and a '?'.
+        ctx.globalAlpha = p.alpha * .8 * (selected ? .35 : 1);
+        ctx.setLineDash([r * .45, r * .35]); ctx.fillStyle = colour + '66'; ctx.strokeStyle = colour;
+        ctx.beginPath(); ctx.arc(x, y, r * .9, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+        ctx.font = `bold ${Math.round(r * 1.1)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = luminance(colour) > .55 ? '#10202a' : '#ffffff'; ctx.fillText('?', x, y + r * .05);
+        continue;
+      }
+      const predicted = p.kind === 'P', interpolated = p.kind === 'I', shaky = predicted && Number.isFinite(p.sigma) && p.sigma > RULES.uncertainSigma;
+      ctx.globalAlpha = p.alpha * (.45 + .55 * q) * (selected && selected !== p.id ? .35 : 1) * (shaky ? .45 : predicted ? .75 : 1);
+      // Kinds: observed solid; interpolated solid with a thin inner ring; predicted translucent with a dashed outline;
+      // a very uncertain prediction faded with a '~'.
+      ctx.fillStyle = uncertain || predicted ? colour + (predicted ? '77' : '55') : colour; ctx.strokeStyle = uncertain ? colour : predicted ? colour : '#0d1a24b8';
+      if (predicted) ctx.setLineDash([r * .5, r * .4]);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.setLineDash([]);
+      if (interpolated) { ctx.strokeStyle = '#ffffff99'; ctx.beginPath(); ctx.arc(x, y, r * .6, 0, Math.PI * 2); ctx.stroke(); }
+      if (shaky) { ctx.font = `bold ${Math.round(r * 1.2)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#ffffffcc'; ctx.fillText('~', x, y + r * .05); }
       if (p.source === 'HELD') { ctx.setLineDash([r * .5, r * .4]); ctx.strokeStyle = '#ffffffaa'; ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
       if (selected === p.id) { ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, Math.PI * 2); ctx.stroke(); }
       if (p.role === 'GOALKEEPER') {
@@ -320,8 +414,9 @@ class TacticalView {
     if (!labels) return;
     ctx.font = `${Math.max(9, Math.round(r * .95))}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     for (const p of state.players) {
+      if (p.anonymous || !this.visible(p)) continue;
       const [x, y] = g.toPx(p.x, p.y);
-      ctx.globalAlpha = p.alpha * (selected && selected !== p.id ? .35 : 1);
+      ctx.globalAlpha = p.alpha * (selected && selected !== p.id ? .35 : 1) * (p.kind === 'P' ? .75 : 1);
       ctx.lineWidth = 3; ctx.strokeStyle = '#07131bcc'; ctx.strokeText(p.display, x, y - r - 3);
       ctx.fillStyle = '#f4f7f4'; ctx.fillText(p.display, x, y - r - 3);
     }
@@ -353,15 +448,18 @@ class TacticalView {
     };
     for (const p of state.players) {
       const [x, y] = g.toPx(p.x, p.y);
-      block(x + g.playerRadius + 3, y - size, [p.display, `x ${p.x.toFixed(3)} y ${p.y.toFixed(3)}`, p.source, `identity ${p.confidence.toFixed(2)} · position ${(Number.isFinite(p.quality) ? p.quality : 1).toFixed(2)}`]);
+      if (!this.visible(p)) continue;
+      block(x + g.playerRadius + 3, y - size, [p.anonymous ? `? track ${p.track}` : p.display, `x ${p.x.toFixed(3)} y ${p.y.toFixed(3)}`, p.source + (Number.isFinite(p.sigma) ? ` ± ${p.sigma.toFixed(1)} m` : ''),
+            p.anonymous ? `no identity · position ${(Number.isFinite(p.quality) ? p.quality : 1).toFixed(2)}` : `identity ${p.confidence.toFixed(2)} · position ${(Number.isFinite(p.quality) ? p.quality : 1).toFixed(2)}`]);
     }
     if (state.ball) {
       const [x, y] = g.toPx(state.ball.x, state.ball.y);
       block(x + g.playerRadius, y + g.playerRadius * .5, ['BALL', `x ${state.ball.x.toFixed(3)} y ${state.ball.y.toFixed(3)}`, state.ball.source, `conf ${state.ball.confidence.toFixed(2)} · position ${(Number.isFinite(state.ball.quality) ? state.ball.quality : 1).toFixed(2)}`]);
     }
     const tl = this.timeline;
+    const anonymous = state.players.filter(p => p.anonymous).length;
     block(6, 6, [`video ${state.time.toFixed(2)} s · frame ${state.frame >= 0 ? state.frame : '-'} · ${state.calibrated ? 'calibrated' : 'no calibration here'}`,
-                 `${state.players.length} players placed · ball ${state.ball ? state.ball.source : 'hidden'}${tl ? ` · timeline ${tl.tracks.size} identities, ${tl.observed} observations` : ''}`]);
+                 `${state.players.length - anonymous} players placed, ${anonymous} unidentified · ball ${state.ball ? state.ball.source : 'hidden'}${tl ? ` · timeline ${tl.identities} identities, ${tl.observed} observations` : ''}`]);
   }
 
   updateNotice(state) {

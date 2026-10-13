@@ -66,7 +66,9 @@ class ClassificationTests(unittest.TestCase):
                 people.append({'track': 2, 'id': 'A-02', 'team': 'A', 'role': 'PLAYER', 'state': 'confirmed', 'pitch': [.98, .5], 'box': [.9, .4, .02, .1]})
             frames.append({'time': t, 'people': people, 'calibrated': i < 25, 'calibration': {'H': self.P.ravel().tolist() if i < 25 else None, 'confidence': .8}})
         result = {'video': {'width': W, 'height': H}, 'frames': frames, 'tactical': {'pitchSize': SIZE.to_json()},
-                  'roster': {'slots': [{'id': 'A-01', 'status': 'ACTIVE'}, {'id': 'A-02', 'status': 'UNKNOWN'}, {'id': 'A-03', 'status': 'UNKNOWN'}, {'id': 'A-09', 'status': 'RETIRED'}]}}
+                  'roster': {'slots': [{'id': 'A-01', 'status': 'ACTIVE'}, {'id': 'A-02', 'status': 'OFF_SCREEN', 'exitEdge': 'right', 'lastSeen': 1.8},
+                                       {'id': 'A-03', 'status': 'UNKNOWN'}, {'id': 'A-04', 'status': 'UNKNOWN', 'exitEdge': 'left', 'lastSeen': None},
+                                       {'id': 'A-09', 'status': 'RETIRED'}]}}
         summary = visibility.annotate(result)
         self.assertEqual(summary['estimates'], 'last-observation')
         self.assertEqual(summary['framesWithView'], 25)
@@ -81,6 +83,11 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(len(frames[12]['people']), 1)                          # nothing removed
         late = frames[26]['visibility']['A-02']
         self.assertEqual(late, 'U')                                             # 5.2 s after the last observation and no view: unknown
+        # Seen leaving through the right edge and not since: off-screen on every later frame with a view, even once the
+        # estimate is too uncertain to place it (never 'U' while the view exists); a slot never seen stays unknown.
+        self.assertTrue(all(frames[i]['visibility']['A-02'] in ('C', 'S') for i in range(11, 25)), [frames[i]['visibility']['A-02'] for i in range(11, 25)])
+        self.assertEqual(frames[20]['visibility']['A-02'], 'S')
+        self.assertEqual(frames[20]['visibility']['A-04'], 'U')
 
 
 if __name__ == '__main__':

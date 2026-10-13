@@ -119,13 +119,35 @@ imported lazily), so all of its logic is unit-tested without a GPU.
   row comes from the heights actually seen there when the linear perspective
   model is clearly off (wide lenses compress the far field); people expected
   smaller than 36 px get a wider size tolerance and, when their box continues a
-  tracked person, are kept even when cut short; and while the pitch is in
-  robust mode with people at its far edge expected under 30 px, extra 640 px
-  tiles are run over that band (`farTilePasses` in the summary). Tile
-  detections are provisional: they count only once they repeat on three
-  consecutive frames or continue a tracked person (`REJECTED: FAR DETECTION NOT
-  CONFIRMED` otherwise). None of this triggers on broadcast footage, where the
-  smallest players are about 40 px.
+  tracked person, are kept even when cut short; and whenever people at the
+  pitch's far edge are expected under 30 px (whatever the pitch mode), extra
+  640 px tiles are run over that band (`farTilePasses` in the summary), with one
+  suppression across the tiles' overlaps. Tile detections are provisional:
+  they count only once they repeat on three consecutive frames or continue a
+  tracked person (`REJECTED: FAR DETECTION NOT CONFIRMED` otherwise). A
+  confirmed one is handed to the local tracker with a tracking score of 0.45
+  (its own, from an upscaled tile, is below the tracker's new-track threshold)
+  while the person keeps the true score, so a far player can start a track
+  (`summary.detection.farStarts`). None of this triggers on broadcast footage,
+  where the smallest players are about 40 px.
+- A confirmed player who is small (under 60 px) and whose local track was just
+  lost (under a second) is looked for again at full resolution: the detector
+  runs on a crop of three times the predicted box (at least 256 px, at most
+  four crops per frame, `localCropPasses`), and a detection found there counts
+  only within an overlap of 0.3 with the prediction it was made for
+  (`REJECTED: CROP DETECTION AWAY FROM THE PREDICTION` otherwise;
+  `summary.detection.cropDetections`). No crop is made for a player lost next
+  to another tracked person, and a crop detection overlapping another detected
+  person is not accepted (`cropSkippedCrowded`, `cropRejectedCrowded`): a
+  player lost behind someone is left to the identity manager's encounter
+  handling, because a crop there finds the other person and would carry the
+  lost identity onto them (measured on the broadcast clip, where it swapped
+  two players' teams for 25 and 56 s). Nothing new is ever created from a crop.
+- Feet a little beyond (5% of the frame height) a far edge that is not a painted
+  line (a predicted or grass edge), continuing a tracked person, stay in the
+  `boundary` zone instead of being rejected as audience
+  (`summary.detection.farBoundaryContinued`); a painted far touchline keeps its
+  full meaning.
 - Each detection is tested at its **foot point** (bottom-centre of the box), not
   by box overlap: a spectator's box can overlap the pitch while their feet are in
   the stands. Zones are `inside`, `boundary` (within the touchline tolerance),
@@ -453,6 +475,71 @@ re-identified after them, new player identities, teams over their count,
 fragments connected (ignored fragments included) and frames restored to
 players.
 
+**The active roster and what the camera sees** (`soccer/roster.py`,
+`soccer/visibility.py`; pure functions of the finished result, re-derived
+whenever a correction is applied). `roster` lists one slot per global identity
+of the match with its status at the end of the segment — ACTIVE (observed in
+the last second), OFF_SCREEN (last seen leaving through a frame edge), UNKNOWN
+(missing without an exit seen), LEFT (marked by you as substituted or sent off,
+a correction choice) or RETIRED (merged) — its first and last observation,
+observed frames, local tracks, last pitch position; the expected team sizes
+(`maxPerTeam`), the actual counts and `overCap` (a team with more identities
+than expected is reported, never trimmed), the anonymous observations:
+tracked people with a team but no identity, and `mergeProposals`: pairs of
+identities that may be one person (same team, never seen on the same frame, one
+observed entirely before the other, galleries mutually the most similar at 0.7
+or above, and a plausible move between the last sighting of one and the first
+of the other). A proposal is listed for your review and logged as MERGE
+PROPOSED; nothing is merged automatically until proposals have been scored
+against corrections on enough videos. On every frame with a registration,
+`view` is the part of the pitch the camera sees (the frame rectangle cut at the
+horizon, mapped to the ground, clipped to the pitch plus 5 m, as a normalized
+polygon), and `visibility` classifies every roster slot that is not observed on
+the frame from its last observed position and an uncertainty that grows with
+the time since (2 m + 1.5 m/s, nothing older than 10 s): `C` expected in frame
+but not seen (hidden behind someone or missed), `S` off-screen (outside the
+view by more than the uncertainty, or last seen leaving through a frame edge
+and not observed since), `U` unknown (no estimate, no view, or too close to the
+edge of the view to say). Observed slots
+are implied by their presence in `people`. This is evidence for the review and
+for the later off-screen estimation; nothing is removed or invented because of
+it (`summary.visibility` gives the shares).
+
+**Where the unseen players probably are** (`soccer/imputation.py`, the
+`timeline` block). For every roster slot and frame the result carries an
+estimate with its kind: `O` observed, `I` interpolated across a gap of at most a
+second between two observations, `P` predicted, `U` unknown (nothing
+supportable: never observed, hidden for more than 25 s, or less certain than
+15 m — the slot stays, no coordinates are invented). Between two observations
+further apart than a second the estimate is the straight line between them
+(kind `P`, with the sigma of both sides): on full-pitch data no formation model
+beat it. Where only one side is observed (the player left the view and has not
+come back, or before the first sighting) the estimate is the last observed
+position **moved with the team**: the visible teammates' displacement since that
+observation (at least four of them, each weighted by its uncertainty), ramped
+in over 2 s so that the first seconds hold the last position, with a sigma
+growing at 0.8 m/s. An observation always wins and a returning player never
+jumps, because the line meets both observations exactly. Role-anchored
+centroid voting (a dynamic formation learned from the segment, the team centre
+voted by the visible players so that the camera's one-sided view does not bias
+it) is implemented and benchmarked, but not used for the shipped estimate: on
+the Metrica Sports sample games with simulated camera windows
+(`tools/metrica_bench.py`, held-out game, 45 m view) the straight line errs by
+3.2 m on average, the shipped method by 4.0 m over everything it estimates
+(1.6 m within a second of the last sighting, 2.3 m at 1-3 s, 4.2 m at 3-8 s,
+5.3-5.7 m beyond), holding the last position one-sided by 5.2-5.4 m, and the
+voting by 7.2-7.3 m; the shipped sigma is calibrated (p68 of |error|/sigma
+0.8-1.1 across views). Every estimate has a sigma in metres;
+`summary.timeline.kinds` gives the shares. Details and the other views are in
+`PROGRESS.md`.
+
+**The 2D view and unidentified people.** A tracked person with a team and a
+registered position but no identity (`B-?`) is a real observation: the 2D view
+draws it as a hollow, dashed marker of the team's colour with a `?`, joined only
+across gaps of 0.3 s and never interpolated further, and the roster strip under
+the board says how many such people are shown and which roster slots are not
+on the board, with their visibility. Identities are never invented for them.
+
 ### 4. Pitch coordinates and the pitch model
 
 There is no automatic metric calibration (no field keypoint model ships with
@@ -559,9 +646,10 @@ registration only when the paint it matched constrains the pitch on its own
 (observability at least 0.15: both marking families, or the centre circle with
 a transverse line). A single touchline match no longer restarts a chain at the
 keyframe's certainty; such anchors used to carry a drifted view confidently.
-A refinement that does anchor is worth the larger of its own observability and
-the chain's, faded with the time since the chain's evidence (30 s time
-constant).
+A refinement that does anchor is worth the chain's observability, which its
+paint just confirmed (or its own when that is higher): measured on the
+broadcast clip, fading the chain's certainty with time instead halved the
+share of confident frames although the hold-out errors were about a metre.
 
 **Keyframes just outside the segment** are not lost: a keyframe up to 15 s
 before the start is carried into the segment by processing the frames between
@@ -577,6 +665,22 @@ limit dropping the keyframe silently. (A Jacobian condition number was tried for
 keyframes and found uninformative: column-normalised, every real keyframe set
 scored 55–175, and degenerate sets are refused by the general-position check
 already; keyframes rest on their spread, axes and residual.)
+
+**Offline passes, in order:** the pitch registration (below) comes first, so
+the tracklet passes compare positions in metres where they exist; then the
+tracklet refinement (`soccer/tracklets.py`: cuts and reconnections, section
+3), then the global assignment of the fragments still anonymous: every run of
+a local track without an identity (at least 0.4 s) is scored against the team
+players not observed during it — appearance against the gallery, the distance
+in metres on the pitch (or in body heights in the stabilised image where no
+position is registered) from the identity's nearest sighting before and after,
+the time gap — and fragments and identities are matched one-to-one per round
+(Hungarian); a pair is taken only at the same thresholds as a reconnection
+(0.6 with an appearance floor of 0.5, position alone only within 3 s) and with
+a lead of 0.1 over the fragment's next identity and over the identity's next
+fragment, so two teammates returning together take two identities or none,
+never the same one twice (`TRACKLET ASSIGNED` events, `evidence: assigned
+offline`, counts in `summary.identity.assignment`). Then the ball path.
 
 **Offline registration passes** (`soccer/registration.py`, after tracking).
 Pass 1 records, per frame, the camera motion and how it was measured, and
@@ -963,11 +1067,30 @@ browser against a synthetic calibrated clip when Playwright, a Chromium and
 ffmpeg are installed (`pip install playwright` and `playwright install
 chromium`, or point `PITCHIQ_CHROMIUM` at a browser).
 
+**Kinds of position.** With a finished `timeline` (section 3) every roster slot
+is drawn from it: an observed position as a solid marker; an interpolated one
+(a gap of at most a second between two observations) solid with a thin inner
+ring; a predicted one translucent with a dashed outline; a prediction less
+certain than 8 m faded with a `~`, and hidden unless **Full lineup (every
+estimate)** is on; an unknown position is never drawn (the roster strip under
+the board names the slots that are not on it, with their visibility: expected
+in frame but not seen, off-screen, unknown). Only observed samples are
+smoothed; estimates are drawn as the timeline gives them, and a returning
+player never jumps because the estimate meets the observation. **Camera
+footprint** draws the part of the pitch the camera sees on the current frame.
+The debug overlay adds the sigma of an estimate. **Download timeline CSV**
+exports, per slot and frame, the position, its kind, its sigma along and across
+the pitch and the visibility, for analytics that must never mistake an estimate
+for a measurement. Results without a timeline (earlier versions) are drawn from
+their frames as before.
+
 ## Correcting who someone is
 
 Click a person's box (or their label) on the video to change who they are: **Team A
-player**, **Team B player**, **Goalkeeper · team A / B**, **Referee** or **Not part of
-this match**. **Who** chooses between a new identity and *the same person as* an
+player**, **Team B player**, **Goalkeeper · team A / B**, **Referee**, **Not part of
+this match** or **Left the match here** (substituted or sent off: the identity's roster
+slot is closed from the current video time on, the observations before it are kept, and
+a later run of the video never continues that player). **Who** chooses between a new identity and *the same person as* an
 existing one of that kind; only identities never on the video at the same time are
 offered (two people at once cannot be one person). **Save** relabels every frame of
 that identity in the result, and the roster, counts, 2D match view and events follow
@@ -1045,8 +1168,9 @@ ones) and the latest `preview.jpg`. The viewer downloads `result.json`:
   registration of confidence 0.2 or more covers the frame or the feet do not
   land on the pitch, `horizon` when the foot is above the horizon), `zone`,
   `cls` (detector class), `evidence`
-  (`observed`, `reidentified` or `relabelled` after a role change), `reason`
-  while unresolved, and `why` (the role evidence in one line) on evidence ticks.
+  (`observed`, `reidentified`, `relabelled` after a role change, `connected
+  offline`, `assigned offline`), `reason` while unresolved, and `why` (the role
+  evidence in one line) on evidence ticks.
 - `ball`: `state` (`TRACKED`, `MISSING`, `UNKNOWN`), `phase` (`SEARCHING`,
   `LOCKED`, `OCCLUDED`, `RECOVERING`), `confidence`, and unless unknown
   `track` (`BALL-n`), `observed`, `box`, `center`, `predicted` (next frame),
@@ -1060,9 +1184,25 @@ ones) and the latest `preview.jpg`. The viewer downloads `result.json`:
   attachment, motion, static, trajectory, distance, penalty).
 - `match.players`, `match.goalkeepers`, `match.referees`, `match.retired`: the
   registry, separated (referees with `official`, every identity with
-  `roleEvidence`). **Tactical analysis should use only people with an `id`
+  `roleEvidence`; a player marked as having left the match carries `left`
+  with the time). **Tactical analysis should use only people with an `id`
   whose role is `PLAYER` or `GOALKEEPER`, and treat low `identityConfidence`
   values with care.** Referees are never players.
+- `roster`: the active roster (section 3): `expected`, `counts`, `overCap`,
+  `slots[]` (`id`, `display`, `team`, `role`, `status`, `firstSeen`,
+  `lastSeen`, `observedFrames`, `tracks`, `lastPitch`, `exitEdge`, `left`),
+  `anonymous` (fragments and frames of tracked people without an identity),
+  `statuses`, `assignment`, `mergeProposals[]` (`earlier`, `later`, `team`,
+  `appearance`, `gap`, `speed` or `imageSpatial`, `continuity`, `plausible`;
+  never applied). Per frame: `view` (the visible pitch as a normalized
+  polygon, or null) and `visibility` (`{slot id: C | S | U}` for the slots not
+  observed on the frame). `summary.roster` and `summary.visibility` summarise
+  them.
+- `timeline`: `frameTimes[]` and, per roster slot, columns over the frames:
+  `x`, `y` (normalized pitch position or null), `kind` (`O`, `I`, `P`, `U`),
+  `sigma` (`[along, across]` metres or null); `method`, `constants`, `kinds`
+  (shares). This is the analytics export: every coordinate says whether it was
+  observed, interpolated or predicted.
 - `corrections`: the corrections applied to this result (who, to what, whether it
   is remembered). Corrected people carry `manual: true` and `correction` on every
   frame, and `summary.remembered` lists the identities a run started with from your
@@ -1086,8 +1226,10 @@ ones) and the latest `preview.jpg`. The viewer downloads `result.json`:
   `lens`). `summary.timing` has the milliseconds per frame of each online
   stage (detector passes, far tiles, ball tiles, ball crops, tracking), the
   offline passes in seconds and the pre-roll/post-roll frames.
-  `summary.ball.localSearches` counts the full-resolution crops searched
-  around the predicted ball.
+  `summary.detection` counts the adaptive detection triggers (far-tile passes
+  and detections, far starts, crop passes and detections, far-edge
+  continuations). `summary.ball.localSearches` counts the full-resolution crops
+  searched around the predicted ball.
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
   share of on-pitch observations with an identity, ball coverage, ball tracks,
@@ -1116,8 +1258,12 @@ pitch position distance in metres). `tools/holdout.py RUN_DIR` rebuilds the
 registration without each calibration keyframe (and without the anchors rooted
 at it) and scores the rebuilt homography on that keyframe's landmarks, in
 pixels and metres; it also reports the pan stability (ground jumps beyond the
-measured camera motion) and the disagreement share. `PROGRESS.md` records the
-runs and numbers of every phase.
+measured camera motion) and the disagreement share. `tools/counts.py RUN_DIR`
+compares the people tracked at the hand-counted frames of
+`tools/annotations/counts.json` (people on the playing field, counted by
+inspection with a stated uncertainty) with the counts: a recall proxy by frame
+and overall, the small people among them, over-counts. `PROGRESS.md` records
+the runs and numbers of every phase.
 
 ## Tests
 

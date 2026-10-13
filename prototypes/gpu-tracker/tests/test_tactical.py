@@ -103,14 +103,15 @@ def camera(t):
     return B.camera(30+45*(3*u*u-2*u*u*u), 60+15*math.sin(math.pi*u))
 
 
-def make_clip(out):
+def make_clip(out, video=True):
+    """The synthetic clip's result (and, with video, its frames and demo.webm). Returns the truth per frame."""
     rng = np.random.default_rng(1)
     frames_dir = out/'frames'
     frames_dir.mkdir()
     frames, truth = [], []
     for i in range(int(SECONDS*FPS)):
         t, P = i/FPS, camera(i/FPS)
-        img = B.render(P, seed=0)
+        img = B.render(P, seed=0) if video else None
         calibrated = not UNCALIBRATED[0] <= t < UNCALIBRATED[1]
         people, gt = [], {}
 
@@ -126,24 +127,28 @@ def make_clip(out):
                 continue
             w = h*.38*H/W
             box = [fx-w/2, fy-h, w, h]
-            scene.draw_person(img, box, kit)
+            if video:
+                scene.draw_person(img, box, kit)
             person = {'time': round(t, 4), 'track': n+1, 'box': [round(v, 5) for v in box], 'score': .9, 'cls': role.lower(), 'zone': 'inside', 'evidence': 'observed',
                       'id': pid, 'display': DISPLAY.get(pid, pid), 'team': team, 'role': role, 'label': f'{role}_TEAM_{team}' if team else role,
                       'state': 'confirmed', 'identityConfidence': .9, 'roleConfidence': 1.0}
             if calibrated:
                 person['pitch'] = [round((x+rng.normal(0, .2))/105, 4), round((y+rng.normal(0, .2))/68, 4)]
+                person['pitchConfidence'] = .9
+                person['pitchSigma'] = [.4, .4]
             people.append(person)
         fx, fy, h, inside = place(40, 70)   # bench staff on the near touchline: never in the tactical view
         if inside:
             w = h*.38*H/W
-            scene.draw_person(img, [fx-w/2, fy-h, w, h], 'FAN')
+            if video:
+                scene.draw_person(img, [fx-w/2, fy-h, w, h], 'FAN')
             people.append({'time': round(t, 4), 'track': 99, 'box': [fx-w/2, fy-h, w, h], 'score': .8, 'cls': 'player', 'zone': 'outside', 'evidence': 'observed',
                            'id': None, 'display': 'OUT', 'team': None, 'role': 'UNKNOWN', 'label': 'REJECTED_OUTSIDE_FIELD', 'state': 'rejected',
                            'identityConfidence': 0, 'roleConfidence': 0, 'pitch': [40/105, 1.02]})
         bx, by = BALL(t)
         bfx, bfy, _, binside = place(bx, by)
         missing, unknown = BALL_MISSING[0] <= t < BALL_MISSING[1], BALL_UNKNOWN[0] <= t < BALL_UNKNOWN[1]
-        if binside and not missing and not unknown:
+        if video and binside and not missing and not unknown:
             cv2.circle(img, (int(bfx*W), int(bfy*H)-4), 5, (245, 245, 245), -1, cv2.LINE_AA)
         if unknown or not binside:
             ball = {'state': 'UNKNOWN', 'phase': 'SEARCHING', 'confidence': 0.0}
@@ -157,9 +162,11 @@ def make_clip(out):
         frames.append({'time': round(t, 4), 'frame': i, 'people': people, 'ball': ball, 'ballCandidates': [], 'rejected': [], 'pitch': None, 'boundary': None,
                        'cameraReliable': True, 'cut': False, 'segment': 0, 'calibrated': calibrated})
         truth.append({'time': round(t, 4), **gt})
-        cv2.imwrite(str(frames_dir/f'{i:04d}.png'), img)
-    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', str(frames_dir/'%04d.png'), '-c:v', 'libvpx-vp9', '-b:v', '1500k',
-                    '-pix_fmt', 'yuv420p', str(out/'demo.webm')], check=True)
+        if video:
+            cv2.imwrite(str(frames_dir/f'{i:04d}.png'), img)
+    if video:
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', str(frames_dir/'%04d.png'), '-c:v', 'libvpx-vp9', '-b:v', '1500k',
+                        '-pix_fmt', 'yuv420p', str(out/'demo.webm')], check=True)
     shutil.rmtree(frames_dir)
 
     def identity(pid):
@@ -186,6 +193,13 @@ def make_clip(out):
               'issues': [], 'teams': {'learned': True}, 'continuedFrom': None, 'status': 'complete', 'summary': summary, 'labels': {}, 'limitations': [],
               'tactical': {'coordinates': 'normalized pitch position of the feet', 'calibratedFrames': calibrated_frames, 'calibratedShare': share(calibrated_frames),
                            'goalEnds': {'left': 'A', 'right': 'B'}}}
+    # The roster, the timeline (kinds and sigmas per slot and frame) and the visibility, as the pipeline derives them.
+    from soccer import imputation, roster, visibility
+    report['config'] = {'maxPerTeam': 11}
+    report['roster'] = roster.build(report)
+    report['timeline'] = imputation.estimate(report, 105.0, 68.0)
+    summary['timeline'] = {'method': report['timeline']['method'], 'kinds': report['timeline']['kinds'], 'slots': len(report['timeline']['ids'])}
+    summary['visibility'] = visibility.annotate(report)
     (out/'result.json').write_text(json.dumps(report, separators=(',', ':')))
     (out/'info.json').write_text(json.dumps({'gpu': report['gpu'], 'landmarks': ['centre-spot'], 'uploads': [], 'video': meta, 'videoKey': 'test-key',
                                              'settings': {'start': 0, 'seconds': SECONDS, 'imageSize': 1280, 'maxPerTeam': 11, 'ballTiles': False, 'fieldFilter': True,
@@ -231,6 +245,42 @@ def serve(directory):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
+
+
+class TimelineTests(unittest.TestCase):
+    """Phase 5 without a browser: the synthetic clip's timeline has the kinds the page draws, and it is consistent."""
+
+    def test_kinds_sigmas_and_consistency(self):
+        d = Path(tempfile.mkdtemp(prefix='pitchiq-timeline-'))
+        try:
+            truth = make_clip(d, video=False)
+            result = json.loads((d/'result.json').read_text())
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        block, times = result['timeline'], result['timeline']['frameTimes']
+        ids = block['ids']
+        self.assertTrue({'A-01', 'A-02', 'A-03'} <= set(ids), set(ids))
+        at = lambda t: min(range(len(times)), key=lambda k: abs(times[k]-t))
+        self.assertEqual(ids['A-01']['kind'][at(1.0)], 'O')
+        # The person the camera leaves: predicted from then on, sigma never shrinking, no coordinates invented beyond 15 m.
+        last = max(r['time'] for r in truth if r['A-03']['visible'])
+        after = ids['A-03']['kind'][at(last)+1:]
+        self.assertEqual(after[0], 'P')
+        self.assertTrue(all(k in ('P', 'U') for k in after), Counter(after))
+        sig = [s[0] for s in ids['A-03']['sigma'][at(last)+1:] if s]
+        self.assertTrue(all(b >= a-1e-9 for a, b in zip(sig, sig[1:])), sig[:10])
+        # Nobody is placed on an uncalibrated frame.
+        for k, t in enumerate(times):
+            if UNCALIBRATED[0] <= t < UNCALIBRATED[1]:
+                self.assertTrue(all(ids[pid]['kind'][k] == 'U' and ids[pid]['x'][k] is None for pid in ids), t)
+        self.assertEqual(result['roster']['counts'], {'A': 3, 'B': 2, 'goalkeepers': 2})
+        import sys
+        sys.path.insert(0, str(ROOT/'tools'))
+        import compare
+        m = compare.metrics(result, 'synthetic')
+        self.assertEqual(m['tactical']['duplicates'], 0)
+        self.assertEqual(m['tactical']['jumpsOver12mps'], {})
+        self.assertGreater(m['timelineKinds']['O'], .5)
 
 
 @unittest.skipUnless(PLAYWRIGHT and shutil.which('ffmpeg'), 'needs Playwright (pip install playwright) and ffmpeg')
@@ -299,10 +349,18 @@ class PageTests(unittest.TestCase):
                                  {pid: (PEOPLE[pid][0], 'GOALKEEPER') for pid in expected if pid.startswith('GK')})
             self.assertEqual(self.marker(seek(1.0), 'A-02')['source'], 'OBSERVED')
             self.assertEqual(self.marker(seek(1.02), 'A-02')['source'], 'INTERPOLATED')
-            # A person the camera pans away from: held briefly, then hidden rather than invented.
+            # A person the camera pans away from: the timeline predicts the position (a dashed, translucent marker that
+            # says so), near the last observation while nothing better is known, never a jump.
             last = max(r['time'] for r in self.truth if r['A-03']['visible'])
-            self.assertEqual(self.marker(seek(last+.3), 'A-03')['source'], 'HELD')
-            self.assertIsNone(self.marker(seek(last+1.0), 'A-03'))
+            self.assertEqual(self.marker(seek(last+.3), 'A-03')['source'], 'PREDICTED')
+            m = self.marker(seek(last+1.0), 'A-03')
+            self.assertEqual((m['source'], m['kind']), ('PREDICTED', 'P'))
+            self.assertTrue(self.near(m, self.truth_at(last)['A-03']), m)
+            self.assertGreater(m['sigma'], 0)
+            # An unknown slot is named in the roster strip, never drawn: the calibration is dropped between 4.0 and 5.5 s.
+            seek(5.0)
+            strip = page.evaluate("document.getElementById('rosterStrip') ? document.getElementById('rosterStrip').textContent : ''")
+            self.assertIn(DISPLAY.get('A-01', 'A-01'), strip)
             # The calibration is dropped between 4.0 and 5.5 s: held, then nothing, then back.
             self.assertEqual(self.marker(seek(4.3), 'A-01')['source'], 'HELD')
             s = seek(5.0)

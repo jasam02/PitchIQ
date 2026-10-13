@@ -189,7 +189,7 @@ broadcast label agreement where both runs label a person 1.000, overall 0.995 �
 Unmeasured: whether an assignment is correct (no box-level ground truth on the real clips); the visibility classes on the real clips
 (checked on synthetic renders in `tests/test_visibility.py` only).
 
-## Phase 3 — adaptive detection and tracking of small, distant players — commit `pending`
+## Phase 3 — adaptive detection and tracking of small, distant players — commit `9f52ddf`
 
 What changed (`pipeline.py`, `soccer/tracker.py`, `soccer/relevance.py`, `soccer/local.py`; the same commit wires Phases 2 and 4 into
 the pipeline and removes the Phase 1 anchor fade in `soccer/pitch_model.py`): every addition is tied to a measured condition that
@@ -316,3 +316,52 @@ no jump above 12 m/s at a reappearance, no slot with two ids) are under Phase 5,
 Unmeasured: the simulated window has no occlusion and no detector misses inside the view (on the real clips visibility comes from the
 registration's view polygon and the tracker); only Metrica games 1-2 were used (DFL open data and SkillCorner visibility flags were not);
 on the real clips the true off-screen positions are unknown, so only consistency is measured there.
+
+## Phase 5 — tactical view kinds, full lineup, camera footprint, export — commit `pending`
+
+What changed (`tactical.js`, `index.html`, `tools/compare.py`, `tests/test_tactical.py`, and in `soccer/visibility.py` the off-screen
+rule below): the 2D view draws every roster slot from the `timeline` when the result has one (older results are drawn from their
+frames as before): an observed position as a solid marker, an interpolated one solid with a thin inner ring, a predicted one translucent
+with a dashed outline, a prediction less certain than 8 m faded with a `~` and hidden unless "Full lineup (every estimate)" is on, an
+unknown slot never drawn (only named in the roster strip with its visibility). Only observed samples are smoothed; estimates are drawn
+as the timeline gives them, and because an estimate meets the observations a returning player never jumps. "Camera footprint" draws the
+part of the pitch the camera sees on the current frame (`frames[i].view`); the debug overlay adds the sigma of an estimate; "Download
+timeline CSV" exports, per slot and frame, position, kind, sigma along and across the pitch and visibility, built in the browser from
+the result. `tools/compare.py` adds the consistency metrics: identities drawn twice on a frame, jumps above 12 m/s where a prediction
+meets a measurement (consecutive samples) or over one second within a run of measurements (consecutive observations jitter by their own
+noise, which says nothing about consistency), the kind shares and the footprint share. Visibility: on the amateur 0-60 s window none of
+5 252 predicted positions lay further outside the camera's view than its own sigma, because a one-sided estimate holds a player near
+where the view lost them, so a slot last seen leaving through a frame edge (the roster's exit edge) and not observed since is now `S`
+instead of `U` on every later frame with a view. The page test's synthetic clip now carries a timeline, roster and visibility; a
+browser-free test checks its kinds, sigmas and consistency, and the Playwright assertions (skipped here) follow the timeline: a player
+the camera leaves is drawn as a prediction near the last observation, an unknown slot appears only in the strip.
+
+Consistency on the final runs (`p0/p4/*`):
+
+| window | timeline kinds O / I / P / U | visibility O / C / S / U | identities drawn twice | jumps > 12 m/s: prediction meets measurement / within measurements over 1 s | frames with a camera footprint |
+|---|---|---|---|---|---|
+| broadcast | .681 / .002 / .036 / .281 | .781 / .022 / .079 / .118 | 0 | 0 / 0 | 0.841 |
+| veo | .345 / .049 / .309 / .297 | .345 / .149 / .144 / .363 | 0 | 0 / 1 | 0.909 |
+| amateur3_0 | .558 / .033 / .128 / .281 | .555 / .131 / 0 / .314 | 0 | 0 / 20 | 1.000 |
+| amateur3_150 | 0 / 0 / 0 / 1.000 (no calibration) | .578 / 0 / 0 / .422 | 0 | 0 / 0 | 0 |
+
+Page check (read-only stub server with the final amateur result, built-in browser): the final amateur 0-60 s result (`p0/p4/amateur3_0`) at 30 s: 20 slots on the board, 17 observed (solid) and 3 predicted (translucent, dashed; sigmas 1.1-3.7 m, A-08, A-10, GK-2), 9 slots named in the roster strip as unknown and 5 anonymous `?` markers, the camera footprint drawn over the pitch; the CSV builder produced 41 400 rows (23 slots x 1 800 frames) with the header `time,id,team,x,y,kind,sigma_along_m,sigma_across_m,visibility` and kinds O 23 104 / I 1 366 / P 5 294 / U 11 636 (the browser download was intercepted for the check, nothing was saved)
+
+Unmeasured: the Playwright page tests are skipped in this environment (Playwright is not installed); the CSV export was checked by
+downloading it once and reading its header and row count, not by an analytics consumer.
+
+## Phase 6 — evidence-gated extras: decisions, nothing applied without a measurement
+
+(1) PnLCalib (GPL-2.0-only, so only ever as a separate process) was not trialled within this plan; the trial protocol stands: sampled
+frames of the three clips scored with `tools/holdout.py` against the keyframes, integration as another `Anchor` source only if the
+hold-out error drops on two clips. (2) Lens undistortion: the coefficient is measured and reported (`summary.pitch.lens`: Veo k ≈ 0.58
+with sign agreement 1.0 over 46 frames; curvature 3.1 px per 1 000 px on the Veo clip, 2.2-2.7 on amateur 3, 0.9 on the
+broadcast) but not applied: the gate is a lower hold-out error on two clips, and the clip where it could pay (Veo, 12 m at the 18.8 s
+keyframe, dominated by the lens) is one; applying it means re-registering the keyframe clicks and the paint through the undistortion,
+which is the next calibration step. (3) GTA-style merges: proposals are listed (`roster.mergeProposals`: 0 on all four windows: no two same-team identities were both never on the same frame and mutually most similar at 0.7, so nothing was proposed); automatic
+application needs precision >= 0.9 against your corrections, and the three test videos hold one correction (a referee) and no merge, so
+precision cannot be measured yet. (4) SAHI-style full tiling: count-recall on the annotated frames is 0.94-1.0 on all three clips with
+over-counts rather than misses, so there is no measured miss for tiling to fix. (5) OSNet on CUDA and detector/CPU pipelining: not done;
+the online cost per frame on the final runs is 253 on the broadcast and 297-364 on the Veo and amateur windows ms, of which the detector passes take 63 and 82-83 ms (with the GPU shared,
+above). (6) SoccerTrack v2 with sn-trackeval: not done (registration required); it remains the only way to a real GS-HOTA number for the
+amateur path.

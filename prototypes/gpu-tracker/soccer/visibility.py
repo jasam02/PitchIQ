@@ -7,12 +7,13 @@ plus a margin. A slot that is not observed on the frame is then one of:
 
     C  IN_FRAME_BUT_OCCLUDED-or-missed: its estimated position lies inside the view by more than its
        uncertainty, so the camera should see it (hidden behind someone, or not detected)
-    S  OFF_SCREEN: its estimated position lies outside the view by more than its uncertainty
+    S  OFF_SCREEN: its estimated position lies outside the view by more than its uncertainty, or it was last
+       seen leaving through a frame edge (the roster slot's exit edge) and has not been observed since
     U  UNKNOWN_VISIBILITY: no estimate, no view, or too close to the edge to say
 
-('O', observed in frame, is implied by the slot's presence in the frame's people.) Until the off-screen
-estimation of a later phase supplies positions, the estimate is the slot's last observed position with an
-uncertainty that grows with the time since (2 m + 1.5 m/s), and nothing older than 10 s is used. The
+('O', observed in frame, is implied by the slot's presence in the frame's people.) The estimates come from
+the result's `timeline` (soccer/imputation.py) when it has one; without it, the estimate is the slot's last
+observed position with an uncertainty that grows with the time since (2 m + 1.5 m/s), nothing older than 10 s. The
 visibility is evidence, never a rule: it is stored per frame and summarised, and nothing is removed
 or invented because of it.
 """
@@ -164,6 +165,8 @@ def annotate(result):
             est = estimates.get(pid)
             e = est[i] if est and i < len(est) else None
             code = classify(e[0], e[1], view, size) if e else 'U'
+            if code == 'U' and view is not None and s.get('exitEdge') and s.get('lastSeen') is not None and f['time'] > s['lastSeen']:
+                code = 'S'   # last seen leaving through a frame edge and not observed since: off-screen, however uncertain the estimate
             codes[pid] = code
             counts[code] += 1
         f['visibility'] = codes
