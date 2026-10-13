@@ -12,6 +12,9 @@ import numpy as np
 from .geometry import iou
 
 HIGH, LOW = .30, .10
+SMALL_LOW = .05          # second-stage threshold while small people are expected: weaker detections still continue a track
+SMALL_BUFFER = 90        # frames an unmatched track survives while small people are expected (60 otherwise)
+BUFFER = 60
 
 
 def _xywh(row):
@@ -28,6 +31,9 @@ class BotSortTracker:
                                gmc_method='sparseOptFlow', proximity_thresh=.3, appearance_thresh=.85,
                                with_reid=False, model='auto')
         self.tracker = BOTSORT(args, frame_rate=max(1, round(fps)))
+        self.fps = max(1, round(fps))
+        self.low = LOW
+        self.small = False
         self.use_embeddings = use_embeddings
         # Features are computed once per frame by the pipeline (OSNet) and passed in.
         self.tracker.encoder = lambda feats, boxes: [np.asarray(f, np.float32) for f in feats]
@@ -58,7 +64,7 @@ class BotSortTracker:
         self.tracker.args.with_reid = use
         output = self.tracker.update(boxes, frame, np.asarray(feats, np.float32)) if use else self.tracker.update(boxes, frame)
         conf = rows[:, 4]
-        subsets = {True: np.flatnonzero(conf >= HIGH), False: np.flatnonzero((conf > LOW) & (conf < HIGH))}
+        subsets = {True: np.flatnonzero(conf >= HIGH), False: np.flatnonzero((conf > self.low) & (conf < HIGH))}
         matches, used = [], set()
         for out in output:
             box, track_id, score, idx = out[:4], int(out[4]), float(out[5]), int(out[7])
@@ -74,6 +80,27 @@ class BotSortTracker:
         ended = [self.ids[(self.generation, t)] for t in self.known-alive if (self.generation, t) in self.ids]
         self.known = alive
         return matches, ended
+
+    def small_objects(self, active):
+        """Small-object tuning while the measured condition holds (people expected under the far-tile size): a lower
+        second-stage threshold and a longer buffer; the defaults otherwise. Takes effect from the next update."""
+        active = bool(active)
+        if active == self.small:
+            return
+        self.small = active
+        self.low = SMALL_LOW if active else LOW
+        self.tracker.args.track_low_thresh = self.low
+        self.tracker.max_time_lost = int(self.fps/30.0*(SMALL_BUFFER if active else BUFFER))
+
+    def lost(self, max_frames):
+        """Local tracks lost for at most max_frames frames: [(local id, predicted [x1, y1, x2, y2] pixels, frames lost)]."""
+        out = []
+        now = self.tracker.frame_id
+        for track in self.tracker.lost_stracks:
+            gone = now-track.end_frame
+            if 0 < gone <= max_frames and (self.generation, track.track_id) in self.ids:
+                out.append((self.ids[(self.generation, track.track_id)], [float(v) for v in track.xyxy], int(gone)))
+        return out
 
     def forget(self, local_id):
         """Remove a lost track whose identity moved to another track, so it cannot come back as a ghost."""

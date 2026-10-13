@@ -21,7 +21,7 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import ball_path, lens, pitch_model, registration, tracklets
+from soccer import ball_path, imputation, lens, pitch_model, registration, roster, tracklets, visibility
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -125,7 +125,56 @@ def far_tiles(model, frame, band):
             if len(rows):
                 rows[:, :4] += [x, y0, x, y0]
                 out.extend(rows.tolist())
-    return np.asarray(out, np.float32).reshape(-1, 6)
+    rows = np.asarray(out, np.float32).reshape(-1, 6)
+    if len(rows) > 1:
+        # The tiles overlap by a quarter: one person on the seam is found twice; keep the better box.
+        raw = torch.tensor(rows)
+        rows = rows[nms(raw[:, :4], raw[:, 4], .5).numpy()]
+    return rows
+
+
+def local_crops(model, frame, windows):
+    """Track-guided re-detection: the detector on crops around the predicted boxes of confirmed players whose
+    local track was just lost and who are small (pipeline column 7 = 2; the tracker accepts such a row only
+    next to its prediction). windows: [(x0, y0, x1, y1)] in pixels, at most a few per frame."""
+    crops, offsets = [], []
+    for x0, y0, x1, y1 in windows:
+        crop = frame[y0:y1, x0:x1]
+        if crop.size and min(crop.shape[:2]) >= 32:
+            crops.append(crop)
+            offsets.append((x0, y0))
+    if not crops:
+        return np.zeros((0, 7), np.float32)
+    size = int(min(640, max(256, 32*round(max(max(c.shape[:2]) for c in crops)/32))))
+    predictions = model.predict(crops, imgsz=size, conf=.10, iou=.45, classes=[1, 2, 3], device=0, half=True, verbose=False)
+    out = []
+    for (x0, y0), prediction in zip(offsets, predictions):
+        rows = prediction.boxes.data.cpu().numpy().copy()
+        if len(rows):
+            rows[:, :4] += [x0, y0, x0, y0]
+            out.extend(np.c_[rows, np.full(len(rows), 2.0)].tolist())
+    return np.asarray(out, np.float32).reshape(-1, 7)
+
+
+def merge_crops(rows, extra):
+    """Rows (N, 6 or 7) plus crop rows (M, 7): a crop row that the whole-frame passes already cover (IoU >= .5
+    with any person row) is dropped; the rest are appended with their flag."""
+    if rows.shape[1] == 6:
+        rows = np.c_[rows, np.zeros(len(rows), np.float32)]
+    if not len(extra):
+        return rows
+    people = rows[rows[:, 5] != 0]
+    keep = []
+    for r in extra:
+        if len(people):
+            ix = np.maximum(0, np.minimum(r[2], people[:, 2])-np.maximum(r[0], people[:, 0]))
+            iy = np.maximum(0, np.minimum(r[3], people[:, 3])-np.maximum(r[1], people[:, 1]))
+            inter = ix*iy
+            union = (r[2]-r[0])*(r[3]-r[1])+(people[:, 2]-people[:, 0])*(people[:, 3]-people[:, 1])-inter
+            if (inter/np.maximum(union, 1e-6)).max() >= .5:
+                continue
+        keep.append(r)
+    return np.r_[rows, np.asarray(keep, np.float32).reshape(-1, 7)]
 
 
 def merge_far(rows, extra):
@@ -242,7 +291,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     torch.cuda.reset_peak_memory_stats()
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
-    index, last_notice, logged, pitch, far_passes, ball_searches, rolled = first_frame, -10, 0, None, 0, 0, 0
+    index, last_notice, logged, pitch, far_passes, ball_searches, rolled, crop_passes = first_frame, -10, 0, None, 0, 0, 0, 0
     timing = Counter()   # seconds per stage, for summary.timing
     clock = time.perf_counter
     try:
@@ -281,6 +330,12 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                 t0 = clock()
                 rows = merge_far(rows, far_tiles(model, frame, band))
                 timing['farTiles'] += clock()-t0
+            windows = tracker.lost_windows()
+            if windows:
+                crop_passes += 1
+                t0 = clock()
+                rows = merge_crops(rows, local_crops(model, frame, windows))
+                timing['localCrops'] += clock()-t0
             if config.get('ballTiles', False) and (index-first_frame) % 2 == 0:
                 t0 = clock()
                 ball_rows += ball_tiles(model, frame)
@@ -325,14 +380,15 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     if not frames:
         raise RuntimeError('No video frames were processed.')
     online_events = {id(e) for e in tracker.events}
-    progress({'stage': 'Refining tracklets over the whole segment (split mixed tracks, reconnect fragments)'})
-    t0 = clock()
-    identity_report = finalize_identities(frames, tracker)
-    timing['offlineIdentities'] += clock()-t0
+    # The pitch registration comes first: the tracklet passes then compare positions in metres where they exist.
     progress({'stage': 'Registering the pitch over the whole segment and remapping the tracks'})
     t0 = clock()
     propagated, timeline = finalize_pitch(frames, tracker)
     timing['offlinePitch'] += clock()-t0
+    progress({'stage': 'Refining tracklets over the whole segment (split mixed tracks, reconnect fragments, assign the rest)'})
+    t0 = clock()
+    identity_report = finalize_identities(frames, tracker)
+    timing['offlineIdentities'] += clock()-t0
     progress({'stage': 'Decoding the final ball trajectory over the whole segment'})
     t0 = clock()
     ball_report = finalize_ball(frames, tracker, timeline)
@@ -342,6 +398,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous, ball_report, identity_report)
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
+    report['summary']['detection'] = dict(tracker.detection) | {'farTilePasses': far_passes, 'localCropPasses': crop_passes}
     report['summary']['pitch']['registration'] = tracker.registration
     report['summary']['ball']['localSearches'] = ball_searches
     timing['report'] += clock()-t0
@@ -362,7 +419,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
 
 def stage_timing(timing, frames, elapsed, rolled=0):
     """Milliseconds per processed frame by online stage, the offline passes in seconds, and the total."""
-    online = ('detect', 'farTiles', 'ballTiles', 'ballCrop', 'tracking')
+    online = ('detect', 'farTiles', 'localCrops', 'ballTiles', 'ballCrop', 'tracking')
     out = {f'{k}MsPerFrame': round(1000*timing[k]/max(1, frames), 1) for k in online}
     out['onlineMsPerFrame'] = round(1000*sum(timing[k] for k in online)/max(1, frames), 1)
     out['offlineSeconds'] = {k: round(timing[k], 2) for k in ('offlineIdentities', 'offlinePitch', 'offlineBall', 'report')}
@@ -465,7 +522,17 @@ def finalize_identities(frames, tracker):
     if len(log) != len(frames) or not frames:
         return None
     motions = [(e['M'], e['reliable'], e['cut']) for e in log]
-    report = tracklets.refine(tracker.ids, frames, motions, tracker.width, tracker.height)
+    size = tracker.keyframes.size
+    report = tracklets.refine(tracker.ids, frames, motions, tracker.width, tracker.height, size)
+    # The fragments still anonymous after the refinement: one global assignment with mutual exclusion.
+    assigned = tracklets.assign_fragments(tracker.ids, frames, motions, tracker.width, tracker.height, size)
+    # Identities that may be one person: proposed for review in roster.mergeProposals, never merged here.
+    proposals = tracklets.merge_proposals(tracker.ids, frames, motions, tracker.width, tracker.height, size)
+    report['mergeProposals'] = proposals['proposals']
+    report['mergeProposalCounts'] = {k: proposals[k] for k in ('pairsCompared', 'rejectedByAppearance', 'rejectedByContinuity', 'interleaved')}
+    report['assigned'], report['framesAssigned'] = assigned['accepted'], assigned['framesAssigned']
+    report['assignment'] = {k: assigned[k] for k in ('proposed', 'accepted', 'rejectedByLead', 'rejectedByScore', 'rounds')}
+    report['events'] = report['events']+assigned['events']+proposals['events']
     tracker.events += report['events']
     tracker.events.sort(key=lambda e: e['time'])
     return report
@@ -589,7 +656,7 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                'identity': tracklets.metrics(tracker.ids, frames, events, identity_report or {}) if hasattr(tracker.ids, 'encounters') else None,
                'elapsedSeconds': round(elapsed, 2), 'processingFPS': round(len(frames)/elapsed, 2),
                'peakGPUMemoryGB': round(torch.cuda.max_memory_allocated()/1024**3, 2) if torch.cuda.is_available() else 0.0}
-    return {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
+    report = {'version': 3, 'video': meta, 'gpu': gpu, 'config': config, 'frames': frames, 'match': match, 'tracks': tracks,
             'events': events, 'issues': tracker.issues[-500:], 'pitchIssues': pitch_issues, 'teams': tracker.model.to_json(), 'tactical': tactical,
             'continuedFrom': (previous or {}).get('run'), 'status': 'cancelled' if cancelled else 'complete', 'summary': summary,
             'labels': {p['id']: long_id(p['id']) for group in match.values() for p in group},
@@ -600,5 +667,19 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                             'OSNet is a general pedestrian model: same-kit teammates can look alike, so some returns stay unresolved.',
                             'Pitch coordinates exist where the pitch model is trusted: anchored by a calibration keyframe, carried through the camera motion (also backwards, in the offline pass) and confirmed by painted lines; on sustained low confidence a section asks for confirmation instead of guessing.',
                             'People you corrected in the review page are remembered by appearance: a run recognises them only when they look clearly like the person you corrected.',
-                            'Off-screen positions are unknown; no missing observations are fabricated.',
+                            'Tracked people whose identity stayed unresolved are real observations: the 2D view shows them as ? markers of their team, never as identities, and the roster counts them as anonymous.',
+                            'Every roster slot not observed on a frame is classified from the camera view: expected in frame but not seen, off-screen, or unknown; this is evidence for the review, never a reason to remove or invent anyone.',
+                            'Where a roster slot is not observed, the timeline carries an estimate with its kind and sigma: I (interpolated across a gap of at most a second), P (predicted: the straight line between two observations further apart, or, where only one side is observed, the last position moved with the visible teammates; the sigma says how far to trust it) or U (unknown: nothing supportable, no coordinates). Estimates are never observations and the 2D view draws them differently.',
                             'The ball is one physical identity (BALL-1). Its final trajectory is decoded offline over the whole segment from every frame\'s candidates and an explicit "not visible" node: a sighting that no plausible trajectory leads into or out of (a boot, a sock, a spot) is left out, short occlusions on a trajectory are bridged (MISSING), and everything else is UNKNOWN rather than a guess. The causal first pass is kept per frame as firstPass. No ball accuracy is claimed.']}
+    # The active roster and, per frame, what the camera sees of the pitch and where each unobserved slot stands
+    # with respect to it: pure functions of the result, re-derived whenever a correction is applied.
+    report['roster'] = roster.build(report)
+    report['roster']['mergeProposals'] = list((identity_report or {}).get('mergeProposals') or [])
+    summary['roster'] = roster.summary(report['roster'])
+    # Where every slot probably is on every frame (observed / interpolated / predicted / unknown, with a
+    # sigma), from the whole segment; the visibility classification then uses these estimates.
+    pitch_size = report['tactical']['pitchSize']
+    report['timeline'] = imputation.estimate(report, float(pitch_size['length']), float(pitch_size['width']))
+    summary['timeline'] = {'method': report['timeline']['method'], 'kinds': report['timeline']['kinds'], 'slots': len(report['timeline']['ids'])}
+    summary['visibility'] = visibility.annotate(report)
+    return report

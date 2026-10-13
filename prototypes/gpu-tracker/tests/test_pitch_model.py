@@ -336,7 +336,7 @@ class RefinementAnchorTests(unittest.TestCase):
         self.assertEqual(self.tracker.observability, .8)                      # the chain's certainty is untouched
         r = self.tracker.refinement
         self.assertLess(r['own'], MIN_ANCHOR)                                 # one touchline fixes neither the ends nor the scale
-        self.assertLess(r['anchor'], .8)                                      # what it is worth as an anchor: the chain's, faded
+        self.assertEqual(r['anchor'], .8)                                     # (it would be worth the chain's certainty, but it does not anchor)
         self.assertGreater(r['anchor'], r['own'])
 
     def test_both_marking_families_make_an_anchor_of_their_own(self):
@@ -347,12 +347,13 @@ class RefinementAnchorTests(unittest.TestCase):
         self.assertGreaterEqual(r['own'], MIN_ANCHOR)
         self.assertGreaterEqual(r['anchor'], r['own'])
 
-    def test_the_faded_chain_certainty_follows_the_time_since_its_evidence(self):
+    def test_an_anchoring_refinement_is_worth_the_chain_it_confirmed(self):
         self.drift(20.0)
-        self.tracker.refine(segments(self.P, ['far touchline']), 20.2)
+        self.tracker.refine(segments(self.P, ['far touchline', 'near touchline', 'halfway line', 'left penalty area front']), 20.2)
         self.assertIsNotNone(self.tracker.refinement)
-        self.assertLess(self.tracker.refinement['anchor'], .8*math.exp(-20/35))   # fades with OBSERVABILITY_DECAY
-        self.assertGreater(self.tracker.refinement['anchor'], .3)
+        self.assertGreaterEqual(self.tracker.refinement['own'], MIN_ANCHOR)
+        self.assertEqual(self.tracker.refinement['anchor'], max(self.tracker.refinement['own'], .8))   # the chain's certainty, confirmed
+        self.assertEqual(self.tracker.refinement['lines'], 4)
 
 
 class RollTests(unittest.TestCase):
@@ -398,6 +399,111 @@ class RollTests(unittest.TestCase):
         self.assertEqual(summary['calibratedFrames'], 5)
         self.assertEqual(sorted(a['frame'] for a in summary['anchors'] if a['source'] == 'landmarks'), [-3, 7])   # relative to the segment
         self.assertEqual(len(tracker.emitted_log()), 5)
+
+
+class AdaptiveDetectionTests(unittest.TestCase):
+    """Phase 3: confirmed far-tile detections start local tracks, crop detections count only next to the
+    prediction they were made for, and feet just past an uncertain far edge continue a tracked person."""
+
+    def test_a_confirmed_far_detection_with_a_low_score_starts_a_local_track(self):
+        P = broadcast.camera()
+        far = broadcast.image_point(P, 52.5, 3)
+        h = broadcast.player_px(P, 52.5, 3)/broadcast.H
+        box = person_box(far[0], far[1], h)
+        weak = [box[0]*W, box[1]*H, (box[0]+box[2])*W, (box[1]+box[3])*H, .2, 2, 1]   # below BoT-SORT's new-track threshold
+        frames, rows = [], []
+        for k in range(6):
+            frames.append(broadcast.render(P))
+            base = np.c_[TrackerModeTests().people_rows(P, k), np.zeros(8)]
+            rows.append(np.r_[base, [weak]].astype(np.float32))
+        tracker, observations = TrackerModeTests.run_tracker(frames, rows, [k/5 for k in range(6)])
+        seen = [[p for p in o['people'] if abs(p['box'][0]-box[0]) < .002 and abs(p['box'][1]-box[1]) < .002] for o in observations]
+        self.assertTrue(any(seen[3:]), 'the confirmed far detection is tracked')
+        self.assertTrue(all(p['score'] < .3 for s in seen for p in s), 'the person keeps the true detector score')
+        self.assertGreaterEqual(tracker.detection['farStarts'], 1)
+        self.assertGreaterEqual(tracker.detection['farDetections'], 1)
+
+    def test_a_crop_detection_counts_only_next_to_its_prediction(self):
+        P = broadcast.camera()
+        frames, rows = [], []
+        spot = broadcast.image_point(P, 60, 30)
+        h = broadcast.player_px(P, 60, 30)/broadcast.H
+        near = person_box(spot[0], spot[1], h)
+        elsewhere = person_box(.2, .8, h)
+        for k in range(3):
+            frames.append(broadcast.render(P))
+            base = np.c_[TrackerModeTests().people_rows(P, k), np.zeros(8)]
+            crop_rows = [[near[0]*W, near[1]*H, (near[0]+near[2])*W, (near[1]+near[3])*H, .6, 2, 2],
+                         [elsewhere[0]*W, elsewhere[1]*H, (elsewhere[0]+elsewhere[2])*W, (elsewhere[1]+elsewhere[3])*H, .6, 2, 2]]
+            rows.append(np.r_[base, crop_rows].astype(np.float32))
+        from soccer.local import BotSortTracker
+        from soccer.tracker import SoccerTracker, config_from
+        tracker = SoccerTracker(W, H, config_from({}), BotSortTracker(5), None)
+        tracker.crop_predictions = [list(near)]            # the crop was made for a player predicted here
+        observations = [tracker.step(frame, k/5, r)[0] for k, (frame, r) in enumerate(zip(frames, rows))]
+        last = observations[-1]
+        self.assertTrue(any(abs(p['box'][0]-near[0]) < .002 for p in last['people']), 'the detection next to the prediction counts')
+        self.assertFalse(any(abs(p['box'][0]-elsewhere[0]) < .002 and abs(p['box'][1]-elsewhere[1]) < .002 for p in last['people']))
+        self.assertTrue(any(r['reason'] == 'unconfirmed-crop' for o in observations for r in o['rejected']))
+        self.assertEqual(tracker.detection['cropDetections'], 3)
+
+    def test_a_crop_detection_next_to_another_person_is_not_accepted(self):
+        # The lost player's prediction is covered by another detected person: the crop finds that person (or a
+        # mixture) and must not count, or the lost identity would be carried onto them.
+        P = broadcast.camera()
+        spot = broadcast.image_point(P, 60, 30)
+        h = broadcast.player_px(P, 60, 30)/broadcast.H
+        near = person_box(spot[0], spot[1], h)
+        other = [near[0]+.4*near[2], near[1], near[2], near[3]]      # a whole-frame person overlapping the prediction
+        frames, rows = [], []
+        for k in range(3):
+            frames.append(broadcast.render(P))
+            base = np.c_[TrackerModeTests().people_rows(P, k), np.zeros(8)]
+            other_row = [[other[0]*W, other[1]*H, (other[0]+other[2])*W, (other[1]+other[3])*H, .8, 2, 0]]
+            crop_row = [[near[0]*W, near[1]*H, (near[0]+near[2])*W, (near[1]+near[3])*H, .6, 2, 2]]
+            rows.append(np.r_[base, other_row, crop_row].astype(np.float32))
+        from soccer.local import BotSortTracker
+        from soccer.tracker import SoccerTracker, config_from
+        tracker = SoccerTracker(W, H, config_from({}), BotSortTracker(5), None)
+        tracker.crop_predictions = [list(near)]
+        observations = [tracker.step(frame, k/5, r)[0] for k, (frame, r) in enumerate(zip(frames, rows))]
+        self.assertEqual(tracker.detection['cropDetections'], 0)
+        self.assertEqual(tracker.detection['cropRejectedCrowded'], 3)
+        self.assertTrue(any('hidden behind' in r.get('detail', '') for o in observations for r in o['rejected']))
+        self.assertTrue(any(abs(p['box'][0]-other[0]) < .002 for p in observations[-1]['people']), 'the whole-frame person still counts')
+
+    def test_no_crop_window_for_a_player_lost_next_to_another_tracked_person(self):
+        from types import SimpleNamespace
+        from soccer.local import BotSortTracker
+        from soccer.tracker import SoccerTracker, config_from
+        tracker = SoccerTracker(W, H, config_from({}), BotSortTracker(5), None)
+        prediction = [600.0, 400.0, 630.0, 455.0]                                   # 30 x 55 px, under the crop size limit
+        tracker.local.lost = lambda max_frames: [(1, prediction, 2)]
+        tracker.ids.tracks = {1: SimpleNamespace(state='confirmed', last_box=[600/W, 400/H, 30/W, 55/H])}
+        self.assertEqual(len(tracker.lost_windows()), 1)                            # alone: a crop window
+        tracker.ids.tracks[2] = SimpleNamespace(state='confirmed', last_box=[640/W, 405/H, 30/W, 55/H])   # a neighbour within half a body
+        self.assertEqual(tracker.lost_windows(), [])
+        self.assertEqual(tracker.detection['cropSkippedCrowded'], 1)
+        tracker.ids.tracks[2].last_box = [900/W, 405/H, 30/W, 55/H]                 # far away: the window is back
+        self.assertEqual(len(tracker.lost_windows()), 1)
+
+    def test_feet_just_past_an_uncertain_far_edge_continue_a_tracked_person(self):
+        from soccer.pitch import PitchModel
+        far_line = {'a': (0.0, .30), 'b': (1.0, .30), 'side': 'far', 'support': .6, 'age': 0}
+        polygon = [(0.0, .30), (1.0, .30), (1.0, .95), (0.0, .95)]
+        config = FieldFilter(True, .02, .005, .05)
+        beyond = {'box': [.5, .16, .02, .095], 'score': .6, 'cls': 'player'}    # feet 4.5% of the height beyond the far edge: outside the tolerance
+        live = [[.5, .16, .02, .095]]
+        predicted = PitchModel(0.0, True, 16/9, polygon=polygon, lines=[], coverage=.5, source='calibration', sides={'far': 'predicted', 'near': 'predicted', 'left': 'off-screen', 'right': 'off-screen'})
+        accepted, continuation, rejected, _ = assess([beyond], predicted, config, None, None, live, 720)
+        self.assertEqual([d.get('continued') for d in accepted], ['far'])
+        self.assertEqual(rejected, [])
+        painted = PitchModel(0.0, True, 16/9, polygon=polygon, lines=[far_line], coverage=.5, source='auto')
+        accepted, continuation, rejected, _ = assess([beyond], painted, config, None, None, live, 720)
+        self.assertEqual(accepted, [])
+        self.assertEqual([r['reason'] for r in rejected], ['audience'])     # a painted far touchline keeps its meaning
+        accepted, continuation, rejected, _ = assess([beyond], predicted, config, None, None, [], 720)
+        self.assertEqual(accepted, [])                                        # nobody tracked there: not continued
 
 
 if __name__ == '__main__':

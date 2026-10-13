@@ -15,6 +15,7 @@ the section is reported once as "a pitch section needs confirmation" with a repr
 the landmarks worth marking, which the next run turns into an anchored model.
 """
 import math
+from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
@@ -40,6 +41,16 @@ ASSIST_GAP = 3.0          # sections closer than this are one issue
 ASSIST_PAN = 10.0         # ... and up to this far apart when one reliably measured camera movement joins them
 FAR_MIN_PX = 30           # people expected smaller than this at the far edge of the pitch get the far-tile pass
 FAR_CONFIRM = 3           # consecutive frames a far-tile detection must repeat before it counts
+FAR_TRACK_SCORE = .45     # the tracking score a confirmed far-tile detection is given, so it can start a local track
+SMALL_OBJECT_TRACKING = False  # BoT-SORT small-object tuning (local.small_objects) while the far band exists; kept only if measured to help
+CROP_MAX_LOST = 1.0       # seconds: a confirmed player's lost local track is looked for with a crop this long
+CROP_MAX_PX = 60          # ... when the person is this small or smaller (larger ones the whole-frame passes find)
+CROP_SCALE = 3.0          # the crop is this many times the predicted box, at least CROP_MIN_PX wide
+CROP_MIN_PX = 256
+CROP_ACCEPT_IOU = .3      # a crop detection counts only this close to the prediction it was made for
+CROP_ISOLATION_IOU = .1   # a crop detection overlapping another detected person more than this is not accepted (the lost player is behind them)
+CROP_NEIGHBOUR = .5       # no crop for a lost player whose prediction, widened by this fraction of its size, touches another tracked person
+CROPS_PER_FRAME = 4
 REGISTER_EVERY = 1.0      # seconds between direct registrations of the pitch model to a remembered keyframe view
 
 
@@ -114,6 +125,9 @@ class SoccerTracker:
         self.sections = []      # closed LOW sections [{'start', 'end', 'at', 'suggested'}]
         self.far_pending = []   # far-tile detections waiting for confirmation: [box, hits, last time]
         self.mode = 'automatic'
+        self.detection = Counter()   # how often each adaptive trigger fired (summary.detection)
+        self.crop_predictions = []   # predicted boxes (normalized) the current frame's crop detections were made for
+        self.fps = fps
 
     def _scale(self, boxes):
         """Expected person height (normalized) at a foot row: the perspective size model, else the median
@@ -140,10 +154,11 @@ class SoccerTracker:
         return False
 
     def far_band(self):
-        """Image rows (pixels) where people are expected to be too small for the whole-frame detector,
-        for an extra tiled pass; None in automatic mode or when nothing there is that small."""
+        """Image rows (pixels) where people are expected to be too small for the whole-frame detector, for an
+        extra tiled pass; None when nothing there is that small (the trigger is the expected size, whatever the
+        pitch mode: broadcast footage, where the smallest players are about 40 px, never meets it)."""
         pitch = self.pitch
-        if self.mode == 'automatic' or pitch is None or not pitch.reliable or len(pitch.polygon) < 3 or self.size is None or not self.size.reliable:
+        if pitch is None or not pitch.reliable or len(pitch.polygon) < 3 or self.size is None or not self.size.reliable:
             return None
         far_y = max(0.0, min(p[1] for p in pitch.polygon))
         if self.size.expected(far_y+.02)*self.height >= FAR_MIN_PX:
@@ -153,29 +168,79 @@ class SoccerTracker:
             y += .01
         return int(max(0.0, far_y-.04)*self.height), int(min(1.0, y)*self.height)
 
+    def lost_windows(self):
+        """Crop windows (pixels) around the predicted boxes of confirmed players whose local track was lost less
+        than CROP_MAX_LOST ago and who are small: where the detector looks again at full resolution. The
+        predictions are kept so that step() accepts a crop detection only next to the one it was made for."""
+        self.crop_predictions = []
+        W, H = self.width, self.height
+        windows = []
+        for local_id, xyxy, gone in self.local.lost(int(round(CROP_MAX_LOST*self.fps))):
+            tr = self.ids.tracks.get(local_id)
+            if tr is None or tr.state != 'confirmed' or tr.last_box[3]*H > CROP_MAX_PX:
+                continue
+            x1, y1, x2, y2 = xyxy
+            cx, cy, w, h = (x1+x2)/2, (y1+y2)/2, max(1.0, x2-x1), max(1.0, y2-y1)
+            if not (0 <= cx <= W and 0 <= cy <= H):
+                continue
+            # A player lost next to another tracked person is probably hidden behind them: a crop there would find
+            # the other person and could carry this identity onto them, so the encounter is left to the identity
+            # manager (which measures who comes out of it) and no crop is made.
+            widened = [(x1-CROP_NEIGHBOUR*w)/W, (y1-CROP_NEIGHBOUR*h)/H, (w+2*CROP_NEIGHBOUR*w)/W, (h+2*CROP_NEIGHBOUR*h)/H]
+            if any(other.last_box is not None and iou(widened, other.last_box) > 0 for lid, other in self.ids.tracks.items() if lid != local_id):
+                self.detection['cropSkippedCrowded'] += 1
+                continue
+            half = max(CROP_MIN_PX/2, CROP_SCALE*max(w, h)/2)
+            window = (int(max(0, cx-half)), int(max(0, cy-half)), int(min(W, cx+half)), int(min(H, cy+half)))
+            if window[2]-window[0] < 32 or window[3]-window[1] < 32:
+                continue
+            windows.append(window)
+            self.crop_predictions.append([max(0.0, x1)/W, max(0.0, y1)/H, w/W, h/H])
+            if len(windows) >= CROPS_PER_FRAME:
+                break
+        return windows
+
     def step(self, frame, time, rows, ball_rows=None):
         """rows: (N, 6) person detections [x1, y1, x2, y2, score, class id] in pixels, or (N, 7) with a
-        last column set for provisional far-tile detections; ball_rows: (M, 6) ball candidates."""
+        last column set for provisional far-tile detections (1) or track-guided crop detections (2);
+        ball_rows: (M, 6) ball candidates."""
         W, H = self.width, self.height
         rows = np.asarray(rows, np.float32)
         columns = 7 if rows.ndim == 2 and rows.shape[1] == 7 else 6
         rows = rows.reshape(-1, columns)
-        flags = rows[:, 6] > 0 if columns == 7 else np.zeros(len(rows), bool)
+        kinds = rows[:, 6] if columns == 7 else np.zeros(len(rows), np.float32)
         rows = rows[:, :6]
         dt = max(0.0, time-self.last_time) if self.last_time is not None else 0.0
         self.last_time = time
         self.frame_index += 1
         live = self._live_boxes(time)
         dets, unconfirmed = [], []
+        # The whole-frame person detections (normalized boxes): a crop detection is accepted only away from them.
+        whole = [[float(r[0]/W), float(r[1]/H), float((r[2]-r[0])/W), float((r[3]-r[1])/H)] for i, r in enumerate(rows) if kinds[i] != 2 and int(r[5]) != 0]
         for i, row in enumerate(rows):
             x1, y1, x2, y2 = np.clip(row[:4], [0, 0, 0, 0], [W, H, W, H])
             if x2-x1 < 2 or y2-y1 < 2:
                 continue
             box = [float(x1/W), float(y1/H), float((x2-x1)/W), float((y2-y1)/H)]
-            if flags[i] and not self._confirm_far(box, live, time):
+            far = kinds[i] == 1
+            if far and not self._confirm_far(box, live, time):
                 unconfirmed.append({'box': box, 'score': float(row[4]), 'reason': 'unconfirmed-far', 'detail': 'seen by the far-tile pass; not yet repeated or tracked'})
                 continue
-            dets.append({'box': box, 'score': float(row[4]), 'cls': CLASSES.get(int(row[5]), 'player'), 'row': i})
+            if kinds[i] == 2:
+                # A crop detection counts only next to the prediction the crop was made for.
+                if not any(iou(box, p) >= CROP_ACCEPT_IOU for p in self.crop_predictions):
+                    unconfirmed.append({'box': box, 'score': float(row[4]), 'reason': 'unconfirmed-crop', 'detail': 'found in a crop, away from the lost player it was looking for'})
+                    continue
+                if any(iou(box, o) > CROP_ISOLATION_IOU for o in whole):
+                    # Next to another detected person: the lost player is probably behind them, and this box would
+                    # carry their identity onto the other person.
+                    self.detection['cropRejectedCrowded'] += 1
+                    unconfirmed.append({'box': box, 'score': float(row[4]), 'reason': 'unconfirmed-crop', 'detail': 'found in a crop next to another person: the lost player is probably hidden behind them'})
+                    continue
+                self.detection['cropDetections'] += 1
+            if far:
+                self.detection['farDetections'] += 1
+            dets.append({'box': box, 'score': float(row[4]), 'cls': CLASSES.get(int(row[5]), 'player'), 'row': i, 'far': bool(far)})
         # 1. Camera motion: a pan is not player movement.
         M, reliable, cut = self.camera.estimate(frame, self.previous_boxes)
         ended = []
@@ -253,11 +318,24 @@ class SoccerTracker:
         for r in rejected:
             self.rejected_counts[r['reason']] = self.rejected_counts.get(r['reason'], 0)+1
         tracked = accepted+continuation
+        self.detection['farBoundaryContinued'] += sum(1 for d in tracked if d.get('continued') == 'far')
         # 4. Learned appearance for association and re-identification.
         xyxy = [[d['box'][0]*W, d['box'][1]*H, (d['box'][0]+d['box'][2])*W, (d['box'][1]+d['box'][3])*H] for d in tracked]
         embeddings = self.embedder(frame, xyxy) if self.embedder is not None and tracked else [None]*len(tracked)
-        local_rows = np.array([b+[d['score'], int(rows[d['row'], 5])] for b, d in zip(xyxy, tracked)], np.float32).reshape(-1, 6)
+        # A confirmed far-tile detection is given a tracking score that can start a local track (its own score,
+        # from an upscaled tile, is below the tracker's new-track threshold); the person keeps the true score.
+        def tracking_score(d):
+            if d.get('far') and d['score'] < FAR_TRACK_SCORE:
+                self.detection['farStarts'] += 1
+                return FAR_TRACK_SCORE
+            return d['score']
+        local_rows = np.array([b+[tracking_score(d), int(rows[d['row'], 5])] for b, d in zip(xyxy, tracked)], np.float32).reshape(-1, 6)
         feats = np.asarray(embeddings, np.float32) if self.embedder is not None and tracked else None
+        small = bool(SMALL_OBJECT_TRACKING and self.far_band() is not None)
+        if small:
+            self.detection['smallTrackingFrames'] += 1
+        if hasattr(self.local, 'small_objects'):
+            self.local.small_objects(small)
         matches, gone = self.local.update(local_rows, frame, feats, M if reliable else None)
         ended += gone
         # 5. Part colour descriptors (only on evidence ticks), team model and kit votes.

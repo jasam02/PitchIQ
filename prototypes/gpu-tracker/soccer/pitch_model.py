@@ -33,7 +33,6 @@ PEOPLE_MIN = .5              # share of tracked people that must stand on the pr
 PEOPLE_STRIKES = 3           # consecutive checks failing that before the model is doubted
 MARGIN = .06                 # pitch-fraction margin for "on the pitch" (a touchline player is on it)
 REFINE_TOL = .008            # fraction of the frame width: the paint must agree with the fit this well
-OBSERVABILITY_DECAY = 30.0   # seconds: how fast the chain's geometric certainty fades for the purpose of anchoring a refinement
 REGISTER_MAX_SHIFT = .1      # fraction of the frame width: a direct registration further from the chain is suspect, unless the chain is weak
 REGISTER_WEAK = .5           # temporal confidence below which the chain is weak
 REGISTER_MATCHES_FLOOR = 40  # matches at which a direct registration's quality starts counting
@@ -67,7 +66,6 @@ class PitchTracker:
         self.matched = []
         self.evidence = []
         self.events = []              # [(time, kind, message)]
-        self.obs_time = None          # when the observability was last established by evidence (anchor or refinement)
         self.refinement = None        # the last refinement: {'time', 'own' (its own observability), 'anchor' (what an anchor of it is worth)}
         self.strikes = 0
         self.inside = None            # (inside, total) of the last people check
@@ -106,7 +104,7 @@ class PitchTracker:
         self.details = dict(details or {})
         self.carried, self.anchored_at, self.confirmed_at, self.lost = 0.0, time, time, None
         self.anchored_index = index
-        self.obs_time, self.refinement = time, None
+        self.refinement = None
         self.strikes = 0
         self.events.append((time, 'anchored', f'camera homography anchored by a {note}' + (f' (landmarks agree within {rms:.2f} m)' if rms is not None else '') +
                             f'; observability {observability:.2f}, confidence {self.confidence:.2f}'))
@@ -160,14 +158,13 @@ class PitchTracker:
                     # this evidence constrains the pitch better than what the chain rested on.
                     self.temporal = max(self.temporal, min(.96, .75+.07*len(self.matched)+.1*bool(circle)))
                     found = field.observability(dict(obs, H=fit.H), W, Hh, self.size, rms_px=fit.rms_px, jac=fit.jac)
-                    # What this refinement is worth as an anchor of its own: its own geometric certainty, or the
-                    # chain's faded since its evidence was established (a chain carried for long rests on its
-                    # motion estimate as much as on its keyframe). The live model keeps the chain's observability.
-                    since = max(0.0, time-(self.obs_time if self.obs_time is not None else time))
-                    faded = self.observability*math.exp(-since/OBSERVABILITY_DECAY)
-                    self.refinement = {'time': time, 'own': found['score'], 'anchor': max(found['score'], faded)}
+                    # What this refinement is worth as an anchor: the chain's certainty, which the paint just
+                    # confirmed (or its own, when that is higher). Whether it anchors at all is decided by its own
+                    # evidence (tracker: MIN_ANCHOR), so a single faint line never restarts a chain.
+                    self.refinement = {'time': time, 'own': found['score'], 'anchor': max(found['score'], self.observability),
+                                       'lines': len(self.matched), 'circle': bool(circle)}
                     if found['score'] > self.observability:
-                        self.observability, self.details, self.obs_time = found['score'], found, time
+                        self.observability, self.details = found['score'], found
                     self.carried, self.confirmed_at = 0.0, time
                     if self.source == 'none':
                         self.source = 'refined'

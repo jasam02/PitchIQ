@@ -40,7 +40,8 @@ ZONE_RANK = {'inside': 0, 'unknown': 1, 'boundary': 2, 'outside': 3}
 
 REJECT_TEXT = {'outside-pitch': 'REJECTED: OUTSIDE PITCH', 'audience': 'REJECTED: AUDIENCE',
                'implausible-size': 'REJECTED: SIZE', 'low-confidence': 'REJECTED: LOW PLAYER CONFIDENCE',
-               'unconfirmed-far': 'REJECTED: FAR DETECTION NOT CONFIRMED'}
+               'unconfirmed-far': 'REJECTED: FAR DETECTION NOT CONFIRMED', 'unconfirmed-crop': 'REJECTED: CROP DETECTION AWAY FROM THE PREDICTION'}
+FAR_CONTINUE = .05       # frame heights beyond an uncertain (not painted) far edge within which feet continuing a tracked person count as 'boundary'
 
 
 class SizeModel:
@@ -118,7 +119,15 @@ def assess(detections, pitch, config, size=None, user_polygon=None, live=(), hei
         if provisional and zone[0] == 'outside' and zone[1] <= PROVISIONAL_MARGIN:
             # The boundary itself is uncertain: feet just beyond it are not rejected, only held at the edge.
             zone = ('boundary', zone[1])
-        scored.append(dict(d, foot=foot_point(d['box']), zone=zone[0], outsideBy=zone[1], sizeRatio=1.0))
+        continued = None
+        if zone[0] == 'outside' and zone[1] <= FAR_CONTINUE and live and pitch.reliable:
+            # Feet a little beyond a far edge that is not a painted line (a predicted or grass edge), continuing a
+            # tracked person: the person, not the audience. A painted far touchline keeps its full meaning.
+            edge = nearest_boundary(pitch, foot_point(d['box']))
+            far_sources = pitch.sources() if hasattr(pitch, 'sources') else {}
+            if edge is not None and edge['side'] == 'far' and far_sources.get('far') != 'line' and any(iou(d['box'], b) > .3 for b in live):
+                zone, continued = ('boundary', zone[1]), 'far'
+        scored.append(dict(d, foot=foot_point(d['box']), zone=zone[0], outsideBy=zone[1], sizeRatio=1.0, **({'continued': continued} if continued else {})))
     filtering = config.enabled and (pitch.reliable or user_polygon is not None)
     model = size or SizeModel()
     if filtering:
