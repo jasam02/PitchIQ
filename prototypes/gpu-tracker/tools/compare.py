@@ -66,6 +66,41 @@ def metrics(result, name=''):
         d = (f.get('calibration') or {}).get('disagreement')
         if d is not None:
             disagreements.append(d)
+    # Tactical consistency: an identity drawn twice on a frame, jumps between consecutive timeline samples of one
+    # identity faster than 12 m/s (by kind transition), the share of frames with a camera footprint.
+    duplicates = 0
+    for f in frames:
+        seen = Counter(p['id'] for p in f['people'] if p.get('id') and _valid(p.get('pitch')))
+        duplicates += sum(1 for v in seen.values() if v > 1)
+    size = (result.get('tactical') or {}).get('pitchSize') or {}
+    length, width = float(size.get('length', 105.0)), float(size.get('width', 68.0))
+    block = result.get('timeline') or {}
+    # Jumps: at a change of kind (an estimate meeting an observation, or an observation turning into an estimate) the
+    # speed between the two consecutive samples; within a run of observations the speed over one second (consecutive
+    # observations jitter by their own noise, which says nothing about consistency).
+    jumps = Counter()
+    if block.get('ids') and block.get('frameTimes'):
+        times = block['frameTimes']
+        for pid, cols in block['ids'].items():
+            run_start = None   # index where the current run of one kind began
+            for i in range(1, len(times)):
+                k0, k1 = cols['kind'][i-1], cols['kind'][i]
+                if k1 != k0:
+                    run_start = i
+                if k1 == 'U' or k0 == 'U' or cols['x'][i] is None or cols['x'][i-1] is None:
+                    continue
+                if k1 != k0:
+                    dt = times[i]-times[i-1]
+                    if dt > 0 and math.hypot((cols['x'][i]-cols['x'][i-1])*length, (cols['y'][i]-cols['y'][i-1])*width)/dt > 12.0:
+                        jumps[f'{k0}->{k1}'] += 1
+                elif k1 == 'O':
+                    j = i-1
+                    while j > (run_start or 0) and times[i]-times[j] < 1.0:
+                        j -= 1
+                    if times[i]-times[j] >= 1.0 and cols['x'][j] is not None:
+                        if math.hypot((cols['x'][i]-cols['x'][j])*length, (cols['y'][i]-cols['y'][j])*width)/(times[i]-times[j]) > 12.0:
+                            jumps['O->O (1 s)'] += 1
+    footprint = sum(1 for f in frames if f.get('view'))
     s = result.get('summary', {})
     ident = s.get('identity') or {}
     reg = (s.get('pitch') or {}).get('registration') or {}
@@ -76,8 +111,8 @@ def metrics(result, name=''):
                         'anonymousWithPosition': round(anonymous/n, 2), 'trackedUndrawn': round(undrawn/n, 2)},
            'identifiedShare': s.get('identifiedShare'),
            'identifiedByHeight': {f'{lo}-{hi if hi < 10000 else ""}px': (round(v[1]/v[0], 3) if v[0] else None) for (lo, hi), v in by_height.items()},
-           'identity': {k: ident.get(k) for k in ('idSwitches', 'globalIdFragmentation', 'newPlayerIdentities', 'teamsOverCap', 'trackletsConnected',
-                                                  'localTracks', 'fragments', 'closeEncounters', 'playersLostAfterEncounter')},
+           'identity': {k: ident.get(k) for k in ('idSwitches', 'trackSwitchesFoundOnline', 'globalIdFragmentation', 'newPlayerIdentities', 'teamsOverCap',
+                                                  'trackletsConnected', 'localTracks', 'fragments', 'closeEncounters', 'playersLostAfterEncounter')},
            'deferredDecisions': s.get('deferredDecisions'), 'globalIdentities': s.get('globalIdentities'),
            'pitch': {'meanConfidence': (s.get('pitch') or {}).get('meanConfidence'), 'levels': (s.get('pitch') or {}).get('levels'),
                      'calibratedShare': reg.get('calibratedShare'), 'confidentShare': reg.get('confidentShare'),
@@ -88,6 +123,11 @@ def metrics(result, name=''):
                      'disagreementP90Metres': round(sorted(disagreements)[int(.9*len(disagreements))-1], 2) if len(disagreements) >= 10 else None,
                      'lensCurvature': reg.get('lensCurvature'), 'cameraCuts': s.get('cameraCuts')},
            'ball': {k: (s.get('ball') or {}).get(k) for k in ('trackedShare', 'missingShare', 'unknownShare', 'meanConfidence')},
+           'roster': {k: (s.get('roster') or {}).get(k) for k in ('counts', 'overCap', 'statuses', 'anonymousFragments', 'anonymousFrames', 'mergeProposals')},
+           'assignment': ident.get('assignment'), 'assignedOffline': ident.get('assignedOffline'), 'framesAssignedOffline': ident.get('framesAssignedOffline'),
+           'visibility': (s.get('visibility') or {}).get('shares'), 'timelineKinds': (s.get('timeline') or {}).get('kinds'),
+           'detection': s.get('detection'),
+           'tactical': {'duplicates': duplicates, 'jumpsOver12mps': dict(jumps), 'footprintShare': round(footprint/n, 3)},
            'timing': {'elapsedSeconds': s.get('elapsedSeconds'), 'processingFPS': s.get('processingFPS'), 'peakGPUMemoryGB': s.get('peakGPUMemoryGB'),
                       **{k: v for k, v in (s.get('timing') or {}).items() if k != 'elapsedSeconds'}}}
     return out
@@ -146,10 +186,17 @@ def agreement(a, b, iou_min=.5):
     exact = sum(c for (ida, idb), c in pairs.items() if ida == idb)
     mapped = sum(c for (ida, idb), c in pairs.items() if (ida is None and idb is None) or (ida is not None and mapping.get(ida) == idb))
     labelled = sum(c for (ida, idb), c in pairs.items() if ida is not None or idb is not None)
+    # Among the people labelled in both runs: the same (mapped) id or not; labels only one run has are
+    # counted apart, since a label added offline is not a disagreement about who someone is.
+    both = sum(c for (ida, idb), c in pairs.items() if ida is not None and idb is not None)
+    both_same = sum(c for (ida, idb), c in pairs.items() if ida is not None and idb is not None and mapping.get(ida) == idb)
+    labels_only_a = sum(c for (ida, idb), c in pairs.items() if ida is not None and idb is None)
+    labels_only_b = sum(c for (ida, idb), c in pairs.items() if ida is None and idb is not None)
     return {'sharedFrames': shared, 'matchedPeople': matched, 'onlyInA': only_a, 'onlyInB': only_b,
             'boxAgreement': round(2*matched/max(1, 2*matched+only_a+only_b), 4),
             'labelAgreementExact': round(exact/max(1, matched), 4), 'labelAgreementMapped': round(mapped/max(1, matched), 4),
-            'labelledPairs': labelled, 'idMappingSize': len(mapping),
+            'labelledPairs': labelled, 'labelledInBoth': both, 'labelAgreementBothLabelled': round(both_same/max(1, both), 4),
+            'labelsOnlyInA': labels_only_a, 'labelsOnlyInB': labels_only_b, 'idMappingSize': len(mapping),
             'positionBothShare': round(both_pos/max(1, matched), 4),
             'positionMeanMetres': round(statistics.mean(distances), 2) if distances else None,
             'positionP90Metres': round(sorted(distances)[int(.9*len(distances))-1], 2) if len(distances) >= 10 else None}

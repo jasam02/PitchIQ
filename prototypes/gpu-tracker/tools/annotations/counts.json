@@ -1,0 +1,9 @@
+{
+  "_note": "People on the playing field (players of both teams, goalkeepers in view, the referee), counted by inspection of the frame at the given video time on 2026-10-12. Spectators, bench staff, assistant referees on the touchline and the other pitch are not counted. 'uncertainty' is the counter's own margin (small far-away people). Not verified by a second annotator.",
+  "2bac432528d0e568": {"15": {"count": 21, "uncertainty": 1}, "40": {"count": 22, "uncertainty": 1}, "70": {"count": 22, "uncertainty": 1},
+                       "100": {"count": 22, "uncertainty": 1}, "130": {"count": 22, "uncertainty": 1}, "160": {"count": 22, "uncertainty": 1}},
+  "f597d73d53f7b1fd": {"3": {"count": 16, "uncertainty": 2}, "8": {"count": 16, "uncertainty": 2}, "13": {"count": 14, "uncertainty": 2},
+                       "18": {"count": 16, "uncertainty": 2}, "23": {"count": 15, "uncertainty": 2}, "28": {"count": 13, "uncertainty": 2}},
+  "6dfdc88ec6f2d100": {"5": {"count": 19, "uncertainty": 1}, "20": {"count": 20, "uncertainty": 1}, "35": {"count": 18, "uncertainty": 1},
+                       "50": {"count": 17, "uncertainty": 2}, "165": {"count": 12, "uncertainty": 3}, "190": {"count": 17, "uncertainty": 2}}
+}

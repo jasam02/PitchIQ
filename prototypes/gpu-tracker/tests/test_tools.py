@@ -91,6 +91,8 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(agree['boxAgreement'], 1.0)
         self.assertEqual(agree['labelAgreementExact'], 1.0)
         self.assertEqual(agree['labelAgreementMapped'], 1.0)
+        self.assertEqual(agree['labelAgreementBothLabelled'], 1.0)
+        self.assertEqual((agree['labelsOnlyInA'], agree['labelsOnlyInB']), (0, 0))
         self.assertEqual(agree['positionMeanMetres'], 0.0)
         self.assertIn('| perFrame.tracked | 2 |', compare.table([m]))
 

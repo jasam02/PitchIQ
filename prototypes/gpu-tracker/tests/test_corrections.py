@@ -225,5 +225,35 @@ class CorrectionTests(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
 
+class LeftTheMatchTests(unittest.TestCase):
+    """Phase 2: a player marked as substituted or sent off closes the roster slot from that time; the
+    observations before it are kept, and the roster and visibility are re-derived with the correction."""
+
+    def test_left_closes_the_slot_and_is_remembered_as_substituted(self):
+        result, _ = build()
+        result['video'] = {'width': 1280, 'height': 720}
+        result['tactical'] = {'pitchSize': {'length': 105, 'width': 68}}
+        snapshot = {'registry': {'version': 1, 'identities': [{'id': 'A-01', 'role': 'player', 'team': 'A', 'status': 'missing', 'gallery': ['x']}], 'counters': {}}, 'teams': None}
+        c = C.make(result, snapshot, {'target': {'id': 'A-01', 'time': 10.8}, 'role': 'left', 'team': None}, [], 'run-1')
+        self.assertEqual(c['after'], {'role': 'left', 'team': 'A', 'id': 'A-01', 'into': False})
+        self.assertIsNone(c['identity'])
+        C.apply_result(result, [c])
+        entry = C.find_entry(result['match'], 'A-01')
+        self.assertEqual(entry[0], 'players')
+        self.assertEqual(entry[1]['status'], 'LEFT')
+        self.assertEqual(entry[1]['left']['time'], 10.8)
+        self.assertTrue(all(p['id'] == 'A-01' for p in people_of(result, 'A-01')))        # observations untouched
+        self.assertEqual(result['roster']['statuses'].get('LEFT'), 1)
+        self.assertIn('visibility', result['summary'])
+        self.assertTrue(any(e['kind'] == 'manual' and 'left the match' in e['message'] for e in result['events']))
+        with self.assertRaises(ValueError):
+            C.make(result, snapshot, {'target': {'id': 'A-01', 'time': 11.0}, 'role': 'left', 'team': None}, [c], 'run-1')
+        with self.assertRaises(ValueError):                                                 # only an identified player can leave
+            C.make(result, snapshot, {'target': {'track': 12, 'time': 11.0}, 'role': 'left', 'team': None}, [c], 'run-1')
+        saved = C.apply_snapshot(snapshot, [c])
+        self.assertEqual(saved['registry']['identities'][0]['status'], 'substituted')
+        self.assertEqual(C.describe('left'), 'left the match (substituted or sent off)')
+
+
 if __name__ == '__main__':
     unittest.main()

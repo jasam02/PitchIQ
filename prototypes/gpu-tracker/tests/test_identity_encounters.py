@@ -430,5 +430,132 @@ class OfflineTrackletTests(unittest.TestCase):
         self.assertTrue([e for e in report['events'] if e['message'].startswith('TRACKLET SPLIT SKIPPED')])
 
 
+class AssignmentTests(unittest.TestCase):
+    """Phase 2: the global assignment of the fragments still anonymous after the refinement."""
+
+    def scene(self, gone=(13, 14)):
+        d = EncounterDriver()
+        team = team_scene()
+        out = d.run(4, team)
+        pids = {tid: out[tid]['id'] for tid in gone}
+        persons = {tid: team[tid][0] for tid in gone}
+        rest = {k: v for k, v in team.items() if k not in gone}
+        d.step(rest, ended=list(gone))
+        frames = [{'time': k*.2, 'people': list(frame)} for k, frame in enumerate(d.people)]
+        return d, team, pids, persons, frames
+
+    def fragment(self, d, frames, team, tid, track, person, x, y, n=8, t0=None):
+        t0 = frames[-1]['time']+.2 if t0 is None else t0
+        rows = []
+        for k in range(n):
+            t = round(t0+.2*k, 3)
+            p = {'time': t, 'track': track, 'box': [round(v, 5) for v in box_at(x+.001*k, y)], 'score': .9, 'cls': 'player', 'zone': 'inside',
+                 'evidence': 'observed', 'id': None, 'display': 'B-?', 'label': 'IDENTITY_UNCERTAIN', 'team': 'B', 'role': 'PLAYER', 'state': 'uncertain',
+                 'identityConfidence': 0.0, 'roleConfidence': .5}
+            while len(frames) and frames[-1]['time'] < t-1e-6 and t-frames[-1]['time'] > .2+1e-6:
+                frames.append({'time': round(frames[-1]['time']+.2, 3), 'people': []})
+            holder = next((f for f in frames if abs(f['time']-t) < 1e-6), None)
+            if holder is None:
+                holder = {'time': t, 'people': []}
+                frames.append(holder)
+            holder['people'].append(p)
+            rows.append(p)
+        tr = TrackState(track, t0, 0, Stab(x, y, .12), None, 'inside', '', box_at(x, y), Stab(x, y, .12), 0)
+        for k in range(4):
+            tr.descs.append((person.descriptor(), t0+.2*k, False))
+        d.ids.ended[track] = tr
+        return rows
+
+    def test_two_teammates_returning_together_take_two_identities_never_the_same_one(self):
+        d, team, pids, persons, frames = self.scene()
+        a = self.fragment(d, frames, team, 13, 60, persons[13], team[13][1]+.004, team[13][2])
+        b = self.fragment(d, frames, team, 14, 61, persons[14], team[14][1]+.004, team[14][2], t0=frames[-1]['time']-7*.2)
+        frames.sort(key=lambda f: f['time'])
+        motions = [(np.eye(3), True, False)]*len(frames)
+        tracklets.refine(d.ids, frames, motions, 1280, 720)
+        report = tracklets.assign_fragments(d.ids, frames, motions, 1280, 720)
+        ids = {p['id'] for p in a}, {p['id'] for p in b}
+        taken = [next(iter(s)) for s in ids if len(s) == 1 and None not in s]
+        self.assertEqual(len(taken), 2, (report, ids))
+        self.assertNotEqual(taken[0], taken[1])
+        self.assertEqual(set(taken), set(pids.values()))
+        self.assertTrue(all(p['evidence'] in ('assigned offline', 'connected offline') for p in a+b))
+
+    def test_identical_looking_teammates_stay_anonymous(self):
+        d, team, pids, persons, frames = self.scene()
+        twin = persons[13]
+        a = self.fragment(d, frames, team, 13, 60, twin, team[13][1]+.004, team[13][2])
+        b = self.fragment(d, frames, team, 14, 61, twin, team[13][1]+.03, team[13][2], t0=frames[-1]['time']-7*.2)
+        frames.sort(key=lambda f: f['time'])
+        motions = [(np.eye(3), True, False)]*len(frames)
+        tracklets.refine(d.ids, frames, motions, 1280, 720)
+        report = tracklets.assign_fragments(d.ids, frames, motions, 1280, 720)
+        both = [p['id'] for p in a+b]
+        self.assertFalse(any(both.count(pid) and both.count(pid) == len(both) for pid in pids.values()), 'one identity on both fragments')
+        self.assertTrue(all(p['id'] is None for p in a) or all(p['id'] is None for p in b), (report, {p['id'] for p in a}, {p['id'] for p in b}))
+
+    def test_a_fragment_overlapping_the_identity_is_never_assigned(self):
+        d, team, pids, persons, frames = self.scene(gone=(13,))
+        # The player is back on track 70 from the start of the fragment; the fragment on track 60 overlaps it in time.
+        back = self.fragment(d, frames, team, 13, 70, persons[13], team[13][1], team[13][2])
+        for p in back:
+            p.update(id=pids[13], display=pids[13], state='confirmed', label='PLAYER_TEAM_B', identityConfidence=.9)
+            d.ids.registry[pids[13]].emitted_all.append(p)
+        other = self.fragment(d, frames, team, 13, 60, persons[13], team[13][1]+.2, team[13][2], t0=back[0]['time'])
+        frames.sort(key=lambda f: f['time'])
+        motions = [(np.eye(3), True, False)]*len(frames)
+        report = tracklets.assign_fragments(d.ids, frames, motions, 1280, 720)
+        self.assertNotIn(pids[13], {p['id'] for p in other}, report)      # never the player who is visible elsewhere at the same time
+        self.assertTrue(all(a['to'] != pids[13] for a in report['assignments']))
+
+
 if __name__ == '__main__':
     unittest.main()
+
+
+class MergeProposalTests(unittest.TestCase):
+    """Phase 2: identities that may be one person are proposed for review, never merged."""
+
+    def duplicate(self, d, frames, team, persons, pids, person, t0=None, pid='B-90'):
+        from soccer.identity import GlobalPlayer
+        rows = AssignmentTests.fragment(self, d, frames, team, 13, 61, persons[13], team[13][1]+.004, team[13][2], t0=t0)
+        g = GlobalPlayer(pid, 'player', 'B', first_seen=rows[0]['time'], last_seen=rows[-1]['time'], last_box=list(rows[0]['box']), created_on=61)
+        for k in range(3):
+            g.gallery = add_to_gallery(g.gallery, person.descriptor(), rows[0]['time']+k, trusted=True)
+        for p in rows:
+            p.update(id=pid, display=pid, state='confirmed', label='PLAYER_TEAM_B', identityConfidence=.8)
+            g.emitted_all.append(p)
+        g.observations = len(rows)
+        d.ids.registry[pid] = g
+        frames.sort(key=lambda f: f['time'])
+        return g, rows
+
+    def test_same_looking_identity_after_the_first_is_proposed_not_merged(self):
+        d, team, pids, persons, frames = AssignmentTests.scene(self, gone=(13,))
+        g, rows = self.duplicate(d, frames, team, persons, pids, persons[13])
+        motions = [(np.eye(3), True, False)]*len(frames)
+        report = tracklets.merge_proposals(d.ids, frames, motions, 1280, 720)
+        self.assertEqual([(p['earlier'], p['later']) for p in report['proposals']], [(pids[13], 'B-90')], report)
+        proposal = report['proposals'][0]
+        self.assertGreaterEqual(proposal['appearance'], tracklets.MERGE_APPEARANCE)
+        self.assertTrue(proposal['plausible'])
+        self.assertEqual(proposal['continuity'], 'image')
+        self.assertEqual(report['events'][0]['kind'], 'merge-proposal')
+        self.assertTrue(all(p['id'] == 'B-90' for p in rows), 'a proposal never relabels anything')
+        self.assertIn(pids[13], d.ids.registry)
+
+    def test_a_different_looking_identity_is_not_proposed(self):
+        d, team, pids, persons, frames = AssignmentTests.scene(self, gone=(13,))
+        self.duplicate(d, frames, team, persons, pids, Person('B', look='A'))   # the same kit, a look nobody on the team has
+        motions = [(np.eye(3), True, False)]*len(frames)
+        report = tracklets.merge_proposals(d.ids, frames, motions, 1280, 720)
+        self.assertEqual(report['proposals'], [], report)
+        self.assertGreater(report['pairsCompared'], 0)
+
+    def test_interleaved_identities_are_never_proposed(self):
+        d, team, pids, persons, frames = AssignmentTests.scene(self, gone=(13,))
+        self.duplicate(d, frames, team, persons, pids, persons[13], t0=frames[1]['time'])
+        motions = [(np.eye(3), True, False)]*len(frames)
+        report = tracklets.merge_proposals(d.ids, frames, motions, 1280, 720)
+        self.assertEqual(report['proposals'], [], report)
+        self.assertGreaterEqual(report['interleaved'], 1)

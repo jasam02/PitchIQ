@@ -28,7 +28,9 @@ import time
 import uuid
 from pathlib import Path
 
-ROLES = ('player', 'goalkeeper', 'referee', 'excluded')   # 'referee' (older pages) means not a player: 'excluded'
+from soccer import imputation, roster, visibility
+
+ROLES = ('player', 'goalkeeper', 'referee', 'excluded', 'left')   # 'referee' (older pages) means not a player: 'excluded'; 'left': substituted or sent off
 GROUPS = ('players', 'goalkeepers', 'referees')         # 'referees' only in results of earlier versions
 ALL_GROUPS = GROUPS+('retired', 'excluded', 'withdrawn')
 ROLE_OUT = {'player': 'PLAYER', 'goalkeeper': 'GOALKEEPER', 'referee': 'REFEREE'}
@@ -60,6 +62,8 @@ def describe(role, team=None):
         return 'not part of the match'
     if role == 'nontarget':
         return 'ignored (not a player)'
+    if role == 'left':
+        return 'left the match (substituted or sent off)'
     return 'unknown'
 
 
@@ -185,12 +189,44 @@ def apply_result(result, corrections):
         match[key].sort(key=lambda e: (e.get('id') or '', e.get('track') or 0))
     _recount(result, sum(1 for a in applied if a['applied']))
     result['corrections'] = applied
+    # The roster and the per-frame visibility follow from the corrected result.
+    if result.get('frames') and result.get('video'):
+        result['roster'] = roster.build(result)
+        result.setdefault('summary', {})['roster'] = roster.summary(result['roster'])
+        size = (result.get('tactical') or {}).get('pitchSize') or {}
+        result['timeline'] = imputation.estimate(result, float(size.get('length', 105.0)), float(size.get('width', 68.0)))
+        result['summary']['timeline'] = {'method': result['timeline']['method'], 'kinds': result['timeline']['kinds'], 'slots': len(result['timeline']['ids'])}
+        result['summary']['visibility'] = visibility.annotate(result)
     return result
+
+
+def _apply_left(result, c):
+    """The player left the match at the correction's time (substituted or sent off): the roster slot is closed
+    from then on; the observations are untouched (an identity continued on someone else is corrected separately)."""
+    pid = c['target'].get('id')
+    entry = find_entry(result['match'], pid) if pid else None
+    if entry is None or entry[0] not in ('players', 'goalkeepers'):
+        return False
+    e = entry[1]
+    when = float(c.get('time') or e.get('lastSeen') or 0.0)
+    e['left'] = {'time': round(when, 3), 'reason': 'substituted or sent off (marked by you)', 'correction': c['id']}
+    e.update(status='LEFT', manual=True, correction=c['id'])
+    lines = ['CORRECTED BY YOU', f'Global ID: {pid} left the match at {timestamp(when)}', f"Was: {describe(c['before'].get('role'), c['before'].get('team'))}",
+             'Now: left the match (substituted or sent off); the roster slot is closed from then on, the observations before it are kept']
+    event = {'time': round(when, 6), 'kind': 'manual', 'track': c['target'].get('trackAt'), 'playerId': pid, 'message': '\n'.join(lines), 'accepted': True}
+    events = result.setdefault('events', [])
+    at = len(events)
+    while at > 0 and events[at-1].get('time', 0) > event['time']:
+        at -= 1
+    events.insert(at, event)
+    return True
 
 
 def _apply_one(result, c):
     pid, track = c['target'].get('id'), c['target'].get('track')
     role, team, new, into = c['after']['role'], c['after'].get('team'), c['after'].get('id'), c['after'].get('into')
+    if role == 'left':
+        return _apply_left(result, c)
     match = result['match']
     fields = None if role == 'excluded' else _person_fields(role, team, new)
     hit, first, last, last_box = 0, None, None, None
@@ -343,6 +379,9 @@ def apply_snapshot(snapshot, corrections):
         if role == 'excluded':
             source.update(manual=True, excluded=True, status='unknown', roleLocked=False)
             continue
+        if role == 'left':
+            source.update(manual=True, status='substituted')   # a later run never continues a player who left
+            continue
         target = by_id.get(new) if into else None
         if target is not None:
             merged = _as_manual(target, role, team, new)
@@ -397,6 +436,10 @@ def make(result, snapshot, request, items, run, now=None):
         raise ValueError('Choose team A or B player, goalkeeper, or not a player.')
     if role == 'referee':
         role = 'excluded'   # referees are not tracked: "a referee" is "not a player", recognised and left out
+    if role == 'left':
+        if not pid:
+            raise ValueError('Only an identified player can leave the match; identify the person first.')
+        into = None
     if role in ('player', 'goalkeeper'):
         if team not in ('A', 'B'):
             raise ValueError('Choose team A or team B.')
@@ -441,12 +484,17 @@ def make(result, snapshot, request, items, run, now=None):
         both = sorted(theirs.intersection(mine))
         if both:
             raise ValueError(f'{name} and {into} are both on the video at {timestamp(frames[both[0]]["time"])}: they are two different people.')
+    elif role == 'left':
+        if entry[1].get('left'):
+            raise ValueError(f'{pid} already left the match at {timestamp(entry[1]["left"]["time"])}.')
     elif pid and before['role'] == role and (before['team'] == team or role == 'referee'):
         raise ValueError(f'{pid} already is a {describe(role, team)}. To say they are someone else, choose "same person as".')
     taken = _taken_ids(result, snapshot, items)
-    new = into if into else None if role == 'excluded' else next_id(role, team, taken)
+    new = into if into else None if role in ('excluded', 'left') else next_id(role, team, taken)
+    if role == 'left':
+        new, team = pid, before.get('team')
     identity, teams = None, None
-    if pid and snapshot:
+    if pid and snapshot and role != 'left':
         saved = {e['id']: e for e in snapshot.get('registry', {}).get('identities', [])}
         source = saved.get(pid)
         if source is not None and source.get('gallery'):

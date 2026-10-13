@@ -22,6 +22,7 @@ import math
 from collections import Counter, defaultdict
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from .appearance import compare, embedding_cosine
 from .geometry import clamp
@@ -39,6 +40,105 @@ SPLIT_SIDE = 3        # another kit .36-.5, the same person .75-.95) over up to 
 SPLIT_WITHIN = .6     # with itself (every pair inside a side at least this alike)
 SCENE_TRACKS = 4      # appearance cuts on this many tracks within SCENE_WINDOW are a scene change (zoom, lighting), not swaps
 SCENE_WINDOW = .75
+PITCH_MIN = .2        # registration confidence from which pitch positions (metres) replace camera-compensated image distances
+ASSIGN_ROUNDS = 5     # rounds of the global assignment of the remaining anonymous fragments
+
+
+class _Scorer:
+    """What the refinement and the global assignment share: when each identity was observed (its own
+    observations), the camera-motion chain, a fragment's own clean crops, and the scoring of an identity for
+    a fragment: appearance (crops against the gallery), spatial (the identity's nearest sighting before and
+    after the fragment: in metres on the pitch when both carry a registered position, else the
+    camera-compensated image distance in body heights), the time gap."""
+
+    def __init__(self, manager, frames, motions, width, height, size=None):
+        self.manager, self.frames, self.width, self.height, self.size = manager, frames, width, height, size
+        self.frame_times = [f['time'] for f in frames]
+        self.times = {pid: sorted(person['time'] for person in g.emitted_all if person.get('id') == pid) for pid, g in manager.registry.items()}
+        self.T, self.breaks = _chain(motions)
+
+    def track_state(self, tid):
+        return self.manager.ended.get(tid) or self.manager.tracks.get(tid)
+
+    def observed_between(self, pid, t0, t1):
+        ts = self.times.get(pid, [])
+        k = bisect.bisect_left(ts, t0)
+        return k < len(ts) and ts[k] <= t1
+
+    def sighting(self, g, before, t):
+        """The identity's own observation nearest to t on the given side: (time, frame index, box, pitch,
+        pitch confidence) or None."""
+        candidates = [person for person in g.emitted_all if person.get('id') == g.pid and (person['time'] < t if before else person['time'] > t)]
+        if not candidates:
+            return None
+        person = max(candidates, key=lambda q: q['time']) if before else min(candidates, key=lambda q: q['time'])
+        i = bisect.bisect_left(self.frame_times, person['time'])
+        if i >= len(self.frames) or abs(self.frame_times[i]-person['time']) > 1e-3:
+            i = min(range(len(self.frames)), key=lambda k: abs(self.frame_times[k]-person['time']))
+        return person['time'], i, person['box'], person.get('pitch'), person.get('pitchConfidence') or 0.0
+
+    def spatial(self, g, i_frag, box_frag, before, pitch_frag=None, conf_frag=0.0):
+        s = self.sighting(g, before, self.frame_times[i_frag])
+        if s is None:
+            return None, None
+        t_s, i_s, box_s, pitch_s, conf_s = s
+        gap = abs(self.frame_times[i_frag]-t_s)
+        if gap > MAX_GAP or any(self.breaks[min(i_s, i_frag)+1:max(i_s, i_frag)+1]):
+            return None, gap
+        sigma = 3+7*min(gap, 2.0)
+        if self.size is not None and pitch_frag is not None and pitch_s is not None and conf_frag >= PITCH_MIN and conf_s >= PITCH_MIN:
+            metres = math.hypot((pitch_frag[0]-pitch_s[0])*self.size.length, (pitch_frag[1]-pitch_s[1])*self.size.width)
+        else:
+            x, y, h = _centre(box_s, self.width, self.height)
+            A = self.T[i_frag] @ np.linalg.inv(self.T[i_s])
+            p = A @ np.array([x, y, 1.0])
+            px, py = p[0]/p[2], p[1]/p[2]
+            fx, fy, fh = _centre(box_frag, self.width, self.height)
+            metres = math.hypot(px-fx, py-fy)/max((h+fh)/2, 1.0)*PLAYER_HEIGHT
+        return math.exp(-.5*(metres/sigma)**2), gap
+
+    def descs_of(self, tid, t0, t1):
+        """A fragment's own clean crops: those of its time span from the track's thinned history, else the track's
+        last clean crops (a mixed track's end may show another person; the history keeps it apart)."""
+        tr = self.track_state(tid)
+        history = [d for when, d in getattr(tr, 'clean_history', []) if t0-.1 <= when <= t1+.1] if tr is not None else []
+        return history or [d for d, _, occluded in (tr.descs if tr is not None else []) if not occluded] or [d for d, _, _ in (tr.descs if tr is not None else [])]
+
+    def score(self, g, rows, descs, ignored=False):
+        """The identity's score for a fragment (rows of (frame index, person)), or None when nothing can be compared."""
+        c = compare(g.gallery, descs) if g.gallery and descs else None
+        appearance = None if c is None else (c['appearance'] if c['appearance'] is not None else clamp(1-c['total']/.6))
+        first, last = rows[0], rows[-1]
+        fwd, gap_f = self.spatial(g, first[0], first[1]['box'], True, first[1].get('pitch'), first[1].get('pitchConfidence') or 0.0)
+        bwd, gap_b = self.spatial(g, last[0], last[1]['box'], False, last[1].get('pitch'), last[1].get('pitchConfidence') or 0.0)
+        if fwd is None and bwd is None:
+            return None
+        gap = min(x for x in (gap_f, gap_b) if x is not None)
+        sp = max(x for x in (fwd, bwd) if x is not None)
+        if appearance is None and (gap > MOTION_ONLY_GAP or ignored):
+            return None   # position alone says little after a few seconds, and never revives an ignored person
+        temporal = clamp(math.exp(-gap/30), .2, 1)
+        final = combine({'appearance': appearance, 'uniform': None, 'spatial': sp, 'movement': None, 'temporal': temporal, 'team': True})
+        return {'g': g, 'final': final, 'appearance': appearance, 'spatial': sp, 'forward': fwd, 'backward': bwd, 'gap': gap,
+                'cosine': c.get('cosine') if c else None}
+
+    def adopt(self, g, rows, old, conf, evidence, track):
+        """Relabel a fragment's observations as identity g."""
+        for _, person in rows:
+            person['firstPassLabel'] = person.get('display')
+            if old is not None and person in old.emitted_all:
+                old.emitted_all.remove(person)
+                old.observations -= 1
+            self.manager._style(person, g, conf)
+            person['evidence'] = evidence
+            g.emitted_all.append(person)
+            g.observations += 1
+        if track not in g.tracks:
+            g.tracks.append(track)
+        t0, t1 = self.frames[rows[0][0]]['time'], self.frames[rows[-1][0]]['time']
+        self.times[g.pid] = sorted(self.times.get(g.pid, [])+[self.frames[i]['time'] for i, _ in rows])
+        if old is not None:
+            self.times[old.pid] = [x for x in self.times.get(old.pid, []) if not (t0-1e-6 <= x <= t1+1e-6)]
 
 
 def _chain(motions):
@@ -75,10 +175,11 @@ def appearance_cuts(history):
     return cuts
 
 
-def refine(manager, frames, motions, width, height):
+def refine(manager, frames, motions, width, height, size=None):
     """Split and connect. manager: the IdentityManager after the causal pass (its registry, galleries and
     ended tracks); frames: the per-frame observations (people dicts are relabelled in place); motions: per
-    frame (M pixels previous->this or None, reliable, cut). Returns a report with the counts and events."""
+    frame (M pixels previous->this or None, reliable, cut); size: the pitch size, when the frames carry
+    registered pitch positions (spatial evidence in metres). Returns a report with the counts and events."""
     report = {'tracks': 0, 'fragments': 0, 'mixed': 0, 'splits': 0, 'connected': 0, 'ignoredRestored': 0,
               'stripped': 0, 'framesRestored': 0, 'events': [], 'connections': []}
     if not frames or len(motions) != len(frames):
@@ -90,10 +191,8 @@ def refine(manager, frames, motions, width, height):
                 continue
             by_track[p['track']].append((i, p))
     report['tracks'] = len(by_track)
-    frame_times = [f['time'] for f in frames]
-
-    def track_state(tid):
-        return manager.ended.get(tid) or manager.tracks.get(tid)
+    sc = _Scorer(manager, frames, motions, width, height, size)
+    track_state, times, observed_between = sc.track_state, sc.times, sc.observed_between
 
     # ---- cuts: identity changes, TRACK SWITCH times from the causal pass, appearance changes in the clean crops
     fragments, splits = [], []
@@ -142,44 +241,6 @@ def refine(manager, frames, motions, width, height):
             if before and after:
                 splits.append({'track': tid, 'time': c, 'cosine': cos, 'how': how, 'before': before, 'after': after, 'outcome': []})
     report['fragments'], report['splits'] = len(fragments), len(splits)
-    # When each identity was observed (its own observations only), for the time-overlap test.
-    times = {}
-    for pid, g in manager.registry.items():
-        times[pid] = sorted(person['time'] for person in g.emitted_all if person.get('id') == pid)
-    T, breaks = _chain(motions)
-
-    def observed_between(pid, t0, t1):
-        ts = times.get(pid, [])
-        k = bisect.bisect_left(ts, t0)
-        return k < len(ts) and ts[k] <= t1
-
-    def sighting(g, before, t):
-        """The identity's own observation nearest to t on the given side: (time, frame index, box) or None."""
-        candidates = [person for person in g.emitted_all if person.get('id') == g.pid and (person['time'] < t if before else person['time'] > t)]
-        if not candidates:
-            return None
-        person = max(candidates, key=lambda q: q['time']) if before else min(candidates, key=lambda q: q['time'])
-        i = bisect.bisect_left(frame_times, person['time'])
-        if i >= len(frames) or abs(frame_times[i]-person['time']) > 1e-3:
-            i = min(range(len(frames)), key=lambda k: abs(frame_times[k]-person['time']))
-        return person['time'], i, person['box']
-
-    def spatial(g, i_frag, box_frag, before):
-        s = sighting(g, before, frame_times[i_frag])
-        if s is None:
-            return None, None
-        t_s, i_s, box_s = s
-        gap = abs(frame_times[i_frag]-t_s)
-        if gap > MAX_GAP or any(breaks[min(i_s, i_frag)+1:max(i_s, i_frag)+1]):
-            return None, gap
-        x, y, h = _centre(box_s, width, height)
-        A = T[i_frag] @ np.linalg.inv(T[i_s])
-        p = A @ np.array([x, y, 1.0])
-        px, py = p[0]/p[2], p[1]/p[2]
-        fx, fy, fh = _centre(box_frag, width, height)
-        metres = math.hypot(px-fx, py-fy)/max((h+fh)/2, 1.0)*PLAYER_HEIGHT
-        sigma = 3+7*min(gap, 2.0)
-        return math.exp(-.5*(metres/sigma)**2), gap
 
     def unknown(person, why):
         person['firstPassLabel'] = person.get('display')
@@ -205,11 +266,7 @@ def refine(manager, frames, motions, width, height):
             if frag['cut'] is not None:
                 note(frag, f'{t0:.2f}-{t1:.2f} s: {pid}, identified during the run after the cut; kept')
             continue
-        tr = track_state(frag['track'])
-        # The fragment's own clean crops: those of its time span from the track's thinned history, else the
-        # track's last clean crops (a mixed track's end may show another person; the history keeps it apart).
-        history = [d for when, d in getattr(tr, 'clean_history', []) if t0-.1 <= when <= t1+.1] if tr is not None else []
-        descs = history or [d for d, _, occluded in (tr.descs if tr is not None else []) if not occluded] or [d for d, _, _ in (tr.descs if tr is not None else [])]
+        descs = sc.descs_of(frag['track'], t0, t1)
         # Labels earned before a cut say nothing about the person after it: no team vote then. (After a
         # TRACK SWITCH the causal pass restarted its evidence: those labels are fresh.)
         after_cut = frag['segment'] > 0 and not (frag['cut'] is not None and frag['cut'][2] == 'online' and not frag['stale'])
@@ -226,19 +283,9 @@ def refine(manager, frames, motions, width, height):
                 continue
             if observed_between(g.pid, t0-.05, t1+.05):
                 continue
-            c = compare(g.gallery, descs) if g.gallery and descs else None
-            appearance = None if c is None else (c['appearance'] if c['appearance'] is not None else clamp(1-c['total']/.6))
-            fwd, gap_f = spatial(g, rows[0][0], rows[0][1]['box'], True)
-            bwd, gap_b = spatial(g, rows[-1][0], rows[-1][1]['box'], False)
-            if fwd is None and bwd is None:
-                continue
-            gap = min(x for x in (gap_f, gap_b) if x is not None)
-            sp = max(x for x in (fwd, bwd) if x is not None)
-            if appearance is None and (gap > MOTION_ONLY_GAP or ignored):
-                continue   # position alone says little after a few seconds, and never revives an ignored person
-            temporal = clamp(math.exp(-gap/30), .2, 1)
-            final = combine({'appearance': appearance, 'uniform': None, 'spatial': sp, 'movement': None, 'temporal': temporal, 'team': True})
-            scored.append({'g': g, 'final': final, 'appearance': appearance, 'spatial': sp, 'forward': fwd, 'backward': bwd, 'gap': gap, 'cosine': c.get('cosine') if c else None})
+            s = sc.score(g, rows, descs, ignored)
+            if s is not None:
+                scored.append(s)
         scored.sort(key=lambda s: -s['final'])
         best, second = (scored[0] if scored else None), (scored[1] if len(scored) > 1 else None)
         floor = MIN_APPEARANCE_IGNORED if ignored else MIN_APPEARANCE
@@ -269,20 +316,7 @@ def refine(manager, frames, motions, width, height):
             continue
         g = best['g']
         conf = r3(min(best['final'], g.identity_confidence or best['final']))
-        for _, person in rows:
-            person['firstPassLabel'] = person.get('display')
-            if old is not None and person in old.emitted_all:
-                old.emitted_all.remove(person)
-                old.observations -= 1
-            manager._style(person, g, conf)
-            person['evidence'] = 'connected offline'
-            g.emitted_all.append(person)
-            g.observations += 1
-        if frag['track'] not in g.tracks:
-            g.tracks.append(frag['track'])
-        times[g.pid] = sorted(times.get(g.pid, [])+[frames[i]['time'] for i, _ in rows])
-        if old is not None:
-            times[old.pid] = [x for x in times.get(old.pid, []) if not (t0-1e-6 <= x <= t1+1e-6)]
+        sc.adopt(g, rows, old, conf, 'connected offline', frag['track'])
         report['connected'] += 1
         report['framesRestored'] += len(rows)
         if ignored:
@@ -313,6 +347,181 @@ def refine(manager, frames, motions, width, height):
         lines += ['After the cut: '+x for x in sp['outcome']] or ['After the cut: nothing to compare']
         report['events'].append({'time': r3(sp['time']), 'kind': 'tracklet', 'track': sp['track'], 'playerId': None, 'message': '\n'.join(lines)})
     report['events'].sort(key=lambda e: e['time'])
+    return report
+
+
+def assign_fragments(manager, frames, motions, width, height, size=None):
+    """Global assignment of the fragments still without an identity after refine(): runs of a local track
+    in state 'uncertain' (no id) at least MIN_FRAGMENT long, against the team players not observed during
+    the fragment, scored like the refinement (appearance, spatial in metres where registered, time gap).
+    Fragments and identities are matched one-to-one per round (Hungarian), and a pair is accepted only at
+    ACCEPT with the appearance floor, with the usual motion-only limit, and with a lead of LEAD over the
+    fragment's next-best identity AND over the identity's next-best fragment: two teammates returning
+    together take two identities or none, never the same one twice. Never creates an identity. Returns the
+    report: counts, events, assignments."""
+    report = {'proposed': 0, 'accepted': 0, 'rejectedByLead': 0, 'rejectedByScore': 0, 'rounds': 0, 'framesAssigned': 0, 'events': [], 'assignments': []}
+    if not frames or len(motions) != len(frames):
+        return report
+    by_track = defaultdict(list)
+    for i, f in enumerate(frames):
+        for p in f.get('people', []):
+            if p.get('state') != 'rejected':
+                by_track[p['track']].append((i, p))
+    fragments = []
+    for tid, rows in by_track.items():
+        start = None
+        for k in range(len(rows)+1):
+            p = rows[k][1] if k < len(rows) else None
+            anonymous = p is not None and p.get('id') is None and p.get('state') == 'uncertain'
+            if anonymous and start is None:
+                start = k
+            if not anonymous and start is not None:
+                seg = rows[start:k]
+                t0, t1 = frames[seg[0][0]]['time'], frames[seg[-1][0]]['time']
+                if t1-t0 >= MIN_FRAGMENT:
+                    teams = Counter(q.get('team') for _, q in seg if q.get('team') in ('A', 'B'))
+                    fragments.append({'track': tid, 'rows': seg, 't0': t0, 't1': t1, 'team': teams.most_common(1)[0][0] if teams else None, 'done': False})
+                start = None
+    if not fragments:
+        return report
+    sc = _Scorer(manager, frames, motions, width, height, size)
+    candidates = [g for g in manager.registry.values() if g.role == 'player' and g.team in ('A', 'B') and g.gallery
+                  and g.status not in ('retired', 'substituted', 'unknown') and not g.excluded and not g.withdrawn]
+    if not candidates:
+        return report
+    for _ in range(ASSIGN_ROUNDS):
+        open_frags = [fr for fr in fragments if not fr['done']]
+        if not open_frags:
+            break
+        report['rounds'] += 1
+        S = np.zeros((len(open_frags), len(candidates)))
+        info = {}
+        for fi, frag in enumerate(open_frags):
+            descs = sc.descs_of(frag['track'], frag['t0'], frag['t1'])
+            for gi, g in enumerate(candidates):
+                if frag['team'] is not None and g.team != frag['team']:
+                    continue
+                if sc.observed_between(g.pid, frag['t0']-.05, frag['t1']+.05):
+                    continue
+                s = sc.score(g, frag['rows'], descs)
+                if s is None:
+                    continue
+                if s['appearance'] is not None and s['appearance'] < MIN_APPEARANCE:
+                    continue
+                S[fi, gi] = s['final']
+                info[(fi, gi)] = s
+        if not S.any():
+            break
+        rows_i, cols_i = linear_sum_assignment(-S)
+        progress = False
+        for fi, gi in zip(rows_i, cols_i):
+            value = S[fi, gi]
+            if value <= 0:
+                continue
+            report['proposed'] += 1
+            if value < ACCEPT:
+                report['rejectedByScore'] += 1
+                continue
+            row_second = max((S[fi, j] for j in range(S.shape[1]) if j != gi), default=0.0)
+            col_second = max((S[i, gi] for i in range(S.shape[0]) if i != fi), default=0.0)
+            if value-max(row_second, col_second) < LEAD:
+                report['rejectedByLead'] += 1
+                continue
+            frag, s, g = open_frags[fi], info[(fi, gi)], candidates[gi]
+            conf = r3(min(value, g.identity_confidence or value))
+            was = frag['rows'][0][1].get('display')
+            sc.adopt(g, frag['rows'], None, conf, 'assigned offline', frag['track'])
+            frag['done'] = True
+            progress = True
+            report['accepted'] += 1
+            report['framesAssigned'] += len(frag['rows'])
+            rival = f" (next {candidates[int(np.argsort(-S[fi])[1])].pid} {row_second:.2f})" if row_second > 0 else ''
+            lines = ['TRACKLET ASSIGNED', f"Tracklet {frag['track']} ({frag['t0']:.2f}-{frag['t1']:.2f} s, {len(frag['rows'])} frames, first pass: {was}) -> {long_id(g.pid)}",
+                     f'Global Identity: {g.pid} ({ROLE_OUT[g.role]}, team {g.team})',
+                     'Appearance similarity: ' + ('n/a' if s['appearance'] is None else f"{s['appearance']:.2f}" + (f" (OSNet cosine {s['cosine']:.2f})" if s['cosine'] is not None else '')),
+                     'Motion consistency: ' + ', '.join(x for x in (f"before {s['forward']:.2f}" if s['forward'] is not None else '', f"after {s['backward']:.2f}" if s['backward'] is not None else '') if x),
+                     f"Time gap: {s['gap']:.2f} s", f"Final: {value:.2f}{rival}; no other fragment fits {g.pid} within {LEAD:.2f} (best other {col_second:.2f})",
+                     'Assigned jointly with the other fragments of the segment (one identity per fragment, one fragment per identity at a time)']
+            report['events'].append({'time': r3(frag['t0']), 'kind': 'tracklet', 'track': frag['track'], 'playerId': g.pid, 'message': '\n'.join(lines)})
+            report['assignments'].append({'track': frag['track'], 'start': r3(frag['t0']), 'end': r3(frag['t1']), 'to': g.pid, 'final': r3(value)})
+        if not progress:
+            break
+    report['events'].sort(key=lambda e: e['time'])
+    return report
+
+
+MERGE_APPEARANCE = .7    # mutual gallery similarity two identities need before a merge is proposed
+MERGE_MAX_SPEED = 8.0    # m/s: the move from the last sighting of one to the first of the other must be plausible
+MERGE_MIN_GAP = .5       # s: the gap used for that speed is never shorter than this
+
+
+def merge_proposals(manager, frames, motions, width, height, size=None):
+    """Pairs of identities that may be one person, proposed for review and never applied: same team, both
+    players with galleries, never observed on the same frame, one observed entirely before the other, galleries
+    mutually the most similar at MERGE_APPEARANCE or above, and a plausible continuity between the last
+    sighting of the earlier one and the first of the later one (pitch speed at most MERGE_MAX_SPEED when both
+    are registered; else the camera-compensated image distance scored like a fragment). Returns
+    {'proposals': [...], 'pairsCompared', 'rejectedByAppearance', 'rejectedByContinuity', 'events'}."""
+    report = {'proposals': [], 'pairsCompared': 0, 'rejectedByAppearance': 0, 'rejectedByContinuity': 0, 'interleaved': 0, 'events': []}
+    if not frames or len(motions) != len(frames):
+        return report
+    sc = _Scorer(manager, frames, motions, width, height, size)
+    ids = [g for g in manager.registry.values() if g.role == 'player' and g.team in ('A', 'B') and g.gallery
+           and g.status != 'retired' and not g.excluded and not g.withdrawn and sc.times.get(g.pid)]
+    similarity = {}
+    for i, a in enumerate(ids):
+        for b in ids[i+1:]:
+            if a.team != b.team:
+                continue
+            ta, tb = sc.times[a.pid], sc.times[b.pid]
+            if ta[-1] >= tb[0] and tb[-1] >= ta[0]:
+                report['interleaved'] += 1   # overlapping spans: two people seen in turn, or one person the manager flip-flopped on; not proposed
+                continue
+            report['pairsCompared'] += 1
+            ab = compare(a.gallery, [s.d for s in b.gallery])
+            ba = compare(b.gallery, [s.d for s in a.gallery])
+            values = [c['appearance'] for c in (ab, ba) if c is not None and c.get('appearance') is not None]
+            if not values:
+                continue
+            similarity[(a.pid, b.pid)] = similarity[(b.pid, a.pid)] = min(values)
+    best = {}
+    for (pa, pb), v in similarity.items():
+        if v > best.get(pa, (None, -1))[1]:
+            best[pa] = (pb, v)
+    seen = set()
+    for pa, (pb, v) in best.items():
+        if best.get(pb, (None, -1))[0] != pa or (pb, pa) in seen:
+            continue
+        seen.add((pa, pb))
+        if v < MERGE_APPEARANCE:
+            report['rejectedByAppearance'] += 1
+            continue
+        a, b = manager.registry[pa], manager.registry[pb]
+        if sc.times[a.pid][0] > sc.times[b.pid][0]:
+            a, b = b, a
+        last_a = sc.sighting(a, True, sc.times[b.pid][0])
+        first_b = sc.sighting(b, False, sc.times[a.pid][-1])
+        gap = max(MERGE_MIN_GAP, first_b[0]-last_a[0])
+        speed = spatial = None
+        if size is not None and last_a[3] is not None and first_b[3] is not None and last_a[4] >= PITCH_MIN and first_b[4] >= PITCH_MIN:
+            metres = math.hypot((first_b[3][0]-last_a[3][0])*size.length, (first_b[3][1]-last_a[3][1])*size.width)
+            speed = metres/gap
+            plausible = speed <= MERGE_MAX_SPEED
+        else:
+            spatial, _ = sc.spatial(a, first_b[1], first_b[2], True, first_b[3], first_b[4])
+            plausible = spatial is None or spatial >= .1
+        proposal = {'earlier': a.pid, 'later': b.pid, 'team': a.team, 'appearance': r3(v), 'gap': r3(first_b[0]-last_a[0]),
+                    'speed': None if speed is None else r3(speed), 'imageSpatial': None if spatial is None else r3(spatial),
+                    'continuity': 'pitch' if speed is not None else ('image' if spatial is not None else 'unmeasured'), 'plausible': bool(plausible)}
+        if not plausible:
+            report['rejectedByContinuity'] += 1
+            continue
+        report['proposals'].append(proposal)
+        how = f"{speed:.1f} m/s on the pitch" if speed is not None else (f"image continuity {spatial:.2f}" if spatial is not None else 'continuity unmeasured')
+        report['events'].append({'time': r3(first_b[0]), 'kind': 'merge-proposal', 'playerId': b.pid,
+                                 'message': f"MERGE PROPOSED (not applied)\n{long_id(a.pid)} (last seen {last_a[0]:.2f} s) and {long_id(b.pid)} (first seen {first_b[0]:.2f} s) may be one person: "
+                                            f"galleries mutually most similar at {v:.2f}, never seen together, {how}. Review it in the page; nothing is merged automatically."})
+    report['proposals'].sort(key=lambda x: -x['appearance'])
     return report
 
 
@@ -388,4 +597,6 @@ def metrics(manager, frames, events, report):
             'newPlayerIdentities': sum(1 for e in events if e['kind'] == 'new-identity' and e.get('playerId', '')[:2] in ('A-', 'B-')),
             'teamsOverCap': over,
             'trackletsConnected': report.get('connected', 0), 'ignoredFragmentsRestored': report.get('ignoredRestored', 0),
-            'framesRestoredToPlayers': report.get('framesRestored', 0), 'restoredFromLabels': dict(shown)}
+            'framesRestoredToPlayers': report.get('framesRestored', 0), 'restoredFromLabels': dict(shown),
+            'assignedOffline': report.get('assigned', 0), 'framesAssignedOffline': report.get('framesAssigned', 0),
+            'assignment': report.get('assignment')}
