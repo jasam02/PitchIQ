@@ -13,9 +13,12 @@ are produced afterwards, offline, from the saved image observations:
             never created, so it cannot be carried smoothly into a wrong result
     pass 3  remap_frames: every person's foot point and the ball are mapped through the frame's final
             homography; each position carries a confidence (the calibration's times how much a few
-            pixels of error are worth in metres there), and positions that do not land on the pitch are
-            left unresolved rather than invented. bridge_ball fills short gaps in the ball's image track
-            from both sides when the motion is plausible.
+            pixels of error are worth in metres there) and a sigma in metres along and across the pitch
+            (a few pixels of foot error through the local Jacobian of the mapping, more when the box is
+            cut by the frame's bottom edge, plus the forward/backward disagreement), and positions that
+            do not land on the pitch, or whose frame is below the confidence floor, are left unresolved
+            rather than invented. bridge_ball fills short gaps in the ball's image track from both sides
+            when the motion is plausible.
 
 Confidence is two things kept apart: observability (is the geometry constrained by enough independent
 evidence?) and temporal distance (how far an anchor was carried, and how well the motion was measured).
@@ -35,7 +38,11 @@ MIN_CONFIDENCE = .05
 DISAGREE_METRES = 8.0    # forward/backward estimates this far apart divide the confidence by e
 MAX_FOOT_ERROR = 5.0     # metres of foot-point error at which a position's confidence reaches 0
 FOOT_PIXELS = 3.0        # pixels of foot-point uncertainty assumed for that
-SAMPLE_POINTS = ((.5, .9), (.2, .75), (.8, .75), (.5, .6))   # where two homographies are compared (normalized)
+CLIPPED_FOOT = .35       # ... as a share of the box height when the box is cut by the bottom of the frame (the feet are below it)
+MIN_POSITION = .2        # registration confidence below which no pitch position is written (the frame counts as uncalibrated)
+SAMPLE_POINTS = ((.5, .9), (.2, .75), (.8, .75), (.5, .6))   # fallback points where two homographies are compared (normalized)
+GRID_X, GRID_Y = (.08, .92, 6), (.12, .97, 5)                 # the grid over the frame where they are compared on the visible pitch
+PITCH_MARGIN = 5.0       # metres beyond the lines that still count as the visible pitch for that comparison
 BALL_GAP = .5            # seconds: the longest ball gap bridged from both sides
 BALL_SPEED = .6          # frame widths per second: the fastest plausible ball motion across a gap
 
@@ -46,7 +53,7 @@ class Anchor:
     time: float
     H: np.ndarray              # world metres -> image pixels (field convention), oriented
     observability: float       # geometric certainty, 0..1
-    source: str                # 'landmarks' (user), 'paint' (markings confirmed the model), 'auto-midfield'
+    source: str                # 'landmarks' (user), 'paint' (markings confirmed the model), 'auto-midfield', 'reregistered' (direct match to a keyframe view)
     details: dict = dc_field(default_factory=dict)
     root: int = -1             # frame index of the anchor that started this chain (its own index for a fresh anchor):
                                # a derived (paint) anchor is left out with its root in a hold-out test
@@ -57,15 +64,50 @@ def _normalize(H):
     return H/norm if norm > 0 else H
 
 
-def _disagreement(Ha, Hb, width, height):
-    """Mean distance (metres) between two homographies' mappings of a few image points."""
+def ground_points(Ha, Hb, width, height, size=None):
+    """Image points on a grid over the frame that see the ground in front of the camera under both
+    homographies and land on (or within PITCH_MARGIN of) the pitch under the first: where two estimates
+    of the same frame are compared. Far points count as much as near ones, where a pixel is worth far more
+    metres. Returns the points (pixels) or None when fewer than four qualify."""
+    size = size or field.PitchSize()
+    xs, ys = np.linspace(*GRID_X)*width, np.linspace(*GRID_Y)*height
+    pts = np.array([(x, y) for y in ys for x in xs], np.float64)
     try:
-        a = field.unproject(Ha, [(nx*width, ny*height) for nx, ny in SAMPLE_POINTS])
-        b = field.unproject(Hb, [(nx*width, ny*height) for nx, ny in SAMPLE_POINTS])
+        front = (field.image_depth(Ha, pts) > 1e-9) & (field.image_depth(Hb, pts) > 1e-9)
+        pts = pts[front]
+        if len(pts) < 4:
+            return None
+        world = field.unproject(Ha, pts)
+    except np.linalg.LinAlgError:
+        return None
+    on_pitch = ((world[:, 0] >= -PITCH_MARGIN) & (world[:, 0] <= size.length+PITCH_MARGIN) &
+                (world[:, 1] >= -PITCH_MARGIN) & (world[:, 1] <= size.width+PITCH_MARGIN))
+    if on_pitch.sum() >= 4:
+        pts = pts[on_pitch]
+    return pts
+
+
+def _disagreement(Ha, Hb, width, height, size=None):
+    """Median distance (metres) between two homographies' mappings of the visible pitch (the grid of
+    ground_points; the fixed near points when the grid has too few). Points behind either horizon are
+    left out, never turned into infinite distances."""
+    pts = ground_points(Ha, Hb, width, height, size)
+    if pts is None:
+        pts = np.array([(nx*width, ny*height) for nx, ny in SAMPLE_POINTS], np.float64)
+        try:
+            front = (field.image_depth(Ha, pts) > 1e-9) & (field.image_depth(Hb, pts) > 1e-9)
+        except np.linalg.LinAlgError:
+            return math.inf
+        pts = pts[front]
+        if len(pts) < 2:
+            return math.inf
+    try:
+        a, b = field.unproject(Ha, pts), field.unproject(Hb, pts)
     except np.linalg.LinAlgError:
         return math.inf
     d = np.hypot(*(a-b).T)
-    return float(np.mean(d)) if np.isfinite(d).all() else math.inf
+    d = d[np.isfinite(d)]
+    return float(np.median(d)) if len(d) else math.inf
 
 
 def _carry(state, motion, forward, width, height):
@@ -134,7 +176,7 @@ def build_timeline(log, anchors, width, height, size=None):
             (Hf, tf, _), af = f
             (Hb, tb, _), ab = b
             cf, cb = combine(tf, af.observability), combine(tb, ab.observability)
-            d = _disagreement(Hf, Hb, width, height)
+            d = _disagreement(Hf, Hb, width, height, size)
             w = cf/(cf+cb)
             Nf, Nb = _normalize(Hf), _normalize(Hb)
             if float(np.sum(Nf*Nb)) < 0:
@@ -170,16 +212,40 @@ def homography_json(H):
     return [float(v) for v in H.ravel()]
 
 
-def position(H, size, point_px, confidence):
-    """(normalized pitch position, position confidence) for an image point, or (None, 0) when it does not
-    land on the pitch. The confidence is the calibration's times the local projection certainty: a few
-    pixels of foot-point error are worth many metres far from the camera."""
+def position(H, size, point_px, confidence, sigma_px=None, disagreement=None):
+    """(normalized pitch position, position confidence, sigma) for an image point, or (None, 0, None)
+    when it does not land on the pitch. The confidence is the calibration's times the local projection
+    certainty: a few pixels of foot-point error are worth many metres far from the camera. The sigma is
+    that error in metres, along and across the pitch: the pixel uncertainty (sigma_px: one value or
+    (x, y); FOOT_PIXELS by default) through the local Jacobian of the mapping, plus the registration's
+    forward/backward disagreement (metres) in quadrature."""
     p = field.to_pitch(H, size, point_px)
     if p is None:
-        return None, 0.0
+        return None, 0.0, None
     scale = field.px_per_metre(H, (p[0]*size.length, p[1]*size.width))
     local = clamp(1-FOOT_PIXELS/max(scale, 1e-6)/MAX_FOOT_ERROR)
-    return p, round(float(confidence*local), 3)
+    sx, sy = (sigma_px, sigma_px) if sigma_px is None or np.isscalar(sigma_px) else sigma_px
+    sx = FOOT_PIXELS if sx is None else float(sx)
+    sy = FOOT_PIXELS if sy is None else float(sy)
+    x, y = point_px
+    probes = np.array([(x-1, y), (x+1, y), (x, y-1), (x, y+1)], np.float64)
+    sigma = None
+    try:
+        if (field.image_depth(H, probes) > 1e-9).all():
+            w = field.unproject(H, probes)
+            jac = np.array([[(w[1, 0]-w[0, 0])/2, (w[3, 0]-w[2, 0])/2], [(w[1, 1]-w[0, 1])/2, (w[3, 1]-w[2, 1])/2]])
+            cov = jac @ np.diag([sx*sx, sy*sy]) @ jac.T
+            if disagreement is not None and math.isfinite(disagreement):
+                cov += np.eye(2)*disagreement*disagreement
+            sigma = (min(999.0, math.sqrt(max(0.0, cov[0, 0]))), min(999.0, math.sqrt(max(0.0, cov[1, 1]))))
+    except np.linalg.LinAlgError:
+        sigma = None
+    return p, round(float(confidence*local), 3), sigma
+
+
+def clipped_below(box, tolerance=.004):
+    """Is this [x, y, w, h] box cut by the bottom edge of the frame (the feet may be below it)?"""
+    return box[1]+box[3] >= 1-tolerance
 
 
 def remap_frames(frames, timeline, width, height, size=None):
@@ -198,33 +264,46 @@ def remap_frames(frames, timeline, width, height, size=None):
                 'anchorAge': entry['age'] if entry else None, 'disagreement': entry['disagreement'] if entry else None,
                 'H': homography_json(H)}
         frame['calibration'] = info
-        frame['calibrated'] = H is not None and info['confidence'] >= .2
-        frame['pitchCoordinates'] = None if H is None else ('calibration' if info['source'] in ('landmarks', 'paint', 'auto-midfield') else 'predicted')
+        usable = H is not None and info['confidence'] >= MIN_POSITION
+        frame['calibrated'] = usable
+        frame['pitchCoordinates'] = None if not usable else ('calibration' if info['source'] in ('landmarks', 'paint', 'auto-midfield', 'reregistered') else 'predicted')
         tracks = mapped = 0
         for person in frame['people']:
-            for key in ('pitch', 'pitchConfidence', 'pitchSource', 'pitchStatus'):
+            for key in ('pitch', 'pitchConfidence', 'pitchSource', 'pitchStatus', 'pitchSigma', 'pitchClipped'):
                 person.pop(key, None)
             live = person.get('state') in ('confirmed', 'uncertain')
             tracks += live
-            if H is None:
+            if not usable:
                 person['pitchStatus'] = 'unresolved'
                 continue
             fx, fy = foot_point(person['box'])
-            p, c = position(H, size, (fx*width, fy*height), info['confidence'])
+            foot = (fx*width, fy*height)
+            if field.image_depth(H, [foot])[0] <= 1e-9:
+                person['pitchStatus'] = 'horizon'
+                continue
+            clipped = clipped_below(person['box'])
+            sigma_px = (FOOT_PIXELS, max(FOOT_PIXELS, CLIPPED_FOOT*person['box'][3]*height)) if clipped else None
+            p, c, sigma = position(H, size, foot, info['confidence'], sigma_px, info['disagreement'])
             if p is None or c <= 0:
                 person['pitchStatus'] = 'unresolved'
                 continue
             person['pitch'] = [round(float(p[0]), 4), round(float(p[1]), 4)]
             person['pitchConfidence'], person['pitchSource'] = c, info['source']
+            if sigma is not None:
+                person['pitchSigma'] = [round(sigma[0], 1), round(sigma[1], 1)]
+            if clipped:
+                person['pitchClipped'] = True
             mapped += live
         ball = frame.get('ball') or {}
-        for key in ('pitch', 'pitchConfidence'):
+        for key in ('pitch', 'pitchConfidence', 'pitchSigma'):
             ball.pop(key, None)
-        if H is not None and ball.get('center') and ball.get('box'):
+        if usable and ball.get('center') and ball.get('box'):
             cx, cy = ball['center']
-            p, c = position(H, size, (cx*width, min(1.0, cy+ball['box'][3]/2)*height), info['confidence'])
+            p, c, sigma = position(H, size, (cx*width, min(1.0, cy+ball['box'][3]/2)*height), info['confidence'], None, info['disagreement'])
             if p is not None and c > 0:
                 ball['pitch'], ball['pitchConfidence'] = [round(float(p[0]), 4), round(float(p[1]), 4)], c
+                if sigma is not None:
+                    ball['pitchSigma'] = [round(sigma[0], 1), round(sigma[1], 1)]
         frame['mapping'] = {'imageTracks': tracks, 'mapped': mapped}
         if tracks >= 6:
             ratios.append(mapped/tracks)
@@ -298,7 +377,9 @@ def warnings(frames, min_tracks=6):
     return events
 
 
-def summarize(timeline, anchors):
+def summarize(timeline, anchors, offset=0):
+    """timeline: the segment's entries; offset: log frames before the segment (anchors are listed by their
+    frame index within the segment, negative for a pre-roll anchor)."""
     n = len(timeline)
     known = sum(1 for e in timeline if e['H'] is not None)
     confident = sum(1 for e in timeline if e['H'] is not None and e['confidence'] >= .5)
@@ -310,6 +391,6 @@ def summarize(timeline, anchors):
             'confidentShare': round(confident/n, 3) if n else 0.0,
             'meanConfidence': round(float(np.mean([e['confidence'] for e in timeline])), 3) if n else 0.0,
             'meanObservability': round(float(np.mean([e['observability'] for e in timeline if e['H'] is not None])), 3) if known else 0.0,
-            'anchors': [{'frame': a.index, 'time': round(a.time, 3), 'observability': round(a.observability, 3), 'source': a.source, 'root': a.root,
+            'anchors': [{'frame': a.index-offset, 'time': round(a.time, 3), 'observability': round(a.observability, 3), 'source': a.source, 'root': a.root-offset,
                          **{k: v for k, v in a.details.items() if k in keys}} for a in sorted(anchors, key=lambda a: a.index)],
             'sources': sources}

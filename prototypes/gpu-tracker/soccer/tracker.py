@@ -21,13 +21,13 @@ import numpy as np
 
 from . import appearance as app
 from .ball import BallTracker
-from .camera import CameraMotion, CameraState, Keyframes
+from .camera import RELAY_BELOW, RELAY_OVERLAP, AnchorViews, CameraMotion, CameraState, Keyframes
 from .geometry import foot_point, iou
 from .identity import PLAYER_HEIGHT, IdentityManager, Options, Stab
-from . import midfield
-from .pitch import (FieldFilter, PitchDetector, assess_confidence, calibrated_model, find_circle, halfway_candidate, nearest_boundary,
+from . import lens, midfield
+from .pitch import (FieldFilter, PitchDetector, assess_confidence, calibrated_model, find_circle, halfway_candidate, line_samples, nearest_boundary,
                     suggest_landmarks, warp_model)
-from .pitch_model import HIGH, LOW_LEVEL
+from .pitch_model import HIGH, LOW_LEVEL, MIN_ANCHOR
 from .registration import Anchor
 from .relevance import REJECT_TEXT, assess
 from .goals import GoalMemory, position_cues
@@ -37,8 +37,10 @@ CLASSES = {1: 'goalkeeper', 2: 'player', 3: 'referee'}
 MIN_VOTE_QUALITY = .2
 ASSIST_AFTER = 3.0        # seconds of LOW pitch confidence without a model before a section asks for confirmation
 ASSIST_GAP = 3.0          # sections closer than this are one issue
+ASSIST_PAN = 10.0         # ... and up to this far apart when one reliably measured camera movement joins them
 FAR_MIN_PX = 30           # people expected smaller than this at the far edge of the pitch get the far-tile pass
 FAR_CONFIRM = 3           # consecutive frames a far-tile detection must repeat before it counts
+REGISTER_EVERY = 1.0      # seconds between direct registrations of the pitch model to a remembered keyframe view
 
 
 @dataclass
@@ -77,6 +79,10 @@ class SoccerTracker:
         self.camera = CameraMotion()
         self.state = CameraState(width, height)
         self.keyframes = Keyframes(config.boundaries, config.calibrations, width, height)
+        self.views = AnchorViews(width, height)   # keyframe views for direct re-registration
+        self.last_register = -math.inf
+        self.registrations = {'tried': 0, 'adopted': 0, 'refused': 0, 'rootChanges': 0, 'relays': 0, 'viaRelay': 0}
+        self.lens_samples = []  # per evidence tick: the lens estimate from the paint along the longest markings (soccer/lens.py)
         self.pitch_detector = PitchDetector()
         self.goals = GoalMemory()
         self.analysed = self.pitch = None
@@ -98,7 +104,8 @@ class SoccerTracker:
         self.frame_index = -1   # index of the current frame in this run
         self.anchors = []       # registration.Anchor: every validated calibration of this run, for the offline passes
         self.keyframe_log = []  # {'time', 'index', 'rms', 'observability'} for every calibration keyframe that anchored the model
-        self.offset = 0         # frames of the log that precede the first emitted frame (none yet)
+        self.offset = 0         # frames of the log that precede the first emitted frame (the pre-roll)
+        self.emitted = 0        # emitted frames (the segment itself); the log may continue past them (the post-roll)
         self.circle = None      # centre-circle paint found on the last evidence tick (pitch.find_circle), or None
         self.midfield = None    # the last automatic midfield registration attempt: {'time', 'taken', 'reason'|'observability'}
         self.registration = None   # filled by the pipeline's offline passes
@@ -180,12 +187,16 @@ class SoccerTracker:
         self.state.update(M, reliable, cut)
         self.keyframes.update(time, M, reliable, cut, self.camera.homography, self.camera.quality)
         model = self.keyframes.pitch
+        mask_boxes = [d['box'] for d in dets]
         if self.keyframes.anchored is not None and model.H is not None:
-            # A validated landmark calibration: an anchor the offline passes carry both ways.
+            # A validated landmark calibration: an anchor the offline passes carry both ways, and a view to
+            # register later frames to directly.
             model.anchored_index = self.frame_index
             self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'landmarks', dict(model.details), root=self.frame_index))
             self.keyframe_log.append({'time': self.keyframes.anchored_time, 'index': self.frame_index, 'rms': self.keyframes.rms,
                                       'observability': round(float(model.observability), 3)})
+            self.views.remember(self.frame_index, time, self.camera.previous, mask_boxes, model.H, model.observability, self.frame_index)
+            self.last_register = time
         tick = cut or time-self.last_tick >= self.config.options.tick-1e-6
         if tick:
             self.last_tick = time
@@ -201,16 +212,24 @@ class SoccerTracker:
             # Centre-circle paint (an ellipse around the halfway line) is calibration evidence of its own: with
             # the halfway line it constrains the geometry where the touchlines alone cannot.
             self.circle, circle_line = find_circle(self.pitch_detector.masks, self.analysed)
+            samples = line_samples(self.analysed.markings, self.pitch_detector.masks)
+            if samples:
+                self.lens_samples.append(lens.estimate_k([np.asarray(s)*[W, H] for s in samples], W, H))
             if model.H is not None:
                 circle_px = [(x*W, y*H) for x, y in self.circle['points']] if self.circle else None
                 model.refine(self.analysed.markings, time, [foot_point(b) for b in live], circle_px)
-                if model.state == 'refined':
+                if model.state == 'refined' and model.refinement is not None and model.refinement['own'] >= MIN_ANCHOR:
+                    # A refinement anchors the offline registration only when its own paint constrains the pitch
+                    # (MIN_ANCHOR); weaker matches still steady the live model but never restart a chain.
                     root = model.anchored_index if model.anchored_index is not None else self.frame_index
-                    self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'paint', dict(model.details), root=root))
+                    details = dict(model.details, score=model.refinement['own'], anchorObservability=round(model.refinement['anchor'], 3))
+                    self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.refinement['anchor'], 'paint', details, root=root))
             elif self.circle is not None and auto_conf < HIGH:
                 # No model to carry and no confident playable region from the paint: the centre circle, the
                 # halfway line and a touchline can anchor one.
-                self._midfield_anchor(model, circle_line, time)
+                self._midfield_anchor(model, circle_line, time, mask_boxes)
+            if model.H is not None and self.views.views and time-self.last_register >= REGISTER_EVERY-1e-6:
+                self._reregister(model, time, mask_boxes)
             pitch = self.analysed
         else:
             self.carried_motion = motion @ self.carried_motion
@@ -338,7 +357,60 @@ class SoccerTracker:
                 'pitchMode': pitch.mode, 'pitchConfidence': round(float(pitch.confidence), 3),
                 'pitchModel': live_calibration if (tick or cut or self.config.debug) else None}, M, reliable
 
-    def _midfield_anchor(self, model, halfway, time):
+    def roll(self, frame, time):
+        """A frame outside the segment, processed for its camera motion and pitch evidence only (no detections):
+        a calibration keyframe shortly before the start is carried into the segment this way, and one shortly
+        after the end is reached so that the offline registration can carry it backwards. The frame is
+        logged like any other; nothing is emitted. Pitch events of such frames say so."""
+        before = len(self.events)
+        self.step(frame, time, np.zeros((0, 6), np.float32), np.zeros((0, 6), np.float32))
+        for event in self.events[before:]:
+            if event['kind'] == 'pitch':
+                event['message'] += '\n(outside the segment: a keyframe carried in by camera motion)'
+
+    def emitted_log(self):
+        """The frame log of the emitted frames alone (the segment, without the pre-roll and post-roll)."""
+        return self.frame_log[self.offset:self.offset+self.emitted]
+
+    def _reregister(self, model, time, boxes):
+        """Register this frame directly to a remembered keyframe view (camera.AnchorViews) and re-tie the model
+        to that keyframe's geometry; adopted registrations are anchors of the offline registration, rooted at
+        the keyframe. Events are logged when the view moved noticeably or the chain changed its root."""
+        self.last_register = time
+        self.registrations['tried'] += 1
+        candidate = self.views.register(self.camera.previous, boxes, prefer=model.anchored_index)
+        if candidate is None:
+            return
+        view = self.views.views[candidate['index']]
+        H_direct = candidate['H'] @ view['H']
+        if view['relay']:
+            root_time = next((k['time'] for k in self.keyframe_log if k['index'] == view['root']), None)
+            note = f"the relay view at {view['time']:.1f}s" + (f" (keyframe {root_time:.1f}s)" if root_time is not None else '')
+        else:
+            note = f"the keyframe view at {view['time']:.1f}s"
+        shift = model.reregister(H_direct, time, candidate['matches'], candidate['rms'], note)
+        if shift is None:
+            self.registrations['refused'] += 1
+            return
+        self.registrations['adopted'] += 1
+        self.registrations['viaRelay'] += bool(view['relay'])
+        changed = model.anchored_index != view['index']
+        if changed:
+            self.registrations['rootChanges'] += 1
+            model.anchored_index = view['index']
+        quality = min(1.0, (candidate['matches']-40)/100)*max(0.0, 1-candidate['rms']/6.0)
+        observability = view['observability']*(.8+.2*quality)
+        details = {'matches': candidate['matches'], 'rmsPixels': round(candidate['rms'], 2), 'overlap': round(candidate['overlap'], 3),
+                   'shiftPixels': round(shift, 1), 'score': round(observability, 3), 'view': view['index'], 'relay': bool(view['relay'])}
+        self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), observability, 'reregistered', details, root=view['root']))
+        if candidate['matches'] < RELAY_BELOW or candidate['overlap'] < RELAY_OVERLAP:
+            # The view is leaving the frame: keep this re-registered frame as a relay, so the next frames register to
+            # it (rooted at the same keyframe) instead of falling back to the frame-to-frame chain.
+            if self.views.remember(self.frame_index, time, self.camera.previous, boxes, model.H, observability, view['root'], relay=True):
+                self.registrations['relays'] += 1
+                model.anchored_index = self.frame_index
+
+    def _midfield_anchor(self, model, halfway, time, boxes=()):
         """Automatic registration from the centre circle (an ellipse), the halfway line and a touchline
         (soccer/midfield.py), validated against the paint and scored for observability before it anchors
         the pitch model; a refused attempt is reported once per reason."""
@@ -360,6 +432,8 @@ class SoccerTracker:
         if taken:
             model.anchored_index = self.frame_index
             self.anchors.append(Anchor(self.frame_index, time, model.H.copy(), model.observability, 'auto-midfield', dict(model.details), root=self.frame_index))
+            self.views.remember(self.frame_index, time, self.camera.previous, list(boxes), model.H, model.observability, self.frame_index)
+            self.last_register = time
 
     def _decide_pitch(self, pitch, model, time, tick):
         """Which playable region this frame uses, its mode and confidence; LOW sections are recorded."""
@@ -410,12 +484,36 @@ class SoccerTracker:
             self.sections.append({'start': start, 'end': end, 'at': self.section['at'], 'suggested': self.section['suggested']})
         self.low_since, self.section = None, None
 
+    def _continuous(self, t0, t1):
+        """Was the camera motion measured reliably, without a cut, all the way from t0 to t1? Then two uncovered
+        sections belong to one continuous pan and are asked about once."""
+        between = [e for e in self.frame_log if t0-1e-6 <= e['t'] <= t1+1e-6]
+        return bool(between) and all(e['reliable'] and not e['cut'] for e in between)
+
+    def _landmark_hint(self, at):
+        """What the nearest anchor's evidence lacked, as the landmark family worth marking."""
+        if not self.anchors:
+            return 'four or more landmarks spanning both directions of the pitch (a touchline end, the centre spot, a box corner)'
+        nearest = min(self.anchors, key=lambda a: abs(a.time-at))
+        d = nearest.details or {}
+        if d.get('landmarks', 0) >= 4:
+            return 'landmarks on both halves of the pitch, the near touchline included when it is visible (the earlier keyframe lies on one side only)' \
+                if d.get('spread', 1.0) < .5 else 'a few landmarks on this frame; the earlier keyframe is too far away to carry here'
+        if not d.get('transverse'):
+            return 'a goal line, a box front or the halfway line: the touchlines alone leave the length of the pitch unresolved'
+        if not d.get('longitudinal'):
+            return 'a touchline or a box side: the lines across the pitch alone leave its width unresolved'
+        return 'a few landmarks on this frame'
+
     def pitch_issues(self):
-        """LOW-confidence sections without a pitch model, nearby ones merged into one issue each."""
+        """LOW-confidence sections without a pitch model, merged into one issue when they are close or when one
+        continuous, reliably measured camera movement joins them (one pan asks once); each names the landmark
+        family the nearby evidence lacked."""
         self._close_section(self.last_time if self.last_time is not None else 0.0)
         merged = []
         for s in sorted(self.sections, key=lambda s: s['start']):
-            if merged and s['start']-merged[-1]['end'] <= ASSIST_GAP:
+            gap = s['start']-merged[-1]['end'] if merged else math.inf
+            if merged and (gap <= ASSIST_GAP or (gap <= ASSIST_PAN and self._continuous(merged[-1]['end'], s['start']))):
                 merged[-1]['end'] = max(merged[-1]['end'], s['end'])
                 if len([m for m in s['suggested'] if m.get('predicted')]) > len([m for m in merged[-1]['suggested'] if m.get('predicted')]):
                     merged[-1]['at'], merged[-1]['suggested'] = s['at'], s['suggested']
@@ -423,10 +521,11 @@ class SoccerTracker:
                 merged.append(dict(s))
         out = []
         for i, s in enumerate(merged):
+            hint = self._landmark_hint(s['at'])
             out.append({'id': f'pitch-{i+1}', 'start': round(s['start'], 2), 'end': round(s['end'], 2), 'at': round(s['at'], 2),
-                        'suggested': s['suggested'],
+                        'suggested': s['suggested'], 'hint': hint,
                         'reason': f"Pitch confidence stayed low from {s['start']:.1f}s to {s['end']:.1f}s: no painted boundary line was found and no calibration "
-                                  f"covers it, so the grass region was used. Mark a few landmarks on the frame at {s['at']:.1f}s to anchor the pitch model."})
+                                  f"covers it, so the grass region was used. Mark landmarks on the frame at {s['at']:.1f}s to anchor the pitch model: {hint}."})
         return out
 
     def snapshot(self):

@@ -21,13 +21,14 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import ball_path, pitch_model, registration, tracklets
+from soccer import ball_path, lens, pitch_model, registration, tracklets
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
 from vision import Appearance
 
 settings.update({'sync': False})
+ROLL_SECONDS = 15.0   # a calibration keyframe this close before the start (or after the end) is carried into the segment by camera motion
 # BGR; the same colours as the review page.
 COLORS = {'A': (255, 140, 185), 'B': (100, 181, 246), 'GOALKEEPER': (162, 95, 255), 'REFEREE': (100, 225, 255), 'UNCERTAIN': (194, 180, 169),
           'PITCH': (255, 200, 124), 'BALL': (61, 255, 198)}
@@ -230,13 +231,18 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     appearance = Appearance()
     tracker = SoccerTracker(width, height, config_from(config), BotSortTracker(fps), appearance.embed, previous, fps)
     capture = cv2.VideoCapture(str(video_path))
-    first_frame = int(round(start*fps))
+    # Keyframes just outside the segment are not lost: the frames from such a keyframe to the start are processed
+    # for camera motion and pitch evidence only (pre-roll), and after the end up to such a keyframe (post-roll).
+    keyframe_times = sorted(float(c['time']) for c in (config.get('calibrations') or []))
+    roll_from = min((t for t in keyframe_times if start-ROLL_SECONDS <= t < start), default=None)
+    roll_until = max((t for t in keyframe_times if finish <= t <= finish+ROLL_SECONDS), default=None)
+    first_frame = int(round((start if roll_from is None else roll_from)*fps))
     capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
     frames = []
     torch.cuda.reset_peak_memory_stats()
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
-    index, last_notice, logged, pitch, far_passes, ball_searches = first_frame, -10, 0, None, 0, 0
+    index, last_notice, logged, pitch, far_passes, ball_searches, rolled = first_frame, -10, 0, None, 0, 0, 0
     timing = Counter()   # seconds per stage, for summary.timing
     clock = time.perf_counter
     try:
@@ -247,6 +253,22 @@ def run(video_path, output, config, progress, cancelled, previous=None):
             stamp = float(capture.get(cv2.CAP_PROP_POS_MSEC))/1000
             if stamp <= 0 and index:
                 stamp = index/fps
+            if stamp < start-1e-6 or (stamp >= finish and roll_until is not None and stamp <= roll_until+.15):
+                # Pre-roll or post-roll: camera motion and pitch evidence only, no detections, nothing emitted.
+                t0 = clock()
+                tracker.roll(frame, stamp)
+                timing['roll'] += clock()-t0
+                rolled += 1
+                if stamp < start and not frames:
+                    tracker.offset = len(tracker.frame_log)
+                elapsed = time.perf_counter()-started
+                if elapsed-last_notice >= 1:
+                    which = f'before the start, from the keyframe at {roll_from:.1f} s' if stamp < start else f'after the end, to the keyframe at {roll_until:.1f} s'
+                    progress({'stage': f'Carrying the calibration through the frames {which} (camera motion only)', 'progress': 1.0 if stamp >= finish else 0.0,
+                              'videoTime': stamp, 'elapsed': round(elapsed, 1), 'frames': len(frames), 'gpu': gpu})
+                    last_notice = elapsed
+                index += 1
+                continue
             if stamp >= finish:
                 break
             t0 = clock()
@@ -279,6 +301,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
             timing['tracking'] += clock()-t0
             observation = {'time': round(stamp, 6), 'frame': index, **observation}
             frames.append(observation)
+            tracker.emitted = len(frames)
             pitch = observation['pitch'] or pitch
             # Every identity, role and ball decision is logged; the key ones also go to the console.
             for event in tracker.events[logged:]:
@@ -322,7 +345,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     report['summary']['pitch']['registration'] = tracker.registration
     report['summary']['ball']['localSearches'] = ball_searches
     timing['report'] += clock()-t0
-    report['summary']['timing'] = stage_timing(timing, len(frames), time.perf_counter()-started)
+    report['summary']['timing'] = stage_timing(timing, len(frames), time.perf_counter()-started, rolled)
     snapshot = tracker.snapshot() | {'run': output.name, 'start': start, 'end': frames[-1]['time']}
     (output/'identities.json').write_text(json.dumps(snapshot, separators=(',', ':')), encoding='utf-8')
     (output/'registration.json').write_text(json.dumps(registration_record(tracker, meta, config), separators=(',', ':'), default=_json_default),
@@ -337,12 +360,14 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     return report
 
 
-def stage_timing(timing, frames, elapsed):
+def stage_timing(timing, frames, elapsed, rolled=0):
     """Milliseconds per processed frame by online stage, the offline passes in seconds, and the total."""
     online = ('detect', 'farTiles', 'ballTiles', 'ballCrop', 'tracking')
     out = {f'{k}MsPerFrame': round(1000*timing[k]/max(1, frames), 1) for k in online}
     out['onlineMsPerFrame'] = round(1000*sum(timing[k] for k in online)/max(1, frames), 1)
     out['offlineSeconds'] = {k: round(timing[k], 2) for k in ('offlineIdentities', 'offlinePitch', 'offlineBall', 'report')}
+    out['rollFrames'] = rolled
+    out['rollSeconds'] = round(timing['roll'], 2)
     out['elapsedSeconds'] = round(elapsed, 2)
     return out
 
@@ -366,7 +391,7 @@ def registration_record(tracker, meta, config):
         keyframes.append({'time': float(c['time']), 'index': k['index'] if k else None, 'rms': round(float(k['rms']), 3) if k and k['rms'] is not None else None,
                           'observability': k['observability'] if k else None, 'points': c['points']})
     return {'version': 1, 'width': meta['width'], 'height': meta['height'], 'fps': meta['fps'], 'offset': getattr(tracker, 'offset', 0),
-            'size': tracker.keyframes.size.to_json(),
+            'emitted': getattr(tracker, 'emitted', len(tracker.frame_log)), 'size': tracker.keyframes.size.to_json(),
             'frames': [{'t': round(e['t'], 6), 'dt': round(e['dt'], 6), 'M': None if e['M'] is None else np.asarray(e['M'], np.float64).ravel().tolist(),
                         'reliable': bool(e['reliable']), 'cut': bool(e['cut']), 'quality': e.get('quality') or 'none'} for e in tracker.frame_log],
             'anchors': [{'index': a.index, 'time': round(a.time, 6), 'H': np.asarray(a.H, np.float64).ravel().tolist(), 'observability': float(a.observability),
@@ -380,12 +405,14 @@ def finalize_pitch(frames, tracker):
     forward and backward through the recorded camera motion, the two directions are blended, and the
     pitch positions of people and the ball are recomputed on every frame from the final geometry. The
     image tracks and identities are not touched. Returns the number of frames that gained a pitch model."""
-    log = tracker.frame_log
+    log = tracker.emitted_log()
     if len(log) != len(frames):
         return 0, None
     W, H = tracker.width, tracker.height
     size = tracker.keyframes.size
-    timeline = registration.build_timeline(log, tracker.anchors, W, H, size)
+    # The chain runs over the whole log, pre-roll and post-roll included; the segment is the slice.
+    offset = tracker.offset
+    timeline = registration.build_timeline(tracker.frame_log, tracker.anchors, W, H, size)[offset:offset+len(frames)]
     online = [bool(f.get('calibrated')) for f in frames]
     metrics = registration.remap_frames(frames, timeline, W, H, size)
     filled = 0
@@ -421,8 +448,9 @@ def finalize_pitch(frames, tracker):
     tracker.sections = [s for s in tracker.sections if not covered(s)]
     ticks = [f['pitch'] for f in frames if f.get('pitch')]
     curvatures = [p['curvature'] for p in ticks if p.get('curvature') is not None]
-    tracker.registration = registration.summarize(timeline, tracker.anchors) | metrics | {
-        'propagatedFrames': filled, 'ballFramesBridged': bridged,
+    tracker.registration = registration.summarize(timeline, tracker.anchors, offset) | metrics | {
+        'propagatedFrames': filled, 'ballFramesBridged': bridged, 'registrations': dict(getattr(tracker, 'registrations', {})),
+        'lens': lens.summarize(getattr(tracker, 'lens_samples', [])),
         'lensCurvature': round(float(np.median(curvatures)), 2) if curvatures else None,
         'vanishingPointShare': round(sum(1 for p in ticks if p.get('vanishing'))/len(ticks), 3) if ticks else 0.0,
         'mappingWarnings': sum(1 for e in tracker.events if e['kind'] == 'calibration')}
@@ -433,7 +461,7 @@ def finalize_identities(frames, tracker):
     """Offline tracklet refinement (soccer/tracklets.py): local tracks are cut where their identity label
     changed, and fragments without a confident player identity are reconnected to the dormant identities
     around them in time. Relabels the frames in place; returns the report, or None."""
-    log = tracker.frame_log
+    log = tracker.emitted_log()
     if len(log) != len(frames) or not frames:
         return None
     motions = [(e['M'], e['reliable'], e['cut']) for e in log]
@@ -448,7 +476,7 @@ def finalize_ball(frames, tracker, timeline):
     and an explicit "not visible" node over the whole segment. Rewrites each frame's `ball` (the causal
     first pass stays as `firstPass`), maps it through the registration's final homographies, and logs the
     first-pass sightings the final path leaves out. Returns the decoder's report, or None."""
-    log = tracker.frame_log
+    log = tracker.emitted_log()
     if len(log) != len(frames) or not frames:
         return None
     W, H = tracker.width, tracker.height
@@ -458,7 +486,7 @@ def finalize_ball(frames, tracker, timeline):
         entry = timeline[i] if timeline is not None and i < len(timeline) else None
         if entry is None or entry.get('H') is None:
             return None
-        p, _ = registration.position(entry['H'], size, point, entry['confidence'])
+        p, _, _ = registration.position(entry['H'], size, point, entry['confidence'])
         return p
 
     motions = [(e['M'], e['reliable'], e['cut']) for e in log]
@@ -466,9 +494,12 @@ def finalize_ball(frames, tracker, timeline):
     for i, f in enumerate(frames):
         b = f['ball']
         if b.get('pitch') and timeline is not None and i < len(timeline) and timeline[i].get('H') is not None:
-            _, c = registration.position(timeline[i]['H'], size, (b['center'][0]*W, min(1.0, b['center'][1]+b['box'][3]/2)*H), timeline[i]['confidence'])
+            _, c, sigma = registration.position(timeline[i]['H'], size, (b['center'][0]*W, min(1.0, b['center'][1]+b['box'][3]/2)*H), timeline[i]['confidence'],
+                                                None, timeline[i].get('disagreement'))
             if c is not None:
                 b['pitchConfidence'] = c
+            if sigma is not None:
+                b['pitchSigma'] = [round(sigma[0], 1), round(sigma[1], 1)]
     tracker.events += report['events']
     tracker.events.sort(key=lambda e: e['time'])
     return report

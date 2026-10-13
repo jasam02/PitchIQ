@@ -652,6 +652,33 @@ def line_curvature(segs, masks):
     return round(float(abs(a)/4)/length*1000, 2)
 
 
+def line_samples(segs, masks, max_lines=4, tol=6):
+    """Paint pixels along the longest detected marking segments (up to max_lines of each kind), as lists of
+    normalized (x, y) points: the raw material of the lens-distortion estimate (soccer/lens.py), which asks
+    how bent these nearly straight lines are."""
+    w, h = masks['w'], masks['h']
+    out = []
+    for kind in ('h', 'v'):
+        mask = masks['h_line'] if kind == 'h' else masks['v_line']
+        ys, xs = np.nonzero(mask)
+        if not len(xs):
+            continue
+        ordered = sorted((s for s in segs if s['kind'] == kind), key=lambda s: -math.hypot((s['b'][0]-s['a'][0])*w, (s['b'][1]-s['a'][1])*h))
+        for s in ordered[:max_lines]:
+            ax, ay, bx, by = s['a'][0]*w, s['a'][1]*h, s['b'][0]*w, s['b'][1]*h
+            dx, dy = bx-ax, by-ay
+            length = math.hypot(dx, dy)
+            if length < .25*max(w, h):
+                continue
+            t = ((xs-ax)*dx+(ys-ay)*dy)/(length*length)
+            dist = np.abs((xs-ax)*dy-(ys-ay)*dx)/length
+            near = (t >= 0) & (t <= 1) & (dist <= tol)
+            if near.sum() < 30:
+                continue
+            out.append([(float(x/w), float(y/h)) for x, y in zip(xs[near], ys[near])])
+    return out
+
+
 def _off_segments(px, py, segs, w, h, halfway=None, tol=2.5):
     """Mask of the pixels (normalized coordinates) farther than tol pixels from every straight paint
     segment (within the segment's extent); the halfway line is excluded along its whole length."""

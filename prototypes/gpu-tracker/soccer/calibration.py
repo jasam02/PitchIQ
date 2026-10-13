@@ -38,36 +38,72 @@ def _general_position(points):
     return False
 
 
+OUTLIER_MIN = 6          # landmarks from which one clearly wrong click is found and left out
+OUTLIER_METRES = 3.0     # a landmark this far from the plane the others define, and far worse than them, is a wrong click
+
+
 def solve(points, width, height, max_error=1.5, size=None):
     """points: [{'name', 'x', 'y'}] with x/y normalized image coordinates. Returns (H, rms metres):
     H maps image pixels to pitch metres of a pitch of `size` (standard when None). Raises ValueError
     for unusable landmark sets."""
-    marks = field.landmarks(size or field.PitchSize())
-    src, dst = [], []
+    details = solve_details(points, width, height, max_error, size)
+    return details['H'], details['rms']
+
+
+def solve_details(points, width, height, max_error=1.5, size=None):
+    """solve() with the details: {'H', 'rms', 'inliers' (names used), 'outliers' (a clearly wrong click left
+    out when six or more landmarks were given: more than OUTLIER_METRES off the plane the others define and
+    at least three times the others' median error), 'points' (the inlier points in pixels)}. Measured on
+    real keyframes, a Jacobian condition number adds nothing for point sets that pass the general-position
+    check, so the observability of a keyframe rests on its spread, axes and residual."""
+    size = size or field.PitchSize()
+    marks = field.landmarks(size)
+    src, dst, names = [], [], []
     for p in points:
         if p['name'] not in marks:
             raise ValueError(f"Unknown pitch landmark: {p['name']}")
         src.append((p['x']*width, p['y']*height))
         dst.append(marks[p['name']])
-    if len(src) < 4 or len({p['name'] for p in points}) != len(points):
+        names.append(p['name'])
+    if len(src) < 4 or len(set(names)) != len(points):
         raise ValueError('Mark at least four different pitch landmarks.')
     if not _general_position(src) or not _general_position(dst):
         raise ValueError('The landmarks are (nearly) on one line; choose landmarks that span an area.')
-    H, _ = cv2.findHomography(np.asarray(src, np.float64), np.asarray(dst, np.float64), 0)
-    if H is None or not np.isfinite(H).all() or abs(np.linalg.det(H)) < 1e-12:
-        raise ValueError('These landmarks do not define a pitch plane.')
-    projected = transform_points(H, src)
-    w = np.c_[np.asarray(src), np.ones(len(src))] @ H[2]
+    src_a, dst_a = np.asarray(src, np.float64), np.asarray(dst, np.float64)
+    keep = np.ones(len(src), bool)
+
+    def fit(mask):
+        Hm, _ = cv2.findHomography(src_a[mask], dst_a[mask], 0)
+        if Hm is None or not np.isfinite(Hm).all() or abs(np.linalg.det(Hm)) < 1e-12:
+            raise ValueError('These landmarks do not define a pitch plane.')
+        errors = np.hypot(*(transform_points(Hm, src_a[mask])-dst_a[mask]).T)
+        return Hm, errors
+    H, errors = fit(keep)
+    if len(src) >= OUTLIER_MIN:
+        worst = int(np.argmax(errors))
+        if errors[worst] > OUTLIER_METRES and errors[worst] >= 3*max(.05, float(np.median(errors))):
+            proposed = keep.copy()
+            proposed[worst] = False
+            if _general_position(src_a[proposed]) and _general_position(dst_a[proposed]):
+                try:
+                    H2, errors2 = fit(proposed)
+                except ValueError:
+                    H2 = None
+                if H2 is not None and float(np.sqrt((errors2**2).mean())) < float(np.sqrt((errors**2).mean()))*.5:
+                    keep, H, errors = proposed, H2, errors2
+    w = np.c_[src_a[keep], np.ones(int(keep.sum()))] @ H[2]
     if (w <= 0).any() and (w >= 0).any():
         raise ValueError('The landmarks fold the pitch; check their names.')
     # Image and pitch keep the same orientation (the Jacobian determinant det(H)/w^3 is positive);
     # a mirrored solution means left/right or near/far labels were swapped.
     if np.linalg.det(H)*np.sign(w.mean()) <= 0:
         raise ValueError('The landmark sides look mirrored (left/right or near/far swapped).')
-    rms = float(np.sqrt(((projected-np.asarray(dst))**2).sum(axis=1).mean()))
-    if rms > max_error and len(src) > 4:
+    rms = float(np.sqrt((errors**2).mean()))
+    if rms > max_error and int(keep.sum()) > 4:
         raise ValueError(f'The landmarks disagree by {rms:.1f} m; check their positions.')
-    return H, rms
+    inliers = [n for n, k in zip(names, keep) if k]
+    px_points = [{'name': n, 'x': float(x), 'y': float(y)} for n, (x, y), k in zip(names, src, keep) if k]
+    return {'H': H, 'rms': rms, 'inliers': inliers, 'outliers': [n for n, k in zip(names, keep) if not k], 'points': px_points}
 
 
 def learn_size(keyframes, width, height):

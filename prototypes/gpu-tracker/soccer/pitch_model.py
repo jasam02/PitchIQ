@@ -33,6 +33,10 @@ PEOPLE_MIN = .5              # share of tracked people that must stand on the pr
 PEOPLE_STRIKES = 3           # consecutive checks failing that before the model is doubted
 MARGIN = .06                 # pitch-fraction margin for "on the pitch" (a touchline player is on it)
 REFINE_TOL = .008            # fraction of the frame width: the paint must agree with the fit this well
+OBSERVABILITY_DECAY = 30.0   # seconds: how fast the chain's geometric certainty fades for the purpose of anchoring a refinement
+REGISTER_MAX_SHIFT = .1      # fraction of the frame width: a direct registration further from the chain is suspect, unless the chain is weak
+REGISTER_WEAK = .5           # temporal confidence below which the chain is weak
+REGISTER_MATCHES_FLOOR = 40  # matches at which a direct registration's quality starts counting
 
 
 def levels(confidence):
@@ -63,6 +67,8 @@ class PitchTracker:
         self.matched = []
         self.evidence = []
         self.events = []              # [(time, kind, message)]
+        self.obs_time = None          # when the observability was last established by evidence (anchor or refinement)
+        self.refinement = None        # the last refinement: {'time', 'own' (its own observability), 'anchor' (what an anchor of it is worth)}
         self.strikes = 0
         self.inside = None            # (inside, total) of the last people check
 
@@ -100,6 +106,7 @@ class PitchTracker:
         self.details = dict(details or {})
         self.carried, self.anchored_at, self.confirmed_at, self.lost = 0.0, time, time, None
         self.anchored_index = index
+        self.obs_time, self.refinement = time, None
         self.strikes = 0
         self.events.append((time, 'anchored', f'camera homography anchored by a {note}' + (f' (landmarks agree within {rms:.2f} m)' if rms is not None else '') +
                             f'; observability {observability:.2f}, confidence {self.confidence:.2f}'))
@@ -123,7 +130,7 @@ class PitchTracker:
         else:
             self.temporal -= DECAY_LOOSE*dt
         self.carried += dt
-        if self.state in ('anchored', 'refined'):
+        if self.state in ('anchored', 'refined', 'reregistered'):
             self.state = 'carried'
         if self.temporal < DROP_BELOW:
             self.drop(time, 'carried too long without confirmation' if reliable else 'unreliable camera motion')
@@ -153,8 +160,14 @@ class PitchTracker:
                     # this evidence constrains the pitch better than what the chain rested on.
                     self.temporal = max(self.temporal, min(.96, .75+.07*len(self.matched)+.1*bool(circle)))
                     found = field.observability(dict(obs, H=fit.H), W, Hh, self.size, rms_px=fit.rms_px, jac=fit.jac)
+                    # What this refinement is worth as an anchor of its own: its own geometric certainty, or the
+                    # chain's faded since its evidence was established (a chain carried for long rests on its
+                    # motion estimate as much as on its keyframe). The live model keeps the chain's observability.
+                    since = max(0.0, time-(self.obs_time if self.obs_time is not None else time))
+                    faded = self.observability*math.exp(-since/OBSERVABILITY_DECAY)
+                    self.refinement = {'time': time, 'own': found['score'], 'anchor': max(found['score'], faded)}
                     if found['score'] > self.observability:
-                        self.observability, self.details = found['score'], found
+                        self.observability, self.details, self.obs_time = found['score'], found, time
                     self.carried, self.confirmed_at = 0.0, time
                     if self.source == 'none':
                         self.source = 'refined'
@@ -168,6 +181,27 @@ class PitchTracker:
                 self.confirmed_at, self.carried = time, 0.0
         self._check_people(people, time)
         self.evidence = self._explain()+self.evidence
+
+    def reregister(self, H_world_to_px, time, matches, rms_px, note):
+        """Adopt a direct registration of this frame to a keyframe's view (AnchorViews.register), which ties the
+        model to the keyframe's geometry without the drift of the motion chain. Refused when it would move the
+        visible ground by more than REGISTER_MAX_SHIFT of the frame while the chain is still confident, or when
+        it is not a plausible view. Returns the shift in pixels when adopted, else None."""
+        H = field.orient(np.asarray(H_world_to_px, np.float64), self.width, self.height)
+        if H is None or self.H is None or field.sanity(H, self.size, self.width, self.height):
+            return None
+        shift = self._shift(H)
+        if not math.isfinite(shift) or (shift > REGISTER_MAX_SHIFT*self.width and self.temporal >= REGISTER_WEAK):
+            self.events.append((time, 'register-refused', f'direct registration to {note} refused: it would move the view {shift:.0f} px'))
+            return None
+        before = self.confidence
+        quality = min(1.0, (matches-REGISTER_MATCHES_FLOOR)/100)*max(0.0, 1-rms_px/6.0)
+        self.H, self.state = H, 'reregistered'
+        self.temporal = max(self.temporal, .85+.1*quality)
+        self.carried, self.confirmed_at = 0.0, time
+        self.events.append((time, 'reregistered', f'registered directly to {note} ({matches} matches, {rms_px:.1f} px); '
+                                                  f'moved {shift:.1f} px, confidence {before:.2f} -> {self.confidence:.2f}'))
+        return shift
 
     def _shift(self, H_new):
         """Mean displacement (pixels) of ground points spread over the image between the current and a
@@ -238,6 +272,8 @@ class PitchTracker:
             return ('ANCHORED BY CALIBRATION' if self.source == 'calibration' else 'ANCHORED BY THE CENTRE CIRCLE AND HALFWAY LINE')+geometry
         if self.state == 'refined':
             return 'CONFIRMED BY PAINTED MARKINGS'+geometry
+        if self.state == 'reregistered':
+            return 'REGISTERED TO THE KEYFRAME VIEW'+geometry
         return f'USING TEMPORAL PREDICTION ({self.carried:.1f}s since confirmation)'+geometry
 
     def to_json(self):

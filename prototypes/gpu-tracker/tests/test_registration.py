@@ -375,5 +375,72 @@ class MidfieldAnchorTests(unittest.TestCase):
         self.assertIsNone(circle_points(detector.masks, touchline, model.markings))
 
 
+class PositionUncertaintyTests(unittest.TestCase):
+    """Pass 3 (Phase 1): every position carries a sigma in metres; nothing is written below the confidence
+    floor or above the horizon; the forward/backward disagreement is measured over the visible pitch."""
+
+    def setUp(self):
+        self.P = broadcast.camera()
+
+    def test_sigma_grows_with_distance_and_with_a_clipped_box(self):
+        P = low_camera()                                                  # a low side camera: strong perspective
+        near_px = tuple(field.project(P, [(52.5, 50.0)])[0])
+        far_px = tuple(field.project(P, [(52.5, 4.0)])[0])
+        near = registration.position(P, SIZE, near_px, 1.0)
+        far = registration.position(P, SIZE, far_px, 1.0)
+        self.assertIsNotNone(near[2])
+        self.assertGreater(far[2][1], 2*near[2][1])                       # far pixels are worth more metres across the pitch
+        self.assertGreater(far[2][0], near[2][0])
+        clipped = registration.position(P, SIZE, near_px, 1.0, (registration.FOOT_PIXELS, 30.0))
+        self.assertGreater(clipped[2][1], 3*near[2][1])                   # a box cut by the frame's bottom: the feet are below it
+        self.assertGreaterEqual(clipped[2][0], near[2][0])               # (a vertical pixel error also moves the point along the pitch)
+        disagreeing = registration.position(P, SIZE, near_px, 1.0, None, 4.0)
+        self.assertGreaterEqual(disagreeing[2][0], 4.0)                   # the registration's own disagreement adds in quadrature
+        self.assertEqual(near[1], disagreeing[1])                         # the confidence is unchanged (compatibility)
+
+    def test_positions_need_the_confidence_floor_and_stop_at_the_horizon(self):
+        P = end_camera()
+        grid = [(x, y) for x in np.linspace(5, 100, 20) for y in np.linspace(5, 63, 12)]
+        spot = max(grid, key=lambda p: field.px_per_metre(P, p))             # the nearest spot in view: placed with a confidence above zero
+        self.assertGreater(field.px_per_metre(P, spot), .7)
+        foot = field.project(P, [spot])[0]
+        above = None
+        for y in np.linspace(0, .29*H, 30):
+            if field.image_depth(P, [(W/2, y)])[0] <= 0:
+                above = y
+        self.assertIsNotNone(above, 'the end camera must have its horizon inside the frame')
+        people = [{'track': 1, 'state': 'confirmed', 'box': [foot[0]/W-.01, foot[1]/H-.1, .02, .1]},
+                  {'track': 2, 'state': 'confirmed', 'box': [.5-.01, above/H-.05, .02, .05]},
+                  {'track': 3, 'state': 'confirmed', 'box': [.49, .9, .02, .1]},      # cut by the bottom edge (feet below it)
+                  {'track': 4, 'state': 'confirmed', 'box': [.49, .89, .02, .1]}]     # the same person 7 px higher: whole
+        entry = lambda c: {'H': P, 'confidence': c, 'temporal': c, 'observability': .8, 'source': 'carried', 'direction': 'forward', 'anchor': 0, 'age': 1.0, 'disagreement': 0.0}
+        frames = [{'time': 0.0, 'people': [dict(p) for p in people], 'ball': {'state': 'UNKNOWN'}},
+                  {'time': .04, 'people': [dict(p) for p in people], 'ball': {'state': 'UNKNOWN'}}]
+        registration.remap_frames(frames, [entry(.6), entry(.1)], W, H, SIZE)
+        ok, horizon, clipped, whole = frames[0]['people']
+        self.assertIn('pitch', ok)
+        self.assertIn('pitchSigma', ok)
+        self.assertEqual(horizon.get('pitchStatus'), 'horizon')
+        self.assertNotIn('pitch', horizon)
+        self.assertTrue(clipped.get('pitchClipped'))
+        self.assertFalse(whole.get('pitchClipped'))
+        self.assertGreaterEqual(max(clipped['pitchSigma']), max(whole['pitchSigma']))   # (the size of the effect is tested above on a low camera)
+        self.assertFalse(frames[1]['calibrated'])                        # below the floor: no positions at all
+        self.assertIsNone(frames[1]['pitchCoordinates'])
+        self.assertTrue(all(p.get('pitchStatus') == 'unresolved' and 'pitch' not in p for p in frames[1]['people']))
+
+    def test_disagreement_is_measured_over_the_visible_pitch_and_is_finite_at_the_horizon(self):
+        shifted = np.array([[1, 0, 60], [0, 1, 0], [0, 0, 1]], float) @ self.P
+        self.assertLess(registration._disagreement(self.P, self.P, W, H, SIZE), 1e-6)
+        self.assertGreater(registration._disagreement(self.P, shifted, W, H, SIZE), 2.0)
+        pts = registration.ground_points(self.P, shifted, W, H, SIZE)
+        self.assertGreaterEqual(len(pts), 10)
+        self.assertGreater(float(np.ptp(pts[:, 1])), .4*H)                 # far and near rows both count
+        end = end_camera()
+        d = registration._disagreement(end, np.array([[1, 0, 20], [0, 1, 0], [0, 0, 1]], float) @ end, W, H, SIZE)
+        self.assertTrue(math.isfinite(d))
+        self.assertGreater(d, 0.0)
+
+
 if __name__ == '__main__':
     unittest.main()

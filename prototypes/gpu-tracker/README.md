@@ -75,7 +75,7 @@ video frame
   -> team kits + kit votes .......... soccer/teams.py       two team kits learned online, plus referee and goalkeeper kits
   -> position cues .................. soccer/goals.py       near a goal / in a penalty area, deepest, isolated
   -> role classification ............ soccer/roles.py       ~10 s of detector, kit and position evidence per track
-  -> pitch coordinates .............. soccer/calibration.py optional landmark calibration, carried through pans
+  -> pitch coordinates .............. soccer/registration.py landmark keyframes carried both ways, re-registered to their views, remapped offline
   -> 2D match view .................. tactical.js          top-down recreation from the saved result, in step with the video
   -> GLOBAL IDENTITY MANAGER ........ soccer/identity.py    candidates, promotion, re-ID, role locking, swap guard, sanity
   -> ball tracker ................... soccer/ball.py        candidate scoring + one camera-compensated Kalman ball track
@@ -526,23 +526,92 @@ over the connected arcs of the ridge mask around the likeliest halfway-line
 candidates; a thin ellipse that only explains a straight line is rejected.
 The circle also feeds the refinement of an existing model.
 
+**Direct re-registration to the keyframe's view** (`soccer/camera.py`
+`AnchorViews`). A chain of frame-to-frame motions drifts: measured on the
+test clips, a keyframe carried through 22 s of a low amateur camera's pan was
+about 100 px (20 m on the far half of the pitch) off at the next keyframe, and
+unusable after 5 s on a wide Veo lens. So the frame a keyframe (or an
+automatic anchor) was taken on is remembered as SIFT features (people and the
+top band masked, at 960 px width), and once a second the current frame is
+matched to the remembered views directly (RANSAC homography, at least 40
+inlier matches within 3 px, at least 30% of the frame covered). A good match
+re-ties the model to that keyframe's geometry (`REGISTERED TO THE KEYFRAME
+VIEW`), restores its temporal confidence and becomes a `reregistered` anchor of
+the offline registration, rooted at the keyframe; a match that would move the
+visible ground by more than 10% of the frame width while the chain is still
+confident is refused and logged. Nothing is learned from the grass alone: with
+too few features the chain simply continues. When a keyframe's view is leaving
+the frame (fewer than 120 matches, or less than 60% of the frame covered), the
+current re-registered frame is kept as a *relay* view rooted at the same
+keyframe, and the following frames register to it: a pan is bridged by a few
+relay hops of sub-pixel residual instead of hundreds of frame-to-frame steps.
+Keyframe views are always tried first and used whenever they still match well
+(80 matches or more); relays only when no keyframe view does. On the amateur
+test clip this brought the error of carrying the 0 s keyframe to the one at
+22.3 s from 101 px (18 m) to 49 px (5 m); the carry in the other direction is
+unchanged, because relays exist only forward in time (`registrations` in
+`summary.pitch.registration` counts tried, adopted, refused, root changes,
+relays made and registrations via a relay).
+
+**What a painted-line refinement is worth.** A refinement moves the live
+model and restores its temporal confidence, but it anchors the offline
+registration only when the paint it matched constrains the pitch on its own
+(observability at least 0.15: both marking families, or the centre circle with
+a transverse line). A single touchline match no longer restarts a chain at the
+keyframe's certainty; such anchors used to carry a drifted view confidently.
+A refinement that does anchor is worth the larger of its own observability and
+the chain's, faded with the time since the chain's evidence (30 s time
+constant).
+
+**Keyframes just outside the segment** are not lost: a keyframe up to 15 s
+before the start is carried into the segment by processing the frames between
+for camera motion and pitch evidence only (pre-roll, no detections, nothing
+emitted), and one up to 15 s after the end is reached the same way so that the
+backward sweep brings it in. Their pitch events say so.
+
+**Keyframes with a wrong click.** Among six or more landmarks, one that lies
+more than 3 m off the plane the others define, and three times further than
+their median, is left out (a warning names it). Landmarks disagreeing by up to
+4 m still anchor; the residual lowers the observability instead of a hard 1.5 m
+limit dropping the keyframe silently. (A Jacobian condition number was tried for
+keyframes and found uninformative: column-normalised, every real keyframe set
+scored 55–175, and degenerate sets are refused by the general-position check
+already; keyframes rest on their spread, axes and residual.)
+
 **Offline registration passes** (`soccer/registration.py`, after tracking).
 Pass 1 records, per frame, the camera motion and how it was measured, and
-every validated anchor of the run (landmark keyframes, painted markings that
-confirmed the model, automatic midfield anchors) with its observability. Pass
-2 carries each anchor forward *and* backward through the motion chain; between
-anchors the two directions are blended by confidence and their disagreement
-(metres) lowers it; a cut or a stretch without any motion estimate ends a
-chain. Pass 3 recomputes every person's and the ball's pitch position from the
-final geometry: each position carries its own confidence (the calibration's
-times how much a few pixels of foot error are worth in metres there), a
-position that does not land on the pitch is `unresolved`, and nothing is
-deleted — a registration failure can never end an image track. Frames where
-many live image tracks have no pitch position are reported as `MAPPING LOSS`
-calibration events (the image tracks are intact, the registration is what
-failed), never as players leaving the match. A section that asked for
-confirmation online is withdrawn when the passes cover it. The old
-backward-only fill is replaced by this.
+every validated anchor of the run (landmark keyframes, direct re-registrations,
+painted markings that confirmed the model with evidence of their own,
+automatic midfield anchors) with its observability and the keyframe its chain
+started from (`root`). Pass 2 carries each anchor forward *and* backward
+through the motion chain; between anchors the two directions are blended by
+confidence and their disagreement lowers it. The disagreement is the median
+distance, in metres, between the two mappings of a grid of image points over
+the visible pitch, far rows included (it used to be measured at four near
+points, where a pixel is worth centimetres, and so overstated the far-field
+accuracy); points behind either horizon are left out. A cut or a stretch
+without any motion estimate ends a chain. Pass 3 recomputes every person's and
+the ball's pitch position from the final geometry: each position carries its
+confidence (the calibration's times how much a few pixels of foot error are
+worth in metres there) and `pitchSigma`, the error in metres along and across
+the pitch (3 px of foot error through the local Jacobian of the mapping, 35%
+of the box height instead when the box is cut by the bottom of the frame and
+the feet are below it, `pitchClipped`, plus the frame's disagreement in
+quadrature). No position is written on a frame whose registration confidence is
+below 0.2 (`calibrated: false`), a foot above the horizon is `pitchStatus:
+horizon`, a position that does not land on the pitch is `unresolved`, and
+nothing is deleted — a registration failure can never end an image track.
+Frames where many live image tracks have no pitch position are reported as
+`MAPPING LOSS` calibration events (the image tracks are intact, the
+registration is what failed), never as players leaving the match. A section
+that asked for confirmation online is withdrawn when the passes cover it.
+
+**Lens distortion as a measurement** (`soccer/lens.py`). On every evidence
+tick the paint along the longest detected markings is tested for the
+one-parameter division model that straightens it; `summary.pitch.registration.lens`
+gives the video's median coefficient `k` (half-diagonal units), how many frames
+measured it, the median share of the bend it removed and the sign agreement.
+It is a diagnostic: the undistortion is not applied to the geometry yet.
 
 While the model is trusted (MEDIUM or better) its projected rectangle is the
 playable region — off-screen and faded edges included, predicted from the model
@@ -556,11 +625,15 @@ zone that was never measured.
 
 **Pitch confirmation.** When no painted boundary line is found and no model
 covers a stretch of the video for 3 s or more, the stretch is reported once
-(nearby stretches merged) in the *Pitch confirmation* panel and in
-`pitchIssues`: its time range, the most useful frame in it (the halfway line in
-view, as much grass as possible) and the landmarks worth marking there, with
-positions where the image already gives them (the halfway line's ends at the
-grass edges). *Confirm pitch* pauses on that frame with those points placed
+(stretches closer than 3 s merged, and up to 10 s apart when one reliably
+measured camera movement joins them: one pan asks once) in the *Pitch
+confirmation* panel and in `pitchIssues`: its time range, the most useful frame
+in it (the halfway line in view, as much grass as possible), the landmarks
+worth marking there, with positions where the image already gives them (the
+halfway line's ends at the grass edges), and a `hint` naming the landmark
+family the nearby evidence lacked (a goal line, box front or the halfway line
+when only touchlines were seen; the near touchline when the earlier keyframe
+lies on one half only). *Confirm pitch* pauses on that frame with those points placed
 (hollow: drag them onto the real lines), lets you add the rest, and saves an
 ordinary calibration keyframe; the next run anchors the model there and carries
 it through the section in both directions. The four corners work as a last
@@ -935,8 +1008,11 @@ on the latest result.
 
 Runs are saved under `runs/<video-content-hash>/<run>/`: `config.json`,
 `result.json`, `identities.json` (registry and team kits, used to continue
-identities), `events.log` and the latest `preview.jpg`. The viewer downloads
-`result.json`:
+identities), `registration.json` (what the offline registration used: the
+per-frame camera-motion log, every anchor with its `root`, the keyframes with
+the frame where each applied; `tools/holdout.py` rebuilds the registration
+from it), `events.log` (the offline passes' events appended after the online
+ones) and the latest `preview.jpg`. The viewer downloads `result.json`:
 
 `result.json` has `version: 3`:
 
@@ -948,8 +1024,10 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `cameraMotion`, the centre `circle` seen and the last automatic `midfield`
   attempt), `calibration` (the final registration of the frame after the
   offline passes: `confidence`, `temporal`, `observability`, `source` —
-  `landmarks`, `paint`, `auto-midfield`, `carried`, `interpolated`, `none` —
-  `direction`, `anchor` frame, `anchorAge`, `disagreement`), `mapping`
+  `landmarks`, `reregistered`, `paint`, `auto-midfield`, `carried`,
+  `interpolated`, `none` — `direction`, `anchor` frame, `anchorAge`,
+  `disagreement` in metres over the visible pitch, `H` the frame's final
+  homography, world metres to pixels, as nine numbers), `mapping`
   (`imageTracks`, `mapped`), `pitchMode` (`automatic`, `robust`, `assist`),
   `pitchConfidence`, `pitchCoordinates` (`calibration`, `predicted` or `null`),
   `boundary`, `cameraReliable`, `cut`, `segment`, `calibrated`, `ball`,
@@ -961,9 +1039,12 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   `CANDIDATE`, …), `state` (`candidate`, `uncertain`, `confirmed`, `nontarget`,
   `unknown`, `rejected`), `hint` for ignored people (`REFEREE_LIKE`,
   `SIDELINE_OFFICIAL`), `identityConfidence`, `roleConfidence`, `box` (normalized screen
-  coordinates), optional `pitch` with `pitchConfidence` and `pitchSource` (or
-  `pitchStatus: unresolved` when no registration covers the frame or the feet
-  do not land on the pitch), `zone`, `cls` (detector class), `evidence`
+  coordinates), optional `pitch` with `pitchConfidence`, `pitchSource`,
+  `pitchSigma` (metres along and across the pitch) and `pitchClipped` when the
+  box is cut by the bottom of the frame (or `pitchStatus: unresolved` when no
+  registration of confidence 0.2 or more covers the frame or the feet do not
+  land on the pitch, `horizon` when the foot is above the horizon), `zone`,
+  `cls` (detector class), `evidence`
   (`observed`, `reidentified` or `relabelled` after a role change), `reason`
   while unresolved, and `why` (the role evidence in one line) on evidence ticks.
 - `ball`: `state` (`TRACKED`, `MISSING`, `UNKNOWN`), `phase` (`SEARCHING`,
@@ -998,10 +1079,15 @@ identities), `events.log` and the latest `preview.jpg`. The viewer downloads
   the pitch size, the frames filled by the offline pass, far-tile passes, the
   number of sections needing confirmation and `registration` (calibrated and
   confident shares, mean observability, every anchor with its source and
-  observability parts, frames per source, `mappingLossFrames`,
+  observability parts and `root`, frames per source, `mappingLossFrames`,
   `medianMappedShare`, ball frames bridged, `lensCurvature`,
-  `vanishingPointShare`, mapping warnings). `summary.ball.localSearches` counts
-  the full-resolution crops searched around the predicted ball.
+  `vanishingPointShare`, mapping warnings, `registrations` — direct
+  re-registrations tried, adopted, refused and chain root changes — and
+  `lens`). `summary.timing` has the milliseconds per frame of each online
+  stage (detector passes, far tiles, ball tiles, ball crops, tracking), the
+  offline passes in seconds and the pre-roll/post-roll frames.
+  `summary.ball.localSearches` counts the full-resolution crops searched
+  around the predicted ball.
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
   share of on-pitch observations with an identity, ball coverage, ball tracks,
@@ -1015,6 +1101,23 @@ this format directly):
 ```bat
 pnpm evaluate:soccer prototypes\gpu-tracker\runs\<hash>\<run>\result.json ground-truth.json
 ```
+
+## Evaluation tools
+
+`tools/run_segment.py --video <upload key or path> --start S --seconds N --out DIR`
+runs a segment into a scratch directory with the video's saved settings
+(`runs/<key>/settings.json`), never writing under `runs/`; `--drop-keyframe T`
+leaves a keyframe out, `--batch jobs.json` runs several segments in one
+process. `tools/compare.py A [B]` prints the metrics of a run or of two runs
+side by side (people tracked and drawn per frame, identified share by box
+height, identity, pitch, ball, timing) and how much B agrees with A (people
+matched by box overlap, label agreement exact and under the best id mapping,
+pitch position distance in metres). `tools/holdout.py RUN_DIR` rebuilds the
+registration without each calibration keyframe (and without the anchors rooted
+at it) and scores the rebuilt homography on that keyframe's landmarks, in
+pixels and metres; it also reports the pan stability (ground jumps beyond the
+measured camera motion) and the disagreement share. `PROGRESS.md` records the
+runs and numbers of every phase.
 
 ## Tests
 
@@ -1107,8 +1210,9 @@ No global Python packages are changed.
   and the painted-line refinement can only correct what it can match (lines
   more than 1.5% of the frame width from the prediction are left alone). Add a
   keyframe where the overlay visibly disagrees with the lines. The recorded
-  `curvature` says how bent the longest line is; lens undistortion is not
-  applied.
+  `curvature` says how bent the longest line is and `registration.lens` the
+  division-model coefficient that would straighten the markings; the
+  undistortion is not applied yet.
 - A low sideline camera sees two converging touchlines, no corner and often
   no goal line. The automatic midfield anchor needs the centre circle, the
   halfway line and one touchline in view with legible paint; where the circle

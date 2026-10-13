@@ -18,6 +18,16 @@ from .geometry import foot_point, transform_points
 from .pitch_model import LOW_LEVEL, PitchTracker
 
 WORK_W = 960
+KEYFRAME_MAX_RMS = 4.0   # metres: landmarks disagreeing by more than this never anchor; below it the residual lowers the observability
+REGISTER_FEATURES = 2500 # SIFT features kept per view for direct re-registration
+REGISTER_RATIO = .75     # Lowe ratio for feature matches
+REGISTER_MIN_MATCHES = 40    # inlier matches a direct registration needs
+REGISTER_MAX_RMS = 3.0       # pixels (at WORK_W) of inlier residual it may have
+REGISTER_MIN_OVERLAP = .3    # share of the current frame the keyframe's view must cover
+REGISTER_VIEWS = 8           # keyframe views remembered
+RELAY_VIEWS = 6              # relay views remembered (frames re-registered to a keyframe, kept when its view is leaving)
+RELAY_BELOW = 120            # matches to a keyframe view below which the current frame becomes a relay
+RELAY_OVERLAP = .6           # ... or when the keyframe's view covers less of the frame than this
 COARSE_W = 320           # width of the frame used for the coarse (phase-correlation) pan estimate
 COARSE_RESPONSE = .25    # phase-correlation peak response needed to trust a coarse pan estimate
 ROUND_TRIP_PX = 1.5      # a flow correspondence must return to within this of its start when tracked back
@@ -121,6 +131,113 @@ class CameraMotion:
         return M, reliable, cut
 
 
+class AnchorViews:
+    """The frames calibration keyframes (and automatic anchors) were taken on, remembered as SIFT features
+    with the homography of that frame, so that a later frame can be registered to them directly: a chain
+    of frame-to-frame motions drifts by metres within seconds on low amateur cameras, a direct match to the
+    keyframe's view does not while enough of it stays in view. People and the top band are masked as in
+    the motion estimate; everything works at WORK_W width."""
+
+    def __init__(self, width, height, limit=REGISTER_VIEWS, relays=RELAY_VIEWS):
+        self.width, self.height = width, height
+        self.scale = WORK_W/width
+        self.views = {}
+        self.limit = limit
+        self.relays = relays
+        self.sift = None
+        self.matcher = None
+
+    def _tools(self):
+        if self.sift is None:
+            self.sift = cv2.SIFT_create(nfeatures=REGISTER_FEATURES)
+            self.matcher = cv2.BFMatcher(cv2.NORM_L2)
+
+    def features(self, gray, person_boxes):
+        """Keypoints and descriptors of a WORK_W-wide grey frame, people and the top band masked."""
+        self._tools()
+        mask = np.full(gray.shape, 255, np.uint8)
+        mask[:round(gray.shape[0]*.25)] = 0
+        for x, y, bw, bh in person_boxes:
+            cv2.rectangle(mask, (int(x*gray.shape[1]), int(y*gray.shape[0])), (int((x+bw)*gray.shape[1]), int((y+bh)*gray.shape[0])), 0, -1)
+        keypoints, descriptors = self.sift.detectAndCompute(gray, mask)
+        if descriptors is None or len(keypoints) < REGISTER_MIN_MATCHES:
+            return None, None
+        return np.float32([k.pt for k in keypoints]), descriptors
+
+    def remember(self, index, time, gray, person_boxes, H, observability, root, relay=False):
+        """Keep this frame as a view to register to. H: world metres -> full-resolution pixels of this frame.
+        A relay is a re-registered frame kept while the keyframe's own view leaves the frame: later frames
+        register to it, rooted at the same keyframe, with far fewer hops than the frame-to-frame chain."""
+        points, descriptors = self.features(gray, person_boxes)
+        if points is None:
+            return False
+        self.views[index] = {'index': index, 'time': time, 'points': points, 'descriptors': descriptors, 'H': np.asarray(H, np.float64).copy(),
+                             'observability': float(observability), 'root': root, 'shape': gray.shape, 'relay': relay}
+        for kind, limit in ((True, self.relays), (False, self.limit)):
+            while sum(1 for v in self.views.values() if v['relay'] == kind) > limit:
+                del self.views[min(i for i, v in self.views.items() if v['relay'] == kind)]
+        return True
+
+    def register(self, gray, person_boxes, prefer=None):
+        """Register the current frame to the remembered views: {'index', 'H' (anchor-frame pixels -> current
+        pixels, full resolution), 'matches', 'rms', 'overlap', 'relay'} of the view to use, or None. Keyframe
+        views come first (the preferred one, then the most recent) and one that still matches well is kept; only
+        when none does is the best view, relays included, used."""
+        if not self.views:
+            return None
+        points, descriptors = self.features(gray, person_boxes)
+        if points is None:
+            return None
+        order = sorted(self.views, key=lambda i: (self.views[i]['relay'], i != prefer, -i))
+        best = None
+        for index in order:
+            view = self.views[index]
+            candidate = self._match(view, points, descriptors, gray.shape)
+            if candidate is None:
+                continue
+            if not view['relay'] and candidate['matches'] >= 2*REGISTER_MIN_MATCHES:
+                return candidate
+            if best is None or candidate['matches'] > best['matches']:
+                best = candidate
+        return best
+
+    def _match(self, view, points, descriptors, shape):
+        pairs = self.matcher.knnMatch(view['descriptors'], descriptors, k=2)
+        src, dst = [], []
+        for pair in pairs:
+            if len(pair) == 2 and pair[0].distance < REGISTER_RATIO*pair[1].distance:
+                src.append(view['points'][pair[0].queryIdx])
+                dst.append(points[pair[0].trainIdx])
+        if len(src) < REGISTER_MIN_MATCHES:
+            return None
+        src, dst = np.float32(src), np.float32(dst)
+        Hm, mask = cv2.findHomography(src, dst, cv2.RANSAC, 3.0)
+        if Hm is None or mask is None or not np.isfinite(Hm).all() or abs(Hm[2, 2]) < 1e-9:
+            return None
+        Hm = Hm/Hm[2, 2]
+        inliers = mask.ravel().astype(bool)
+        n = int(inliers.sum())
+        if n < REGISTER_MIN_MATCHES or np.linalg.det(Hm[:2, :2]) <= 0 or abs(Hm[2, 0]) > 1e-3 or abs(Hm[2, 1]) > 1e-3:
+            return None
+        rms = float(np.sqrt((np.hypot(*(transform_points(Hm, src[inliers])-dst[inliers]).T)**2).mean()))
+        if rms > REGISTER_MAX_RMS:
+            return None
+        h, w = shape
+        corners = transform_points(Hm, [(0, 0), (w, 0), (w, h), (0, h)])
+        overlap = _overlap(corners/[w, h])
+        if overlap < REGISTER_MIN_OVERLAP:
+            return None
+        S = np.diag([self.scale, self.scale, 1.0])
+        return {'index': view['index'], 'H': np.linalg.inv(S) @ Hm @ S, 'matches': n, 'rms': rms, 'overlap': overlap, 'relay': view['relay']}
+
+
+def _overlap(polygon):
+    """Share of the unit frame covered by a (convex) normalized polygon."""
+    from .geometry import clip_unit, polygon_area
+    clipped = clip_unit([(float(x), float(y)) for x, y in polygon])
+    return polygon_area(clipped) if len(clipped) >= 3 else 0.0
+
+
 class CameraState:
     """Camera segment (changes on every cut) and the transform from the current frame to the
     segment's first frame. Stabilized coordinates are comparable only within one segment."""
@@ -217,11 +334,17 @@ class Keyframes:
             anchor = self.calibrations[self.next_calibration]
             if timestamp-anchor['time'] < .12:
                 try:
-                    H, self.rms = calibration.solve(anchor['points'], self.width, self.height, size=self.size)
-                    points = [{'name': p['name'], 'x': p['x']*self.width, 'y': p['y']*self.height} for p in anchor['points']]
+                    # Up to KEYFRAME_MAX_RMS metres of landmark disagreement anchor the model: the residual lowers the
+                    # observability (field.observability) instead of a hard limit dropping the keyframe silently.
+                    solved = calibration.solve_details(anchor['points'], self.width, self.height, max_error=KEYFRAME_MAX_RMS, size=self.size)
+                    H, self.rms, points = solved['H'], solved['rms'], solved['points']
                     observability = calibration.field.observability({'points': points}, self.width, self.height, size=self.size, rms_m=self.rms)
+                    if solved['outliers']:
+                        observability['outliers'] = solved['outliers']
                     if self.pitch.anchor(H, timestamp, self.rms, observability=observability['score'], details=observability):
                         self.warning, self.fresh, self.anchored, self.anchored_time = None, True, (points, self.rms), anchor['time']
+                        if solved['outliers']:
+                            self.warning = f'Calibration at {anchor["time"]:.2f}s: {", ".join(solved["outliers"])} disagreed with the other landmarks and was left out'
                     else:
                         self.warning = f'Calibration at {anchor["time"]:.2f}s ignored: it does not describe a pitch plane in front of the camera'
                 except ValueError as error:

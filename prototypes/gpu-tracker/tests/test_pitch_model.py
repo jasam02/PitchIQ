@@ -1,5 +1,6 @@
 """The tracked pitch model: canonical geometry, confidence, carrying, refinement, offline propagation,
 and the robust-footage behaviour of the person filter and the tracker (modes and confirmation requests)."""
+import math
 import unittest
 
 import cv2
@@ -10,7 +11,7 @@ from scene import H, W, draw_person, person_box, pitch_frame
 from soccer import calibration, field
 from soccer.camera import Keyframes
 from soccer.pitch import FieldFilter, PitchDetector, PitchModel, assess_confidence, suggest_landmarks
-from soccer.pitch_model import HIGH, MEDIUM, PitchTracker, propagate
+from soccer.pitch_model import HIGH, MEDIUM, MIN_ANCHOR, PitchTracker, propagate
 from soccer.relevance import assess, fit_size_model
 
 SIZE = field.PitchSize()
@@ -311,6 +312,92 @@ class SuggestionTests(unittest.TestCase):
         self.assertAlmostEqual(names['halfway-far']['x'], .5, delta=.02)
         self.assertLess(names['halfway-far']['y'], names['halfway-near']['y'])
         self.assertFalse(names['centre-spot']['predicted'])
+
+
+class RefinementAnchorTests(unittest.TestCase):
+    """Phase 1: a painted-line refinement anchors the offline registration only on its own evidence; a weak
+    match steadies the live model but never restarts a chain at the keyframe's certainty."""
+
+    def setUp(self):
+        self.P = broadcast.camera()
+        self.tracker = PitchTracker(W, H)
+        self.assertTrue(self.tracker.anchor(np.linalg.inv(self.P), 0.0, .1, observability=.8, index=0))
+        self.assertEqual(self.tracker.anchored_index, 0)
+
+    def drift(self, seconds):
+        wrong = np.array([[1, 0, -6], [0, 1, 3], [0, 0, 1]], float)
+        self.tracker.carry(wrong, True, False, seconds, seconds)
+
+    def test_a_single_touchline_steadies_the_model_but_is_not_an_anchor(self):
+        self.drift(6.0)
+        self.tracker.refine(segments(self.P, ['far touchline']), 6.2)
+        self.assertEqual(self.tracker.state, 'refined')
+        self.assertGreaterEqual(self.tracker.temporal, .8)                   # the live model is steadied
+        self.assertEqual(self.tracker.observability, .8)                      # the chain's certainty is untouched
+        r = self.tracker.refinement
+        self.assertLess(r['own'], MIN_ANCHOR)                                 # one touchline fixes neither the ends nor the scale
+        self.assertLess(r['anchor'], .8)                                      # what it is worth as an anchor: the chain's, faded
+        self.assertGreater(r['anchor'], r['own'])
+
+    def test_both_marking_families_make_an_anchor_of_their_own(self):
+        self.drift(6.0)
+        self.tracker.refine(segments(self.P, ['far touchline', 'near touchline', 'halfway line', 'left penalty area front']), 6.2)
+        self.assertEqual(self.tracker.state, 'refined')
+        r = self.tracker.refinement
+        self.assertGreaterEqual(r['own'], MIN_ANCHOR)
+        self.assertGreaterEqual(r['anchor'], r['own'])
+
+    def test_the_faded_chain_certainty_follows_the_time_since_its_evidence(self):
+        self.drift(20.0)
+        self.tracker.refine(segments(self.P, ['far touchline']), 20.2)
+        self.assertIsNotNone(self.tracker.refinement)
+        self.assertLess(self.tracker.refinement['anchor'], .8*math.exp(-20/35))   # fades with OBSERVABILITY_DECAY
+        self.assertGreater(self.tracker.refinement['anchor'], .3)
+
+
+class RollTests(unittest.TestCase):
+    """Phase 1: a calibration keyframe just before the segment (or just after it) reaches the segment through
+    frames processed for camera motion and pitch evidence only; the offline registration carries it in."""
+
+    def test_keyframes_outside_the_segment_are_carried_in(self):
+        import pipeline
+        from soccer.local import BotSortTracker
+        from soccer.tracker import SoccerTracker, config_from
+        P = broadcast.camera()
+        names = ['corner-far-left', 'corner-far-right', 'halfway-far', 'halfway-near', 'centre-spot', 'left-penalty-box-front-far']
+        points = [normalized(P, n) for n in names]
+        config = config_from({'calibrations': [{'time': 0.0, 'points': points}, {'time': 2.0, 'points': points}]})
+        tracker = SoccerTracker(W, H, config, BotSortTracker(5), None)
+        frame = broadcast.render(P)
+        rows = TrackerModeTests.people_rows(TrackerModeTests(), P, 0)
+        for t in (0.0, .2, .4):                                   # pre-roll: the keyframe at 0 s, three frames before the start
+            tracker.roll(frame, t)
+        tracker.offset = len(tracker.frame_log)
+        frames = []
+        for t in (.6, .8, 1.0, 1.2, 1.4):                         # the segment
+            observation, _, _ = tracker.step(frame, t, rows)
+            frames.append({'time': t, 'frame': int(t*5), **observation})
+        tracker.emitted = len(frames)
+        for t in (1.6, 1.8, 2.0, 2.2):                            # post-roll up to the keyframe at 2 s
+            tracker.roll(frame, t)
+        self.assertEqual(len(tracker.frame_log), 12)
+        self.assertEqual([a.index for a in tracker.anchors if a.source == 'landmarks'], [0, 10])
+        pre = [e for e in tracker.events if e['kind'] == 'pitch' and e['time'] < .6]
+        self.assertTrue(pre and all('outside the segment' in e['message'] for e in pre), pre)
+        filled, timeline = pipeline.finalize_pitch(frames, tracker)
+        self.assertEqual(len(timeline), 5)
+        self.assertTrue(all(f['calibrated'] for f in frames))
+        # Both keyframes, from outside the segment, reach the middle frame (a direct registration to the static view may anchor it too).
+        self.assertIn(frames[2]['calibration']['source'], ('interpolated', 'reregistered'))
+        self.assertTrue(all(f['calibration']['confidence'] >= .5 for f in frames))
+        centre = field.project(P, [MARKS['centre-spot']])[0]
+        x, y = field.to_pitch(timeline[2]['H'], SIZE, tuple(centre))
+        self.assertAlmostEqual(x, .5, places=2)
+        self.assertAlmostEqual(y, .5, places=2)
+        summary = tracker.registration
+        self.assertEqual(summary['calibratedFrames'], 5)
+        self.assertEqual(sorted(a['frame'] for a in summary['anchors'] if a['source'] == 'landmarks'), [-3, 7])   # relative to the segment
+        self.assertEqual(len(tracker.emitted_log()), 5)
 
 
 if __name__ == '__main__':
