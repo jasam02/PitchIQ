@@ -319,10 +319,10 @@ def _hypot(x, y):
 
 
 def _project_rows(M, rows):
-    """M @ row for every row of (n, 3), as a stack of matrix-vector products: numpy's own small-matrix
-    loop, the arithmetic the per-point `H @ [x, y, 1.0]` used, bit for bit (a (n, 3) @ M.T goes through
-    BLAS and rounds differently)."""
-    return np.matmul(M[None], rows[:, :, None])[:, :, 0]
+    """M[b] @ row for every row of rows[b] (M: (B, 3, 3), rows: (B, n, 3)), as a stack of matrix-vector
+    products: numpy's own small-matrix loop, the arithmetic the per-point `H @ [x, y, 1.0]` used, bit
+    for bit (a (n, 3) @ M.T goes through BLAS and rounds differently)."""
+    return np.matmul(M[:, None], rows[..., None])[..., 0]
 
 
 def _safe_depth(w):
@@ -356,77 +356,148 @@ def _prepared(obs, sz, learn):
     return prep
 
 
-def _residuals(params, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale):
-    """The residual vector of the fit, in this order: the landmark points (x, y each; in pixels, or in
-    metres over the local image scale with obs['metric']), the painted lines (both observed endpoints'
-    distances to the predicted line, weighted), the centre-circle points (radius error, scaled to pixels),
-    the prior grid, the gauge term on the homography's norm and, when the size is learned, the weak pull
-    towards the standard size. Vectorized over the observations; the arithmetic per observation is the
-    one the earlier per-point loops did, bit for bit (see _hypot)."""
-    H = params[:9].reshape(3, 3)
-    sz = PitchSize(params[9], params[10], size.source) if learn else size
-    prep = _prepared(obs, sz, learn)
-    world, line_a, circle = prep['world'], prep['line_a'], prep['circle']
-    metric = bool(obs.get('metric', False)) and len(world) > 0
+def _stack(preps, key):
+    """The arrays of one key of several prepared observations as one (B, ...) array; a broadcast view
+    when they are all the same object (the size is not being learned)."""
+    arrays = [prep[key] for prep in preps]
+    if all(array is arrays[0] for array in arrays):
+        return np.broadcast_to(arrays[0], (len(arrays),)+arrays[0].shape)
+    return np.stack(arrays)
+
+
+def _residual_rows(P, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale):
+    """The residual vectors of several parameter vectors at once: P (B, 9 or 11) -> (B, m). Row b is
+    bit for bit what _residuals gives for P[b]: every operation is elementwise or a stacked product,
+    and the two that are not (the prior grid's BLAS product, the gauge norm) run per row.
+
+    The residual order: the landmark points (x, y each; in pixels, or in metres over the local image
+    scale with obs['metric']), the painted lines (both observed endpoints' distances to the predicted
+    line, weighted), the centre-circle points (radius error, scaled to pixels), the prior grid, the
+    gauge term on the homography's norm and, when the size is learned, the weak pull towards the
+    standard size. The arithmetic per observation is the one the earlier per-point loops did, bit for
+    bit (see _hypot and _project_rows)."""
+    P = np.asarray(P, np.float64)
+    B = len(P)
+    H = P[:, :9].reshape(B, 3, 3)
+    sizes = [PitchSize(row[9], row[10], size.source) for row in P] if learn else [size]*B
+    preps = [_prepared(obs, sz, learn) for sz in sizes]
+    world, pixels, line_a, line_b, ends, weights, circle = (_stack(preps, key) for key in
+                                                            ('world', 'pixels', 'line_a', 'line_b', 'ends', 'weights', 'circle'))
+    n_points, n_lines, n_circle = world.shape[1], line_a.shape[1], circle.shape[1]
+    metric = bool(obs.get('metric', False)) and n_points > 0
     pairs = []   # the (x, y) arrays whose hypot the parts need, taken in one call below
-    if len(world):
+    if n_points:
         q = _project_rows(H, world)
-        proj = q[:, :2]/_safe_depth(q[:, 2])[:, None]
-        res_points = proj-prep['pixels']
+        proj = q[..., :2]/_safe_depth(q[..., 2])[..., None]
+        res_points = proj-pixels
         if metric:
             # Residual in metres: pixel error over the local image scale, so far landmarks (few pixels
             # per metre) weigh as much as near ones.
             qx, qy = _project_rows(H, world+[1.0, 0.0, 0.0]), _project_rows(H, world+[0.0, 1.0, 0.0])
-            dx = qx[:, :2]/_safe_depth(qx[:, 2])[:, None]-proj
-            dy = qy[:, :2]/_safe_depth(qy[:, 2])[:, None]-proj
-            pairs += [(dx[:, 0], dx[:, 1]), (dy[:, 0], dy[:, 1])]
-    if len(line_a):
-        line = np.cross(_project_rows(H, line_a), _project_rows(H, prep['line_b']))
-        pairs.append((line[:, 0], line[:, 1]))
-    inverse = None
-    if len(circle):
+            dx = qx[..., :2]/_safe_depth(qx[..., 2])[..., None]-proj
+            dy = qy[..., :2]/_safe_depth(qy[..., 2])[..., None]-proj
+            pairs += [(dx[..., 0], dx[..., 1]), (dy[..., 0], dy[..., 1])]
+    if n_lines:
+        line = np.cross(_project_rows(H, line_a), _project_rows(H, line_b))
+        pairs.append((line[..., 0], line[..., 1]))
+    singular = np.zeros(B, bool)
+    if n_circle:
         try:
             inverse = np.linalg.inv(H)
         except np.linalg.LinAlgError:
-            inverse = None
-        if inverse is not None:
-            u = _project_rows(inverse, circle)
-            w = _safe_depth(u[:, 2])
-            cx, cy = prep['centre']
-            pairs.append((u[:, 0]/w-cx, u[:, 1]/w-cy))
+            inverse = np.zeros((B, 3, 3))
+            for row in range(B):
+                try:
+                    inverse[row] = np.linalg.inv(H[row])
+                except np.linalg.LinAlgError:
+                    singular[row] = True
+        u = _project_rows(inverse, circle)
+        w = _safe_depth(u[..., 2])
+        centres = np.array([prep['centre'] for prep in preps], np.float64)
+        pairs.append((u[..., 0]/w-centres[:, 0:1], u[..., 1]/w-centres[:, 1:2]))
     norms = []
     if pairs:
-        joined = _hypot(np.concatenate([x for x, _ in pairs]), np.concatenate([y for _, y in pairs]))
-        norms = np.split(joined, np.cumsum([len(x) for x, _ in pairs])[:-1])
+        joined = _hypot(np.concatenate([x for x, _ in pairs], axis=1), np.concatenate([y for _, y in pairs], axis=1))
+        norms = np.split(joined, np.cumsum([x.shape[1] for x, _ in pairs])[:-1], axis=1)
     parts = []
-    if len(world):
+    if n_points:
         if metric:
             scale = np.sqrt(np.maximum(1e-6, norms.pop(0)*norms.pop(0)))
-            res_points = res_points/scale[:, None]
-        parts.append(res_points.ravel())
-    if len(line_a):
+            res_points = res_points/scale[..., None]
+        parts.append(res_points.reshape(B, -1))
+    if n_lines:
         norm = norms.pop(0)
         usable = norm >= 1e-12
-        ends = prep['ends']
-        distance = line[:, None, 0]*ends[:, :, 0]+line[:, None, 1]*ends[:, :, 1]+line[:, None, 2]
-        res = prep['weights'][:, None]*distance/np.where(usable, norm, 1.0)[:, None]
-        parts.append(np.where(usable[:, None], res, 0.0).ravel())
-    if len(circle):
-        if inverse is None:
-            parts.append(np.zeros(len(circle), np.float64))
-        else:
-            parts.append((norms.pop(0)-RADIUS)*circle_scale)
+        distance = line[..., None, 0]*ends[..., :, 0]+line[..., None, 1]*ends[..., :, 1]+line[..., None, 2]
+        res = weights[..., None]*distance/np.where(usable, norm, 1.0)[..., None]
+        parts.append(np.where(usable[..., None], res, 0.0).reshape(B, -1))
+    if n_circle:
+        res = (norms.pop(0)-RADIUS)*circle_scale
+        parts.append(np.where(singular[:, None], 0.0, res) if singular.any() else res)
     if prior is not None and prior_grid is not None and len(prior_grid):
-        q = np.c_[prior_grid, np.ones(len(prior_grid))] @ H.T
-        w = q[:, 2:3].copy()
-        w[np.abs(w) < 1e-12] = 1e-12
-        q = q[:, :2]/w
-        parts.append(prior_weight*(q-obs['prior_px']).ravel())
-    parts.append([1e3*(np.linalg.norm(params[:9])-1.0)])
+        grid = np.c_[prior_grid, np.ones(len(prior_grid))]
+        rows = []
+        for row in range(B):
+            q = grid @ H[row].T
+            w = q[:, 2:3].copy()
+            w[np.abs(w) < 1e-12] = 1e-12
+            q = q[:, :2]/w
+            rows.append(prior_weight*(q-obs['prior_px']).ravel())
+        parts.append(np.stack(rows))
+    parts.append(np.array([[1e3*(np.linalg.norm(row[:9])-1.0)] for row in P], np.float64))
     if learn:
         # Weak pull towards the standard size: the size only moves when the landmarks demand it.
-        parts.append([.02*(params[9]-DEFAULT_LENGTH), .02*(params[10]-DEFAULT_WIDTH)])
-    return np.concatenate([np.asarray(part, np.float64).ravel() for part in parts])
+        parts.append(np.c_[.02*(P[:, 9]-DEFAULT_LENGTH), .02*(P[:, 10]-DEFAULT_WIDTH)])
+    return np.concatenate([np.asarray(part, np.float64).reshape(B, -1) for part in parts], axis=1)
+
+
+def _residuals(params, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale):
+    """The residual vector of one parameter vector (see _residual_rows). The fit's own copy of the
+    observations remembers it for the Jacobian, which least_squares asks for right after."""
+    params = np.asarray(params, np.float64)
+    out = _residual_rows(params[None], obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale)[0]
+    cache = obs.get('_cache')
+    if cache is not None:
+        cache['x'], cache['f'] = params.copy(), out
+    return out
+
+
+_EPS_SQRT = np.finfo(np.float64).eps**0.5
+
+
+def _jacobian(params, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale):
+    """The 2-point finite-difference Jacobian exactly as scipy.optimize.least_squares computes it by
+    default (the same steps, the same one-sided adjustment at the bounds, the same differences and
+    the same memory layout), with every perturbed parameter vector evaluated in one batched call
+    instead of one residual call per parameter. The residual of the unperturbed vector comes from the
+    fit's cache (least_squares evaluates it just before asking for the Jacobian)."""
+    x0 = np.asarray(params, np.float64)
+    cache = obs.get('_cache') or {}
+    f0 = cache.get('f') if cache.get('x') is not None and np.array_equal(cache['x'], x0) else None
+    if f0 is None:
+        f0 = _residuals(x0, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale)
+    sign = (x0 >= 0).astype(float)*2-1
+    h = _EPS_SQRT*sign*np.maximum(1.0, np.abs(x0))
+    lb, ub = cache.get('bounds', (None, None))
+    if lb is not None and not np.all((lb == -np.inf) & (ub == np.inf)):
+        # scipy's one-sided scheme at a bound: flip the step, or shorten it to the distance left.
+        x = x0+h
+        violated = (x < lb) | (x > ub)
+        lower, upper = x0-lb, ub-x0
+        fitting = np.abs(h) <= np.maximum(lower, upper)
+        h = h.copy()
+        h[violated & fitting] *= -1
+        forward = (upper >= lower) & ~fitting
+        h[forward] = upper[forward]
+        backward = (upper < lower) & ~fitting
+        h[backward] = -lower[backward]
+    n = len(x0)
+    X = np.repeat(x0[None], n, axis=0)
+    X[np.arange(n), np.arange(n)] = x0+h
+    F = _residual_rows(X, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale)
+    dx = (x0+h)-x0
+    transposed = (F-f0[None])/dx[:, None]
+    return transposed.T
 
 
 def fit(obs, width, height, size=None, prior=None, learn_size=False, prior_weight=.08, max_rms_px=None):
@@ -479,8 +550,9 @@ def fit(obs, width, height, size=None, prior=None, learn_size=False, prior_weigh
         lo = np.r_[np.full(9, -np.inf), LENGTH_RANGE[0], WIDTH_RANGE[0]]
         hi = np.r_[np.full(9, np.inf), LENGTH_RANGE[1], WIDTH_RANGE[1]]
         bounds = (lo, hi)
+    obs['_cache']['bounds'] = tuple(np.asarray(np.resize(np.asarray(b, np.float64), params.shape), np.float64) for b in bounds)
     try:
-        result = least_squares(_residuals, params, bounds=bounds, x_scale='jac', max_nfev=200,
+        result = least_squares(_residuals, params, jac=_jacobian, bounds=bounds, x_scale='jac', max_nfev=200,
                                args=(obs, width, height, size, prior, learn_size, prior_grid, prior_weight, circle_scale))
     except (ValueError, np.linalg.LinAlgError):
         return _rejected(bad, 'the fit diverged')

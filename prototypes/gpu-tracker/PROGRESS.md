@@ -845,3 +845,39 @@ Measure again on an idle machine. Still on the table, all of which change numeri
 embedder on the GPU (it runs on the CPU through ONNX Runtime, ~25 crops a frame; the torch thread count made no
 difference), all six ball tiles in one FP16 call, TensorRT, a single detection pass, camera flow at half resolution,
 refining the pitch less often.
+
+### Round two: the rest of the list (2026-10-16, later)
+
+The user then asked for the remaining optimizations with "make sure nothing breaks", and said the tracker will
+move to cloud GPUs later (not now): nothing that ties the code to one GPU model or one machine. Done:
+
+- **Ball and far tiles in one detector call** (`ball_tiles`, `far_tiles` in pipeline.py): six 640 px tiles
+  per call instead of pairs; peak GPU memory had been 0.37 GB, so the old bound was far too cautious. FP16
+  batching moves the ball candidates' scores in the last digits, which the offline ball decoder sees: on the
+  broadcast 10-50 s window 26 of 1200 frames have a different ball record, no state or visibility change,
+  centre shifts of at most 0.04 px; on the Veo window 38 frames, one 2.2 px shift. People, pitch positions,
+  roster, tracks, labels and events are identical.
+- **A batched Jacobian for the pitch fit** (`_residual_rows`, `_jacobian` in field.py): the residual now
+  evaluates several parameter vectors at once (stacked products, batched inverses, the two BLAS/norm
+  terms per row) and `fit` hands least_squares a `jac` that reproduces scipy's default 2-point finite
+  differences exactly (EPS**0.5 steps with sign and max(1, |x|), the one-sided adjustment at the bounds,
+  (x0+h)-x0 denominators, the F-ordered layout), evaluating all perturbations in one call. Verified:
+  480 of 480 Jacobians identical to scipy's own on the old residual, including parameters sitting on the
+  size bounds; 32 of 32 whole fits identical (H, rms, size, jac); 6.3x faster per fit; the two reference
+  windows bit-identical to the batched-tile runs.
+
+Tried and not kept: **the OSNet embedder on the GPU**. ONNX Runtime's CUDA provider (onnxruntime-gpu
+1.22.0) runs every convolution in its "Fallback mode" on the RTX 5080 (compute capability 12.0): 249 ms a
+frame against 12 ms on the CPU. Converting the ONNX graph to PyTorch (onnx2torch, with a rank-agnostic
+BatchNorm for the final feature BN) gives descriptors within 4e-5 of the CPU ones, but eager execution of
+its ~500 modules costs 26 ms a frame for two batches of 16, and CUDA-graph capture of the converted graph
+fails. The embedder stays on the CPU through ONNX Runtime 1.22.1 (the environment was restored; nothing
+new in requirements.txt). Also skipped: TensorRT (engines are built per GPU model and driver, the wrong
+direction for the cloud plan), a single detection pass (the 960 pass keeps large foreground players this
+checkpoint loses at 1536), refining the pitch less often (little left to gain), camera flow at lower
+resolution (it already runs at 960 px wide). The torch CPU thread count makes no difference.
+
+Clean timing (idle GPU) on the user's 0-60 s broadcast window at 1536 with ball scans: the committed code
+436 s (4.13 fps), the new code 235 s (7.66 fps), 1.86x; same identified share, pitch confidence and ball
+tracked share, people and pitch identical, the ball record differing only in the last digits as above. The
+10-30 s window: 137 / 158 s before, 97 / 110 s after round one. 258 tests pass.

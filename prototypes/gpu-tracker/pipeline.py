@@ -78,16 +78,14 @@ def ball_tiles(model, frame):
         return sorted(set(list(range(0, max(1, length-size), round(size*.8)))+[length-size]))
     regions = [(x, y) for y in starts(height) for x in starts(width)]
     output = []
-    # Batch two tiles to bound VRAM use on a 16 GB card.
-    for offset in range(0, len(regions), 2):
-        batch = regions[offset:offset+2]
-        predictions = model.predict([frame[y:y+size, x:x+size] for x, y in batch],
-                                    imgsz=640, conf=.09, iou=.4, classes=[0], device=0, half=True, verbose=False)
-        for (x, y), prediction in zip(batch, predictions):
-            rows = prediction.boxes.data.cpu().numpy().copy()
-            if len(rows):
-                rows[:, :4] += [x, y, x, y]
-                output.extend(rows.tolist())
+    # All tiles in one call (six 640 px tiles of a 1080p frame: a few hundred MB at most).
+    predictions = model.predict([frame[y:y+size, x:x+size] for x, y in regions],
+                                imgsz=640, conf=.09, iou=.4, classes=[0], device=0, half=True, verbose=False)
+    for (x, y), prediction in zip(regions, predictions):
+        rows = prediction.boxes.data.cpu().numpy().copy()
+        if len(rows):
+            rows[:, :4] += [x, y, x, y]
+            output.extend(rows.tolist())
     return output
 
 
@@ -118,15 +116,13 @@ def far_tiles(model, frame, band):
     y0 = max(0, min(y0, height-size))
     starts = sorted(set(list(range(0, max(1, width-size), round(size*.75)))+[max(0, width-size)]))
     out = []
-    for offset in range(0, len(starts), 4):
-        batch = starts[offset:offset+4]
-        predictions = model.predict([frame[y0:y0+size, x:x+size] for x in batch], imgsz=640, conf=.15, iou=.45,
-                                    classes=[1, 2, 3], device=0, half=True, verbose=False)
-        for x, prediction in zip(batch, predictions):
-            rows = prediction.boxes.data.cpu().numpy().copy()
-            if len(rows):
-                rows[:, :4] += [x, y0, x, y0]
-                out.extend(rows.tolist())
+    predictions = model.predict([frame[y0:y0+size, x:x+size] for x in starts], imgsz=640, conf=.15, iou=.45,
+                                classes=[1, 2, 3], device=0, half=True, verbose=False)
+    for x, prediction in zip(starts, predictions):
+        rows = prediction.boxes.data.cpu().numpy().copy()
+        if len(rows):
+            rows[:, :4] += [x, y0, x, y0]
+            out.extend(rows.tolist())
     rows = np.asarray(out, np.float32).reshape(-1, 6)
     if len(rows) > 1:
         # The tiles overlap by a quarter: one person on the seam is found twice; keep the better box.

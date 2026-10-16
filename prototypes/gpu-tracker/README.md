@@ -53,8 +53,9 @@ Accepted re-identifications, role changes, crossing corrections and sanity
 warnings are also printed in the console.
 
 Frames are decoded and detected one step ahead on a worker thread while the
-tracker works on the current frame; the pitch fit is vectorized with the same
-arithmetic as before, so results are unchanged by either.
+tracker works on the current frame, the ball tile scans go to the detector in
+one call, and the pitch fit is vectorized with the same arithmetic as before
+(including its finite-difference Jacobian), so the tracking is unchanged.
 
 Choose a segment up to 180 seconds long. For a longer match, process consecutive
 segments and tick **Continue identities from the previous run**: the next run
