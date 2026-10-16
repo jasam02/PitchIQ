@@ -32,6 +32,8 @@ from vision import Appearance
 settings.update({'sync': False})
 ROLL_SECONDS = 15.0   # a calibration keyframe this close before the start (or after the end) is carried into the segment by camera motion
 DETECT_BATCH = 4      # consecutive frames per whole-frame detector call on the prefetch worker (config detectBatch)
+BALL_SCAN_S = 1.0     # seconds between the safeguard ball tile scans while the ball tracker is LOCKED (config ballScanEvery);
+                      # while it is not (searching, recovering, occluded) the tiles run every other frame
 # BGR; the same colours as the review page.
 COLORS = {'A': (255, 140, 185), 'B': (100, 181, 246), 'GOALKEEPER': (162, 95, 255), 'REFEREE': (100, 225, 255), 'UNCERTAIN': (194, 180, 169),
           'PITCH': (255, 200, 124), 'BALL': (61, 255, 198)}
@@ -280,28 +282,49 @@ def preview(frame, observation, path, pitch=None, trail=()):
 
 
 class Prefetch:
-    """Decodes the segment's frames and runs the whole-frame detector (and the ball tile scans) one step
-    ahead on a worker thread with its own detector instance, so the GPU works on the next frame while the
-    CPU tracks the current one. Items come out in frame order and are exactly what the serial loop computed:
+    """Decodes the segment's frames and runs the whole-frame detector (and the ball tile scans) ahead on a
+    worker thread with its own detector instance, so the GPU works on the next frames while the CPU tracks
+    the current one. Items come out in frame order and are what the serial loop computed:
     ('roll', index, stamp, frame, None, None, spent) for a pre-roll or post-roll frame (camera motion only)
     and ('frame', index, stamp, frame, rows, tile_rows, spent) for a frame of the segment, tile_rows being
     None on the frames the scans skip; spent holds the worker's seconds per stage. The detections do not
     depend on the tracker, so running them early changes nothing; the passes that do (far tiles, lost-track
-    crops, the ball search crop) stay with the tracker on the main thread."""
+    crops, the ball search crop) stay with the tracker on the main thread.
 
-    def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=None, batch=DETECT_BATCH):
+    The ball tile scans do depend on one thing the tracker knows: whether the ball is being followed. The
+    main thread writes `ball_locked` after every frame (the ball tracker's phase is LOCKED); the worker
+    reads it when it decides a frame's scan, which it does as late as it can, at the moment the hand-over
+    has room for that frame, so the word it reads is at most `depth` frames old."""
+
+    def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=None, batch=DETECT_BATCH,
+                 scan_every=BALL_SCAN_S):
         self.video_path, self.model_path = video_path, model_path
         self.first_frame, self.fps, self.start, self.finish, self.roll_until = first_frame, fps, start, finish, roll_until
         self.detail, self.tiles, self.cancelled = detail, tiles, cancelled
         # Consecutive frames of the segment go through the whole-frame detector `batch` at a time (the last
-        # group may be shorter); the queue holds two groups so that the worker's next batch overlaps the
-        # tracking of the current one.
+        # group may be shorter); the hand-over holds two groups so that the worker's next batch overlaps the
+        # tracking of the current one. A slot is taken per item handed out and given back by the consumer
+        # once it has finished with the item.
         self.batch = max(1, int(batch))
-        self.queue = queue.Queue(maxsize=2*self.batch if depth is None else depth)
+        self.depth = 2*self.batch if depth is None else max(1, int(depth))
+        self.slots = threading.Semaphore(self.depth)
+        self.queue = queue.Queue()
+        self.ball_locked = False   # the shared flag: the main thread's word after its latest frame
+        self.scan_every = max(1, int(round(float(scan_every)*fps)))   # frames between safeguard scans while locked
+        self.scans = 0             # tile scans run
         self.stopped = threading.Event()
         self.error = None
         self.thread = threading.Thread(target=self._work, name='prefetch', daemon=True)
         self.thread.start()
+
+    def scan_wanted(self, index):
+        """Every other frame while the ball tracker is not LOCKED (searching, recovering, occluded: the
+        whole frame is where the ball may turn up), once per `scan_every` frames as a safeguard while it is
+        (the search crop around the prediction does the work then)."""
+        n = index-self.first_frame
+        if not self.ball_locked:
+            return n % 2 == 0
+        return n % self.scan_every == 0
 
     def _work(self):
         capture = None
@@ -351,22 +374,30 @@ class Prefetch:
         detections = detect_batch(model, [frame for _, _, frame in pending], self.detail)
         each = (clock()-t0)/len(pending)
         for (index, stamp, frame), rows in zip(pending, detections):
+            if not self._room():
+                break
             spent = {'detect': each, 'ballTiles': 0.0}
             tile_rows = None
-            if self.tiles and (index-self.first_frame) % 2 == 0:
+            if self.tiles and self.scan_wanted(index):   # decided now, with the main thread's latest word
                 t0 = clock()
                 tile_rows = ball_tiles(model, frame)
                 spent['ballTiles'] = clock()-t0
-            self._put(('frame', index, stamp, frame, rows, tile_rows, spent))
+                self.scans += 1
+            self.queue.put(('frame', index, stamp, frame, rows, tile_rows, spent))
         pending.clear()
 
-    def _put(self, item):
+    def _room(self):
+        """Wait for a free slot in the hand-over; False once the consumer has closed it."""
         while not self.stopped.is_set():
-            try:
-                self.queue.put(item, timeout=.1)
-                return
-            except queue.Full:
-                continue
+            if self.slots.acquire(timeout=.1):
+                return True
+        return False
+
+    def _put(self, item):
+        if item is None:
+            self.queue.put(None)   # the end: no slot needed, and never blocked
+        elif self._room():
+            self.queue.put(item)
 
     def __iter__(self):
         while True:
@@ -376,6 +407,7 @@ class Prefetch:
                     raise self.error
                 return
             yield item
+            self.slots.release()   # the consumer is done with it (and has updated the shared flag)
 
     def close(self):
         self.stopped.set()
@@ -417,7 +449,8 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     timing = Counter()   # seconds per stage, for summary.timing (detect and ballTiles: the worker's, overlapping the tracking)
     clock = time.perf_counter
     ahead = Prefetch(video_path, model_path, first_frame, fps, start, finish, roll_until, int(config.get('imageSize', 1280)),
-                     bool(config.get('ballTiles', False)), cancelled, batch=int(config.get('detectBatch', DETECT_BATCH)))
+                     bool(config.get('ballTiles', False)), cancelled, batch=int(config.get('detectBatch', DETECT_BATCH)),
+                     scan_every=float(config.get('ballScanEvery', BALL_SCAN_S)))
     try:
         for kind, index, stamp, frame, rows, tile_rows, spent in ahead:
             if cancelled():
@@ -468,6 +501,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
             t0 = clock()
             observation, _, _ = tracker.step(frame, stamp, rows[rows[:, 5] != 0], np.asarray(ball_rows, np.float32).reshape(-1, 6))
             timing['tracking'] += clock()-t0
+            ahead.ball_locked = tracker.ball.phase == 'LOCKED'   # the worker scans the tiles only while this is False (plus its safeguard)
             observation = {'time': round(stamp, 6), 'frame': index, **observation}
             frames.append(observation)
             tracker.emitted = len(frames)
@@ -511,7 +545,8 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     report = build_report(frames, tracker, meta, gpu, config, time.perf_counter()-started, cancelled(), previous, ball_report, identity_report)
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
-    report['summary']['detection'] = dict(tracker.detection) | {'farTilePasses': far_passes, 'localCropPasses': crop_passes}
+    report['summary']['detection'] = dict(tracker.detection) | {'farTilePasses': far_passes, 'localCropPasses': crop_passes,
+                                                                 'ballTileScans': ahead.scans, 'detectBatch': ahead.batch}
     report['summary']['pitch']['registration'] = tracker.registration
     report['summary']['ball']['localSearches'] = ball_searches
     timing['report'] += clock()-t0

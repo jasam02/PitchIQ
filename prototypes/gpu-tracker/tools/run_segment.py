@@ -45,7 +45,8 @@ def load_settings(key, explicit=None):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def build_config(settings, start, seconds, image_size=None, ball_tiles=None, drop_keyframes=(), no_calibrations=False, detect_batch=None):
+def build_config(settings, start, seconds, image_size=None, ball_tiles=None, drop_keyframes=(), no_calibrations=False, detect_batch=None,
+                 ball_scan_every=None):
     calibrations = [] if no_calibrations else [c for c in settings.get('calibrations', [])
                                                 if not any(abs(float(c['time'])-float(t)) < .05 for t in drop_keyframes)]
     config = {'start': float(start), 'seconds': float(seconds),
@@ -56,6 +57,8 @@ def build_config(settings, start, seconds, image_size=None, ball_tiles=None, dro
               'maxPerTeam': int(settings.get('maxPerTeam', 11)), 'continueIdentities': False, 'debug': True}
     if detect_batch is not None:
         config['detectBatch'] = int(detect_batch)   # frames per whole-frame detector call (pipeline.DETECT_BATCH otherwise)
+    if ball_scan_every is not None:
+        config['ballScanEvery'] = float(ball_scan_every)   # seconds between safeguard tile scans while the ball is locked (pipeline.BALL_SCAN_S otherwise)
     return config
 
 
@@ -64,7 +67,7 @@ def run_job(job, quiet=False):
     video, key = resolve_video(job['video'])
     settings = load_settings(key, job.get('settings'))
     config = build_config(settings, job['start'], job['seconds'], job.get('image_size'), job.get('ball_tiles'),
-                          job.get('drop_keyframes', ()), job.get('no_calibrations', False), job.get('detect_batch'))
+                          job.get('drop_keyframes', ()), job.get('no_calibrations', False), job.get('detect_batch'), job.get('ball_scan_every'))
     out = Path(job['out'])
     out.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
@@ -98,7 +101,8 @@ def main(argv=None):
     ap.add_argument('--drop-keyframe', type=float, action='append', default=[])
     ap.add_argument('--no-calibrations', action='store_true')
     ap.add_argument('--detect-batch', type=int, help='frames per whole-frame detector call on the prefetch worker (default: pipeline.DETECT_BATCH)')
-    ap.add_argument('--batch', help='JSON file: a list of jobs {video, start, seconds, out, settings?, drop_keyframes?, no_calibrations?, detect_batch?}')
+    ap.add_argument('--ball-scan-every', type=float, help='seconds between safeguard ball tile scans while the ball is locked (default: pipeline.BALL_SCAN_S)')
+    ap.add_argument('--batch', help='JSON file: a list of jobs {video, start, seconds, out, settings?, drop_keyframes?, no_calibrations?, detect_batch?, ball_scan_every?}')
     ap.add_argument('--quiet', action='store_true')
     a = ap.parse_args(argv)
     if a.batch:
@@ -108,7 +112,7 @@ def main(argv=None):
             ap.error('--video and --out are required without --batch')
         jobs = [{'video': a.video, 'start': a.start, 'seconds': a.seconds, 'out': a.out, 'settings': a.settings, 'image_size': a.image_size,
                  'ball_tiles': None if a.ball_tiles is None else bool(a.ball_tiles), 'drop_keyframes': a.drop_keyframe, 'no_calibrations': a.no_calibrations,
-                 'detect_batch': a.detect_batch}]
+                 'detect_batch': a.detect_batch, 'ball_scan_every': a.ball_scan_every}]
     for job in jobs:
         run_job(job, a.quiet)
 

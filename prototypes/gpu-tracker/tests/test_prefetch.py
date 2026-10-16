@@ -149,6 +149,41 @@ class BatchedDetectionTests(unittest.TestCase):
             finally:
                 pipeline.YOLO = original
 
+    def test_the_tile_scans_follow_the_shared_lock_flag_with_the_hand_over_s_lag(self):
+        frames = self.frames(12)
+        with tempfile.TemporaryDirectory() as folder:
+            path = write_video(os.path.join(folder, 'clip'), frames)
+            if path is None:
+                self.skipTest('no video codec available')
+            original = pipeline.YOLO
+            pipeline.YOLO = lambda path: StubDetector()
+            try:
+                # One frame handed over at a time: the worker decides frame i+1's scan after the consumer finished
+                # frame i. Not locked: every other frame. Locked (from frame 4 on, as the consumer says): every 4th.
+                ahead = pipeline.Prefetch(path, 'unused.pt', 0, FPS, 0.0, 1.0, None, 1536, True, lambda: False, depth=1, batch=1, scan_every=4/FPS)
+                scanned = []
+                for kind, index, stamp, frame, rows, tile_rows, spent in ahead:
+                    if tile_rows is not None:
+                        scanned.append(index)
+                    ahead.ball_locked = index >= 4
+                ahead.close()
+                self.assertEqual(scanned, [0, 2, 4, 8])
+                self.assertEqual(ahead.scans, 4)
+                # Scans off: nothing is scanned whatever the flag says.
+                ahead = pipeline.Prefetch(path, 'unused.pt', 0, FPS, 0.0, 1.0, None, 1536, False, lambda: False, depth=1, batch=1)
+                self.assertTrue(all(tile_rows is None for _, _, _, _, _, tile_rows, _ in ahead))
+                ahead.close()
+                self.assertEqual(ahead.scans, 0)
+                # A consumer that stops early (a cancelled run) closes the hand-over; the worker ends without waiting for a slot.
+                ahead = pipeline.Prefetch(path, 'unused.pt', 0, FPS, 0.0, 1.0, None, 1536, True, lambda: False, depth=1, batch=4)
+                for n, _ in enumerate(ahead):
+                    if n == 1:
+                        break
+                ahead.close()
+                self.assertFalse(ahead.thread.is_alive())
+            finally:
+                pipeline.YOLO = original
+
 
 if __name__ == '__main__':
     unittest.main()
