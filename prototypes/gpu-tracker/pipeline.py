@@ -31,6 +31,7 @@ from vision import Appearance
 
 settings.update({'sync': False})
 ROLL_SECONDS = 15.0   # a calibration keyframe this close before the start (or after the end) is carried into the segment by camera motion
+DETECT_BATCH = 4      # consecutive frames per whole-frame detector call on the prefetch worker (config detectBatch)
 # BGR; the same colours as the review page.
 COLORS = {'A': (255, 140, 185), 'B': (100, 181, 246), 'GOALKEEPER': (162, 95, 255), 'REFEREE': (100, 225, 255), 'UNCERTAIN': (194, 180, 169),
           'PITCH': (255, 200, 124), 'BALL': (61, 255, 198)}
@@ -193,22 +194,39 @@ def merge_far(rows, extra):
     return np.r_[np.c_[rows, np.zeros(len(rows), np.float32)], flagged]
 
 
-def detect(model, frame, detail):
-    # This checkpoint loses larger foreground players at high input sizes.
-    # Keep the 960 whole-frame view and merge an additional detail pass.
-    passes = []
-    for size in sorted({960, detail}):
-        result = model.predict(frame, imgsz=size, conf=.10, iou=.45,
-                               classes=None, device=0, half=True, verbose=False)[0]
-        passes.append(result.boxes.data.cpu())
-    rows = torch.cat(passes)
+def _joint_nms(rows, shape):
+    """The whole-frame passes of one frame, merged: person roles may disagree across scales, so those
+    duplicates are suppressed jointly (the ball is kept apart by an offset)."""
     if not len(rows):
         return rows.numpy()
-    # Person roles may disagree across scales; suppress those duplicates jointly.
     categories = (rows[:, 5] == 0).to(rows.dtype)
-    separated = rows[:, :4] + categories[:, None]*max(frame.shape[:2])*2
+    separated = rows[:, :4] + categories[:, None]*max(shape[:2])*2
     keep = nms(separated, rows[:, 4], .45)
     return rows[keep].numpy()
+
+
+def detect_batch(model, frames, detail):
+    """Whole-frame detection of several consecutive frames of the same size: one model.predict call per
+    size pass for all of them (the detector runs them as one batch), then the per-frame merge and NMS
+    that detect() does for a single frame. Returns one (N, 6) array per frame, in the frames' order.
+    Only the GPU work is shared: every frame's rows come from its own letterboxed image and its own
+    suppression. (FP16 batching may move the scores in the last digits; nothing else changes.)"""
+    if not len(frames):
+        return []
+    # This checkpoint loses larger foreground players at high input sizes.
+    # Keep the 960 whole-frame view and merge an additional detail pass.
+    passes = [[] for _ in frames]
+    for size in sorted({960, detail}):
+        results = model.predict(list(frames), imgsz=size, conf=.10, iou=.45,
+                                classes=None, device=0, half=True, verbose=False)
+        for collected, result in zip(passes, results):
+            collected.append(result.boxes.data.cpu())
+    return [_joint_nms(torch.cat(collected), frame.shape) for collected, frame in zip(passes, frames)]
+
+
+def detect(model, frame, detail):
+    """Whole-frame detection of one frame (a batch of one)."""
+    return detect_batch(model, [frame], detail)[0]
 
 
 def _colour(person):
@@ -271,19 +289,23 @@ class Prefetch:
     depend on the tracker, so running them early changes nothing; the passes that do (far tiles, lost-track
     crops, the ball search crop) stay with the tracker on the main thread."""
 
-    def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=2):
+    def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=None, batch=DETECT_BATCH):
         self.video_path, self.model_path = video_path, model_path
         self.first_frame, self.fps, self.start, self.finish, self.roll_until = first_frame, fps, start, finish, roll_until
         self.detail, self.tiles, self.cancelled = detail, tiles, cancelled
-        self.queue = queue.Queue(maxsize=depth)
+        # Consecutive frames of the segment go through the whole-frame detector `batch` at a time (the last
+        # group may be shorter); the queue holds two groups so that the worker's next batch overlaps the
+        # tracking of the current one.
+        self.batch = max(1, int(batch))
+        self.queue = queue.Queue(maxsize=2*self.batch if depth is None else depth)
         self.stopped = threading.Event()
         self.error = None
         self.thread = threading.Thread(target=self._work, name='prefetch', daemon=True)
         self.thread.start()
 
     def _work(self):
-        clock = time.perf_counter
         capture = None
+        pending = []   # frames of the segment waiting for the batched whole-frame detector: (index, stamp, frame)
         try:
             model = YOLO(str(self.model_path))   # a predictor keeps state between calls: one per thread
             capture = cv2.VideoCapture(str(self.video_path))
@@ -297,28 +319,46 @@ class Prefetch:
                 if stamp <= 0 and index:
                     stamp = index/self.fps
                 if stamp < self.start-1e-6 or (stamp >= self.finish and self.roll_until is not None and stamp <= self.roll_until+.15):
+                    self._flush(model, pending)   # the frames before this one go out first: the order is the video's
                     self._put(('roll', index, stamp, frame, None, None, {'detect': 0.0, 'ballTiles': 0.0}))
                     index += 1
                     continue
                 if stamp >= self.finish:
                     break
-                spent = {}
-                t0 = clock()
-                rows = detect(model, frame, self.detail)
-                spent['detect'] = clock()-t0
-                tile_rows, spent['ballTiles'] = None, 0.0
-                if self.tiles and (index-self.first_frame) % 2 == 0:
-                    t0 = clock()
-                    tile_rows = ball_tiles(model, frame)
-                    spent['ballTiles'] = clock()-t0
-                self._put(('frame', index, stamp, frame, rows, tile_rows, spent))
+                pending.append((index, stamp, frame))
                 index += 1
+                if len(pending) >= self.batch:
+                    self._flush(model, pending)
+            if not self.cancelled():
+                self._flush(model, pending)
         except BaseException as error:   # noqa: BLE001 - handed to the consumer
             self.error = error
         finally:
             if capture is not None:
                 capture.release()
             self._put(None)
+
+    def _flush(self, model, pending):
+        """Detect the pending frames in one batch and hand them on, one item per frame, in order. The batch's
+        seconds are shared out equally per frame, so the per-frame timing adds up to what the worker spent."""
+        if not pending:
+            return
+        clock = time.perf_counter
+        if self.stopped.is_set():
+            pending.clear()
+            return
+        t0 = clock()
+        detections = detect_batch(model, [frame for _, _, frame in pending], self.detail)
+        each = (clock()-t0)/len(pending)
+        for (index, stamp, frame), rows in zip(pending, detections):
+            spent = {'detect': each, 'ballTiles': 0.0}
+            tile_rows = None
+            if self.tiles and (index-self.first_frame) % 2 == 0:
+                t0 = clock()
+                tile_rows = ball_tiles(model, frame)
+                spent['ballTiles'] = clock()-t0
+            self._put(('frame', index, stamp, frame, rows, tile_rows, spent))
+        pending.clear()
 
     def _put(self, item):
         while not self.stopped.is_set():
@@ -377,7 +417,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     timing = Counter()   # seconds per stage, for summary.timing (detect and ballTiles: the worker's, overlapping the tracking)
     clock = time.perf_counter
     ahead = Prefetch(video_path, model_path, first_frame, fps, start, finish, roll_until, int(config.get('imageSize', 1280)),
-                     bool(config.get('ballTiles', False)), cancelled)
+                     bool(config.get('ballTiles', False)), cancelled, batch=int(config.get('detectBatch', DETECT_BATCH)))
     try:
         for kind, index, stamp, frame, rows, tile_rows, spent in ahead:
             if cancelled():

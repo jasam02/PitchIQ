@@ -81,11 +81,15 @@ def validate(payload, meta):
         raise ValueError('Duplicate calibration times; replace the existing keyframe.')
     margin = _number(payload, 'touchlineMargin', .35, 0, 1, 'Touchline tolerance must be between 0% and 100% of player height.')
     per_team = int(_number(payload, 'maxPerTeam', 11, 5, 30, 'Expected identities per team must be between 5 and 30.'))
-    return {'start': start, 'seconds': seconds, 'imageSize': image_size,
-            'ballTiles': bool(payload.get('ballTiles', False)), 'boundaries': sorted(clean, key=lambda a: a['time']),
-            'calibrations': sorted(marks, key=lambda a: a['time']), 'fieldFilter': bool(payload.get('fieldFilter', True)),
-            'touchlineMargin': margin, 'maxPerTeam': per_team, 'continueIdentities': bool(payload.get('continueIdentities', False)),
-            'debug': bool(payload.get('debug', True))}
+    settings = {'start': start, 'seconds': seconds, 'imageSize': image_size,
+                'ballTiles': bool(payload.get('ballTiles', False)), 'boundaries': sorted(clean, key=lambda a: a['time']),
+                'calibrations': sorted(marks, key=lambda a: a['time']), 'fieldFilter': bool(payload.get('fieldFilter', True)),
+                'touchlineMargin': margin, 'maxPerTeam': per_team, 'continueIdentities': bool(payload.get('continueIdentities', False)),
+                'debug': bool(payload.get('debug', True))}
+    if 'detectBatch' in payload:
+        # Frames per whole-frame detector call on the prefetch worker; the page does not set it (pipeline.DETECT_BATCH applies).
+        settings['detectBatch'] = int(_number(payload, 'detectBatch', 4, 1, 16, 'Detector batch must be between 1 and 16 frames.'))
+    return settings
 
 
 UPLOADS = ROOT/'uploads'
