@@ -881,3 +881,73 @@ Clean timing (idle GPU) on the user's 0-60 s broadcast window at 1536 with ball 
 436 s (4.13 fps), the new code 235 s (7.66 fps), 1.86x; same identified share, pitch confidence and ball
 tracked share, people and pitch identical, the ball record differing only in the last digits as above. The
 10-30 s window: 137 / 158 s before, 97 / 110 s after round one. 258 tests pass.
+
+## Speed pass 3: batched detection, scans on demand, a vectorized ball decode, models kept loaded (2026-10-16)
+
+Done in a cloud clone without a GPU, without `uploads/` and without a `.venv` (the task's fallback branch): CPU
+torch and requirements.txt were installed to run the unit tests, tasks 1 to 4 were implemented, task 3 was
+proven bit-identical on synthetic inputs, and the verification protocol was written into
+`tools/verify_speed_pass_3.cmd`. **Nothing below was timed or regression-tested on the GPU**: the timing
+table and the exact_diff / compare / ball-clip results for tasks 1, 2 and 4 are still to be produced on the
+RTX 5080 (idle GPU, `nvidia-smi` first) by running that script, which does the whole protocol: a git
+worktree of the committed code (`gpu-tracking-new`) next to this code, the two reference windows
+(broadcast 10-50 s, Veo 0-20 s, 1536, ball tiles), exact_diff and compare on both, the 60 s broadcast window
+back to back, two consecutive runs against two fresh ones, `tools/check_ball_decode.py` on the real frames
+and `tools/ball_clips.py` on the three ball clips. The rules held: nothing per GPU model or per machine
+(batching, threads and the same FP16 PyTorch calls only), every frame processed, identity, calibration and
+the ball tracker's decisions untouched, requirements.txt unchanged, result version 3 and the page unchanged.
+One commit per change on the branch; each message says what was and was not measured.
+
+1. **Batched whole-frame detection** (`pipeline.detect_batch`, `Prefetch._work` / `_flush`). The worker
+   collects the segment's frames in groups of `detectBatch` (default `DETECT_BATCH = 4`; the last group may
+   be shorter; a group is flushed before any roll frame so the items keep the video's order) and runs one
+   `model.predict` call per size pass (960 and the detail size) for the whole group, then merges the passes
+   and suppresses duplicates per frame exactly as `detect()` did for one frame (`detect()` is now a batch of
+   one; a one-element list and a bare array are the same input to Ultralytics, and same-shaped frames get
+   the same letterbox in a batch as alone). The batch's seconds are shared out per frame for
+   `summary.timing`. `tools/run_segment.py --detect-batch`, an optional `detectBatch` in the server's
+   settings. Verified here only with a stub detector (`tests/test_prefetch.py`: batched rows identical to the
+   serial ones, order, roll frames, tile scans); FP16 batching may move scores in the last digits, which the
+   regression protocol is for. Not timed.
+2. **Ball tile scans only when needed** (`Prefetch.scan_wanted`, `ball_locked`). The main thread writes a
+   shared flag after every frame (the ball tracker's phase is LOCKED); the worker reads it when it decides a
+   frame's scan: every other frame while not locked (SEARCHING, RECOVERING, OCCLUDED), once per
+   `BALL_SCAN_S = 1` s while locked (`ballScanEvery`, `--ball-scan-every`, to tune on the ball clips). The
+   hand-over became a semaphore of slots the consumer gives back after finishing each frame, and the worker
+   decides a scan at the moment it gets a slot, so the word it reads is at most `depth` frames old (two
+   detector batches: 8 frames, 0.32 s at 25 fps; smaller `detectBatch` shortens it). `summary.detection`
+   gains `ballTileScans` and `detectBatch`. Tested with the stub (flag honoured with the lag, scans off, an
+   early close). Not timed; the clips (12.0-15.0, 22.1-24.3, 40.8-42.8 s) not re-run.
+3. **Vectorized offline ball decode** (`ball_path.decode`, `_layer_arrays`). The links into a frame were
+   costed one source frame at a time (up to 75 of them at 25 fps), each with tiny numpy ops and four Python
+   comprehensions over the node pairs; that loop was the 20 s offline ball pass. Now the source frames' nodes
+   are stacked into rows (nearest frame first, each frame's nodes in order) and every term is computed once
+   per frame with the same elementwise arithmetic: per-frame scalars (dt, 1+dt, skip and unreliability costs,
+   the foot-switch fade) become per-row columns; player and tracklet comparisons use integer codes from one
+   dictionary (equal exactly when the objects were); the consecutive-frame "all the same tracklet" exemption
+   and the NaN behaviour (an undefined link lets its frame offer nothing to that candidate) are reproduced
+   per source frame; the first row reaching a column's minimum is the frame and node the sequential
+   strict-less updates accepted. The camera transform is still applied to each source frame's nodes alone
+   (the same BLAS shapes; a stacked `(N, 3) @ (3, 3)` would not be bit-safe, see round one). A frame's
+   reachability is recorded once instead of re-tested on every later frame. Measured on this machine's CPU,
+   1500 synthetic frames of 2-10 candidates (`tests/ball_synth.py`): the frozen copy of the old decode
+   (`tests/ball_path_reference.py`) 7.8-8.2 s, the new one 1.0-1.4 s (7x); `finalize()` end to end 8.4 s
+   -> 1.8 s. Identical paths (nodes, link costs and speeds bit for bit) on 5 seeds x {with, without
+   registration} at 1500 frames, 60 small random cases with cuts, unreliable frames, ties and empty frames,
+   and `finalize`'s frames and report byte for byte (`tests/test_ball_path_speed.py`).
+   `tools/check_ball_decode.py RUN_DIR` repeats the side-by-side on a real run (none was available here).
+4. **Detectors and embedder kept between runs** (`pipeline.Resources`, `RESOURCES`). One pair of detector
+   instances per process (the main thread's and the prefetch worker's) and the OSNet session, loaded on the
+   first run and reused; `server.py` preloads them in a background thread at start-up; `run_segment.py`
+   keeps them across `--batch` jobs and `--fresh-models` loads them anew per job (the two-consecutive-vs-
+   two-fresh comparison of the protocol). A kept predictor re-derives its arguments on every call and its
+   one-time warm-up is a dummy forward pass, so it gives what a fresh one gives. Tested with stubs
+   (`tests/test_resources.py`). The ~10 s saving per run is not measured here.
+5. **The pitch chain in a second process: not done.** The task allowed it only after 1 to 4 were verified,
+   which this machine could not do; no timing of the chain was taken (no footage here, and synthetic frames
+   would not say what real 1080p broadcast frames cost).
+
+268 tests pass, 1 skipped (258 before, plus 10 new). Files: `pipeline.py`, `server.py`, `soccer/ball_path.py`,
+`tools/run_segment.py`, new `tools/check_ball_decode.py`, `tools/ball_clips.py`, `tools/verify_speed_pass_3.py`
+and `.cmd`, new tests `tests/test_prefetch.py`, `tests/test_resources.py`, `tests/test_ball_path_speed.py`
+with the helpers `tests/ball_synth.py` and `tests/ball_path_reference.py`; README and this file.

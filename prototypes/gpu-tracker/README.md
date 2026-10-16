@@ -52,10 +52,16 @@ given, add `--run` to start processing immediately. Use `start.cmd --port 8766`
 Accepted re-identifications, role changes, crossing corrections and sanity
 warnings are also printed in the console.
 
-Frames are decoded and detected one step ahead on a worker thread while the
-tracker works on the current frame, the ball tile scans go to the detector in
-one call, and the pitch fit is vectorized with the same arithmetic as before
-(including its finite-difference Jacobian), so the tracking is unchanged.
+Frames are decoded and detected ahead on a worker thread while the tracker works
+on the current frame: the whole-frame detector takes four consecutive frames per
+call (`detectBatch`), the ball tile scans go to the detector in one call and run
+only while the ball tracker is not following the ball (plus one safeguard scan a
+second while it is, `ballScanEvery`), and the pitch fit is vectorized with the
+same arithmetic as before (including its finite-difference Jacobian). The
+detectors and the appearance model stay loaded in the server between runs, and
+the offline ball decode costs every link into a frame in one go, with the same
+path as before bit for bit. See PROGRESS.md (speed pass 3) for what each change
+was verified against.
 
 Choose a segment up to 180 seconds long. For a longer match, process consecutive
 segments and tick **Continue identities from the previous run**: the next run
@@ -65,7 +71,7 @@ the evidence allows it. The initial 1280 setting combines 960 and 1280
 whole-frame passes: the lower-resolution pass retains nearby players that this
 checkpoint sometimes misses at higher resolutions. Choose 960 for a single,
 faster pass. Extra small-ball scans inspect overlapping crops every other frame
-and take longer.
+while the ball is not being followed (once a second while it is) and take longer.
 
 ## Pipeline
 
@@ -1515,8 +1521,9 @@ ones) and the latest `preview.jpg`. The viewer downloads `result.json`:
   offline passes in seconds and the pre-roll/post-roll frames.
   `summary.detection` counts the adaptive detection triggers (far-tile passes
   and detections, far starts, crop passes and detections, far-edge
-  continuations). `summary.ball.localSearches` counts the full-resolution crops
-  searched around the predicted ball.
+  continuations), the ball tile scans run (`ballTileScans`) and the detector
+  batch used (`detectBatch`). `summary.ball.localSearches` counts the
+  full-resolution crops searched around the predicted ball.
 - `events`, `issues`, `teams`, `summary` (identity counts, re-identifications,
   deferred decisions, crossings, sanity warnings, rejected detections by reason,
   share of on-pitch observations with an identity, ball coverage, ball tracks,
@@ -1537,7 +1544,17 @@ pnpm evaluate:soccer prototypes\gpu-tracker\runs\<hash>\<run>\result.json ground
 runs a segment into a scratch directory with the video's saved settings
 (`runs/<key>/settings.json`), never writing under `runs/`; `--drop-keyframe T`
 leaves a keyframe out, `--batch jobs.json` runs several segments in one
-process. `tools/compare.py A [B]` prints the metrics of a run or of two runs
+process (the detectors and the embedder stay loaded from one job to the next,
+as in the server; `--fresh-models` loads them anew per job), `--detect-batch K`
+and `--ball-scan-every S` set the detector batch and the safeguard scan
+interval. `tools/exact_diff.py A/result.json B/result.json` compares two runs
+of the same segment frame by frame (people, pitch positions, ball, mapping,
+roster, tracks, labels, events). `tools/check_ball_decode.py RUN_DIR` runs the
+vectorized offline ball decode and the frozen copy of the old one on a run's
+frames and says whether the paths are identical. `tools/ball_clips.py
+result.json` prints the ball and identity records of the broadcast regression
+clips. `tools/verify_speed_pass_3.cmd` runs the whole speed-pass-3 protocol
+(see PROGRESS.md). `tools/compare.py A [B]` prints the metrics of a run or of two runs
 side by side (people tracked and drawn per frame, identified share by box
 height, identity, pitch, ball, timing) and how much B agrees with A (people
 matched by box overlap, label agreement exact and under the best id mapping,
