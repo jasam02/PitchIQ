@@ -32,6 +32,48 @@ def reasons_by_object(records):
     return out
 
 
+class MotionStateTests(unittest.TestCase):
+    """The causal tracker on a plain synthetic frame: a ball observed at rest is STATIONARY with no velocity carried on,
+    an unseen ball is OCCLUDED (never assumed still), and a ball that starts moving again is followed."""
+
+    def run_ball(self, positions, fps=25):
+        import numpy as np
+        from soccer.ball import BallTracker
+        frame = np.zeros((H, W, 3), np.uint8)
+        frame[:] = (40, 140, 60)   # grass in BGR
+        tracker = BallTracker(W, H, fps)
+        outs = []
+        for k, pos in enumerate(positions):
+            img = frame.copy()
+            rows = np.zeros((0, 6), np.float32)
+            if pos is not None:
+                x, y = pos
+                import cv2
+                cv2.circle(img, (int(x), int(y)), 4, (255, 255, 255), -1)
+                rows = np.array([[x-4, y-4, x+4, y+4, .9, 0]], np.float32)
+            out, _ = tracker.step(img, k/fps, rows, np.eye(3), True, False, None, [], None, lambda nx, ny: (nx, ny), 0)
+            outs.append(out)
+        return outs, tracker
+
+    def test_observed_at_rest_is_stationary_without_a_carried_velocity(self):
+        positions = [(300+6*k, 400) for k in range(15)]+[(300+6*14, 400)]*20+[(300+6*14+6*k, 400) for k in range(1, 15)]
+        outs, tracker = self.run_ball(positions)
+        self.assertEqual(outs[14]['state'], 'TRACKED')
+        self.assertEqual(outs[14]['motion'], 'ROLLING')
+        rest = outs[24:35]   # the sightings of the last 0.4 s must all show the ball at rest
+        self.assertTrue(all(o['state'] == 'TRACKED' and o['motion'] == 'STATIONARY' and o['origin'] == 'OBSERVATION' for o in rest), [(o['state'], o.get('motion')) for o in rest])
+        self.assertTrue(all(abs(o['center'][0]*W-(300+6*14)) < 3 for o in rest), 'no drift while at rest')
+        self.assertLess(abs(outs[34]['speed']), .5)
+        again = outs[40:49]
+        self.assertTrue(all(o['state'] == 'TRACKED' and o['motion'] == 'ROLLING' for o in again), [(o['state'], o.get('motion')) for o in again])
+
+    def test_an_unseen_ball_is_occluded_not_stationary(self):
+        positions = [(300+6*k, 400) for k in range(15)]+[None]*6
+        outs, tracker = self.run_ball(positions)
+        hidden = outs[15:21]
+        self.assertTrue(all(o['state'] != 'TRACKED' and o.get('motion') in ('OCCLUDED', 'UNKNOWN') and o.get('origin') in ('PREDICTION', 'UNKNOWN') for o in hidden), [(o['state'], o.get('motion')) for o in hidden])
+
+
 class BallTrackingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -151,6 +193,64 @@ class BallTrackingVariantTests(unittest.TestCase):
         self.assertNotEqual(by['penalty spot left'][0][2], 'STATIC')
         self.assertEqual(s['falsePositives'], 0, E.report(s))
         self.assertEqual(s['trackIds'], [1], E.report(s))
+
+
+class SwitchWarningTests(unittest.TestCase):
+    """What the causal pass logs when something far from the hidden ball asks to be the ball."""
+
+    def candidate(self, tracker, pitch, **scores):
+        from soccer.ball import Candidate
+        c = Candidate(index=0, box=[1780, 420, 1800, 440], det=.77, cx=1790.0, cy=430.0, d=20.0, px_m=30.0, stab=(.93, .40), pitch=pitch, person=None,
+                      scores={'attach': 0.0, 'static': 0.0, 'settled': 0.0, **scores}, visual=.8)
+        c.err, c.required, c.traj, c.entry, c.far = 1200.0, 119.0, 0.02, 'JUMP', True
+        return c
+
+    def hidden_tracker(self, calibration):
+        from soccer.ball import BallTracker, Kalman
+        tracker = BallTracker(W, H, 30.0)
+        tracker.kf = Kalman(600.0, 480.0, 20.0, 30.0)
+        tracker.phase, tracker.confidence, tracker.last_seen, tracker.calibration = 'OCCLUDED', .55, 12.0, calibration
+        return tracker
+
+    def test_a_candidate_on_the_penalty_spot_is_named_a_field_marking(self):
+        tracker = self.hidden_tracker(calibration=.9)
+        c = self.candidate(tracker, pitch=(94/105+.004, .5), static=1.0, settled=.66)
+        tracker._warn_switch(c, 12.5, .5, 'REJECTED')
+        message = tracker.events[-1]['message']
+        lines = message.split('\n')
+        self.assertEqual(lines[0], 'BALL SWITCH WARNING')
+        for needle in ('Elapsed time: 0.500 s', 'Required velocity: 119.0 m/s', 'Near penalty spot: YES',
+                       'Static field marking evidence: HIGH (static 1.00, settled 0.66)', 'Candidate detector confidence: 0.77',
+                       'Decision: REJECTED (JUMP) / FIELD_MARKING'):
+            self.assertIn(needle, message, message)
+
+    def test_a_candidate_far_from_any_spot_is_not(self):
+        tracker = self.hidden_tracker(calibration=.9)
+        c = self.candidate(tracker, pitch=(.70, .30))
+        tracker._warn_switch(c, 12.5, .5, 'REJECTED')
+        message = tracker.events[-1]['message']
+        self.assertIn('Near penalty spot: NO', message)
+        self.assertIn('Static field marking evidence: LOW', message)
+        self.assertNotIn('FIELD_MARKING', message)
+
+    def test_an_untrusted_calibration_does_not_name_the_spot(self):
+        tracker = self.hidden_tracker(calibration=.2)
+        c = self.candidate(tracker, pitch=(94/105, .5))
+        tracker._warn_switch(c, 12.5, .5, 'REJECTED')
+        self.assertIn('Near penalty spot: NO', tracker.events[-1]['message'])
+
+
+class SettledUnderDriftTests(unittest.TestCase):
+    """A thing fixed to the field stays 'settled' while a carried calibration drifts: the camera-compensated image distance
+    says still even when the pitch distance does not."""
+
+    def test_image_distance_counts(self):
+        from soccer.ball import BallTracker, Candidate
+        tracker = BallTracker(W, H, 30.0)
+        a = Candidate(index=0, box=[0, 0, 1, 1], det=.7, cx=1790.0, cy=430.0, d=20.0, px_m=30.0, stab=(.93, .40), pitch=(.893, .503), person=None)
+        b = Candidate(index=0, box=[0, 0, 1, 1], det=.7, cx=1791.0, cy=430.0, d=20.0, px_m=30.0, stab=(.9305, .40), pitch=(.905, .510), person=None)
+        self.assertGreater(tracker._metres(a, b), 1.0)         # the drifting registration says it moved more than a metre
+        self.assertLess(tracker._metres_image(a, b), .1)       # the image says it did not move
 
 
 if __name__ == '__main__':

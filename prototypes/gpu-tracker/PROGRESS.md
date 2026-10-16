@@ -374,3 +374,308 @@ over-counts rather than misses, so there is no measured miss for tiling to fix. 
 the online cost per frame on the final runs is 253 on the broadcast and 297-364 on the Veo and amateur windows ms, of which the detector passes take 63 and 82-83 ms (with the GPU shared,
 above). (6) SoccerTrack v2 with sn-trackeval: not done (registration required); it remains the only way to a real GS-HOTA number for the
 amateur path.
+
+## Short-occlusion re-identification — B-07 becoming a new identity behind an opponent (2026-10-14)
+
+The failure (the user's clip, broadcast 40.8-42.8 s, run `runs/2bac432528d0e568/20261013-160036-fb1682`): B-07 on local
+track 15 runs behind A-03 at 41.0 s, the local track ends, the player comes out 0.53 s later on local track 60 and is made a
+new identity (B-11 in that run, B-12 in the baseline below) at 42.8 s with `RE-ID REJECTED ... spatially implausible (7%)`
+although the appearance matched (0.725, OSNet cosine 0.854, final 0.582). The local tracker losing the track behind a
+player is by design; the failure was in the global re-identification, and the offline pass had nothing to repair (a track
+with a confident identity is never revisited).
+
+Cause, replayed from the stored frames (`scratchpad` script, same numbers as the log): the pitch velocity of a track was
+measured as the displacement over one evidence tick (0.2 s) divided by the interval since the last *frame* (1/30 s), so
+every remembered pitch speed was six times too high at 30 fps; and the last two boxes before the occlusion were slivers
+(height 0.033 and 0.026 instead of 0.044, IoU with A-03 only 0.04-0.11, so not "contaminated") whose foot point was 1-2 m
+too far up the pitch. Remembered velocity (−5.7, −25.3) m/s, predicted position 15.3 m from where the player came out,
+spatial 0.074; with the tick interval the same memory gives (−1.0, −4.2) m/s and 0.83.
+
+What changed (`soccer/identity.py`, `soccer/tracker.py`, `soccer/tracklets.py`, `pipeline.py`, `index.html`, `README.md`):
+the pitch speed is measured over the evidence tick and from clean boxes only; a partial box (contaminated, or next to someone
+and shorter than 80% of the track's recent clean boxes) neither updates the track's velocity nor the identity's kinematic
+memory, which keeps the last clean box and the time it was taken (`partial: true` on the frame; the reach of the remembered
+position grows from that time); every sample carries the share of its box inside another person's box and above 0.5 the
+crop is contaminated like an IoU above 0.15; the spatial plausibility takes the better of "kept moving at the remembered
+speed" and "stopped", with the speed capped at 9 m/s; a new track that strongly resembles an identity lost less than 3 s ago
+(appearance >= 0.65) is never ruled out on the predicted position alone and waits (`IDENTITY_UNCERTAIN`, "waiting for clean
+frames") for up to 4 s of its own observation instead of becoming a new identity; and offline, a merge proposal that
+describes a short occlusion (the later identity began within 3 s of the earlier one's last sighting, which was inside the
+frame, continuity plausible and measured, neither identity set by you, the later one created in this run) is applied:
+the later identity is retired into the earlier one, its frames relabelled (`evidence: merged offline`, `firstPassLabel`
+kept), `MERGE APPLIED` logged, `summary.identity.mergedOffline` counted. Longer-gap proposals stay proposals.
+Tests: `tests/test_identity.py::ShortOcclusionTests` (the tick-interval speed, the regression itself at 30 fps with a
+sliver and a 0.5 s gap, the hold for a look-alike of a player lost moments ago), `tests/test_identity_encounters.py::
+OfflineMergeTests` (applied for a 0.5 s gap, proposal only for a 6 s gap or after an exit through a frame edge); 211 tests
+pass. Nothing is hard-coded to B-07 or B-11.
+
+Measured on the four regression windows plus the clip's window (`base/*` = commit `7f24057` unmodified, `after/*` = this
+change; the baseline batch shared the CPU with the unit-test suite, so timing is not compared):
+
+| window | identified share | identities A / B / GK | team B over cap | anonymous frames | deferred decisions | re-ids | id switches | label agreement among people labelled in both runs | labels only after / only base | measured jumps > 12 m/s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| clip (broadcast 10-50 s) | .973 → .973 | 10/12/2 → 10/11/2 | 1 → 0 | 0 → 0 | 3 → 1 | 1 → 2 | 1 → 2 | .990 | 0 / 0 | 0 → 0 |
+| broadcast 0.5-180 s | .949 → .975 | 11/13/2 → 11/12/2 | 2 → 1 | 2 853 → 34 | 35 → 6 | 8 → 13 | 13 → 14 | .983 | 2 880 / 0 | 0 → 0 |
+| veo 1-31 s | .404 → .404 | 10/8/0 same | 0 | 5 540 same | 92 same | 4 same | 14 same | 1.000 | 0 / 0 | 1 → 1 |
+| amateur3 0-60 s | .690 → .682 | 11/11/2 → 11/12/2 | 0 → 1 | 7 071 → 7 592 | 122 → 109 | 5 → 8 | 23 → 24 | .947 | 1 871 / 2 121 | 20 → 36 |
+| amateur3 150-210 s | .695 → .773 | 11/12/0 same | 1 same | 5 672 → 3 665 | 105 → 102 | 13 same | 42 → 59 | .975 | 3 542 / 794 | 0 → 0 |
+
+Clip: track 60 is re-identified as B-07 at 42.8 s (spatial 0.997, appearance 0.725, final 0.868); B-07 is carried by
+tracks 15 (10.0-41.0 s) and 60 (41.53-49.97 s), the 2D timeline is observed on both sides and interpolated across the
+0.5 s gap (no jump), no team B identity is created after 40 s, no frame shows one identity on two people, team B has 11
+identities. The offline merge was not needed on any window (0 applied; 0 proposals on all five).
+Broadcast: the 1.7% disagreement among people labelled in both runs is the baseline's error, checked on the frames: from
+the encounter at 86.5 s the baseline carried A-02 on the garnet (team B) player of local track 7 until the kit vote
+released it at 124.5 s, then made that player a duplicate B-15, and left track 156 (the real B-08, then the real A-02)
+anonymous for 33 s; this change re-identifies B-08 at 86.5 s (spatial 0.979 instead of a velocity-poisoned score) and the
+crossing guard swaps the two identities back at 119.3 s. Every other label the change adds on the broadcast agrees with
+the baseline. Veo is identical. Amateur 0-60 s: B-04 is re-identified at 10.8 s (appearance 0.748), so the anonymous
+track 108 that the baseline deferred against B-04 for 4 s and dropped has no missing candidate left and becomes B-10
+(team B then over the cap by one, as the roster reports); B-02 and B-08 are swapped between tracks 3 and 129 by the
+crossing guard at 16.6 s where the baseline kept B-02 on a local track that itself jumped 17 m in a second at 17.3 s (both
+runs show a jump there; which person is B-02 afterwards is unmeasured). Amateur 150-210 s (uncalibrated, image spatial
+only): the track that appears 0.5 s after A-02 vanished, in A-02's place, with no other missing team A candidate, now
+reaches the 0.72 threshold (appearance 0.406, spatial 0.994) where the baseline deferred it for 40 s; the later
+A-05/A-08 difference cascades from that state and is unmeasured.
+
+Decisions: the hold (SHORT_LOSS 3 s, STRONG_LOOK 0.65, SHORT_HOLD 4 s) and the merge gap (3 s) are first values, chosen so
+that the professional footage is at least as good; they were not tuned on the amateur windows. Unmeasured: ground truth
+for the amateur identity differences; timing (the baseline batch was polluted by the test suite); the page tooltip for
+`merged offline` and `partial` (Playwright is not installed).
+
+## False ball movement: the final path left a hidden ball for a ball boy's ball and came back (2026-10-15)
+
+The failure (the user's clip `ball_tracking_wrong.mp4`, broadcast 22.1-24.3 s, run `runs/2bac432528d0e568/20261015-001926-88577e`):
+the ball is last seen at 22.1 s at a player's feet (track 8); the causal pass keeps it OCCLUDED at that player and reacquires it
+there at 24.27 s, 78 px from its prediction. The final path instead bridged 35 frames as a 12 m/s unseen flight down to a ball
+standing still by the ball boy on the bottom touchline (detector 0.13-0.43, rejected by the causal pass as JUMP / LOW_SCORE), sat
+on it for a second with `BALL LOCKED (final path)`, and started a new run on the real ball at 24.30 s: an excursion of 13 m and
+back. Nothing in the causal tracker caused it; `ball_cleanup.py` (re-decoding a stored result, no detector) reproduces it exactly.
+
+Cause, from a per-frame dump of the decoded path (scratchpad `path_dump.py`): a bridged frame costs .8 against 1.0 for NOT
+VISIBLE, so a link earns .2 for every frame it bridges whatever its motion; a run may start on anything for 3.2; node
+ball-likeness depends on size, shape, isolation and field (up to .6) far more than on detector confidence, so a resting ball
+by the touchline scores .6-.9 and 29 such frames earn about 20 over leaving them unknown; and once a dead-stop penalty existed,
+the decoder routed the flight through a single STATIC-rejected candidate at the bottom edge next to a person (a ball boy counted
+as a player within reach) so that both legs looked like rolls. The stationary hypothesis (the ball stayed at the player for 2.2 s)
+could not even be expressed: links bridged at most 1.2 s.
+
+What changed (`soccer/ball_path.py`, `soccer/ball.py`, `pipeline.py`, `index.html`, `README.md`, tests in `tests/test_ball_path.py`
+and `tests/test_ball.py`; 219 tests pass):
+
+- A link whose implied speed is under 1 m/s may bridge up to 3 s (MAX_STILL_S): a ball seen again where it vanished most likely
+  stayed there. Same price per bridged frame as any bridge (a cheaper one let static junk beat the real ball; measured).
+- One ball: a candidate the causal pass saw while it confidently tracked the ball elsewhere keeps a fifth of its ball-likeness
+  (ELSEWHERE .5 -> .2), so it never pays for a frame by itself.
+- Physics the decoder had no word for: a flight (8 m/s or more) into or out of a sighting that stands still with no player
+  within reach costs 12 (DEAD_STOP), and a link faster than a hard shot between sightings of two different things costs 12
+  (JUMP_COST); both exceed what any bridge can earn. Node speeds come from tracklet neighbours within 0.3 s.
+- People rejected as outside the pitch (ball boys, staff) are not players for the lower-body and within-reach logic.
+- Trajectory review, up to 8 rounds: a still stretch of the path (0.5 m, 4+ sightings) that the causal pass ruled out (40% or more
+  with JUMP, NO_ENTRY, OTHER_OBJECT, STATIC, FIELD_LINE or PLAYER_ATTACHED) and that nothing was seen rolling to from the last
+  accepted sighting (a flight, 0.5 s or more unseen, or nothing; rejected waypoints are walked over) is cut out, logged as
+  `BALL TRAJECTORY REVIEW` (frames, last accepted sighting, visual evidence, motion, the causal reasons, the decision
+  `REJECTED_STATIC_UNANCHORED`), and the path is decoded again. UNCONFIRMED, LOW_SCORE and TRAJECTORY do not count: the real ball
+  gets them while the causal pass re-acquires it (counting them cut 40-98 real stretches on the broadcast; measured and reverted).
+- Every ball frame says where its position came from (`origin`: OBSERVATION, WEAK_DETECTION, INTERPOLATION, PREDICTION, UNKNOWN)
+  and how the ball moved (`motion`: STATIONARY, ROLLING, FAST, OCCLUDED, UNKNOWN). The causal tracker reports STATIONARY only from
+  sightings of the last 0.4 s that show the ball at rest and then carries no velocity into the next prediction; an unseen ball is
+  OCCLUDED, never assumed still. `summary.ball` adds `staticRunsDropped`, `longUnseenLinks`, `stationaryLinks`.
+
+Measured by re-decoding the stored results of the user's run and of the Phase-5-era regression windows (`after/*` of the 2026-10-14
+session; scratchpad `ball_ablation.py`, one row per change added in order; "old decoder" is the committed code). There is no ball
+ground truth, so the numbers are consistency metrics: shares of frames TRACKED / MISSING (bridged) / UNKNOWN, runs, teleports
+(> 40 m/s between shown frames), out-and-back excursions (5 m away and back within seconds), bridged frames implying more than
+8 m/s, and the distance of the shown ball from the first pass's prediction on frames where the first pass had the ball hidden at
+a player (mean / max, metres).
+
+| window | variant | tracked / missing / unknown | runs | teleports | excursions | bridged > 8 m/s | hidden drift mean / max m | review cuts |
+|---|---|---|---|---|---|---|---|---|
+| clip (10-50 s) | old decoder | .730 / .268 / .002 | 3 | 0 | 2 | 62 | 2.88 / 13.47 | 0 (visits the ball boy's ball, furthest 13.2 m) |
+| clip | + stationary links | .730 / .268 / .002 | 3 | 0 | 2 | 62 | 2.88 / 13.47 | 0 (visits, 13.2 m) |
+| clip | + one ball | .710 / .288 / .002 | 3 | 0 | 2 | 82 | 2.86 / 13.47 | 0 (visits, 13.2 m) |
+| clip | + dead stop, jump | .711 / .287 / .003 | 4 | 0 | 2 | 52 | 3.35 / 14.27 | 0 (visits, 14.6 m) |
+| clip | + review (shipped) | .672 / .327 / .001 | 2 | 0 | 2 | 49 | 1.54 / 7.75 | 4 (never visits, furthest 2.7 m) |
+| broadcast 0.5-180 s | old decoder | .672 / .326 / .001 | 9 | 0 | 13 | 321 | 17.9 / 59.9 | 0 |
+| broadcast | + stationary links | .668 / .331 / .001 | 8 | 0 | 12 | 245 | 18.2 / 59.9 | 0 |
+| broadcast | + one ball | .607 / .392 / .001 | 6 | 0 | 12 | 253 | 17.4 / 59.9 | 0 |
+| broadcast | + dead stop, jump | .604 / .395 / .001 | 6 | 0 | 12 | 229 | 17.4 / 59.9 | 0 |
+| broadcast | + review (shipped) | .597 / .401 / .001 | 6 | 0 | 12 | 204 | 17.4 / 59.9 | 7 |
+| veo 1-31 s | old decoder | .483 / .472 / .044 | 2 | 0 | 3 | 150 | 4.4 / 42.6 | 0 |
+| veo | shipped | .477 / .522 / .001 | 2 | 0 | 3 | 130 | 4.2 / 42.6 | 1 |
+| amateur3 0-60 s | old decoder | .245 / .586 / .169 | 3 | 0 | 2 | 94 | 1.95 / 11.2 | 0 |
+| amateur3 0-60 s | shipped | .228 / .261 / .511 | 2 | 0 | 2 | 96 | 2.34 / 20.9 | 2 |
+| amateur3 150-210 s | old decoder | .197 / .621 / .182 | 5 | 0 | 3 | 145 | 12.7 / 96.5 | 0 |
+| amateur3 150-210 s | shipped | .181 / .738 / .081 | 4 | 0 | 2 | 83 | 9.7 / 36.1 | 1 |
+
+Reading. The clip is fixed by the review, not by the penalties: with the penalties alone the decoder still reaches the ball boy's
+ball through the stepping stone. On the broadcast the tracked share falls from .672 to .597; of the 419 frames the old path showed
+as sightings and the new one does not, 327 are frames on which the causal pass had the ball hidden at a player and the old path sat
+on something else, 50 are frames on which the old sighting was more than 3 m from a confident causal sighting, and 42 agreed with
+the causal ball within 3 m (1.4 s lost). Checked by hand: at 39.3-42.2 s the old path followed a white object on the left (rejected
+OTHER_OBJECT by the causal pass) for three seconds while the causal pass had the real ball dribbled along the bottom right; the new
+path follows the causal ball. Amateur 0-60 s: the review cuts a 14 s chain of six weak sightings on a painted spot (detector .22,
+four of six FIELD_LINE) that the stationary links had made a resting ball, so those frames are UNKNOWN. Amateur 150-210 s: the shown
+hidden ball is never further than 36 m from the first pass's prediction instead of 96 m. The 180 s broadcast decode takes 46 s
+instead of 8 s (stationary links are tried on every frame; a stride of three frames cost more than the margins decide on).
+
+Known limitation, measured and left: a bridge may still ride over frames on which the causal pass had the ball confidently in sight
+far from the bridge (broadcast: 79 such bridged frames before, 139 after, mostly 3 s stationary links on the left while the ball was
+seen on the right, e.g. 21.3-22.5 s). A per-frame contradiction cost was tried; it removed those but produced an invented 23 m/s
+diagonal flight elsewhere (21 teleports), so it is not shipped. Also tried and reverted, each measured: a per-frame travel charge on
+bridges (cut real sparse flights on Veo and amateur footage, where the small ball is seen every 10-30 frames), pricing bridged frames
+like NOT VISIBLE (amateur 0-60 s UNKNOWN .17 -> .54), a cheaper stationary bridge (.5: static junk on the touchline beat the real ball
+through its occlusions on the broadcast), a place-based "something already stood there" test (the ball's own earlier sightings
+match it), and a 1.5 m still region (cut dribbles).
+
+Unmeasured: ball position error (no annotations exist; "no ball accuracy is claimed" still holds); the page overlay (Playwright is
+not installed; the debug line now shows the motion state and the origin).
+
+## Display labels apart from internal identities (2026-10-15)
+
+The user deletes two team B "players" that were referees and the rest stay B-09..B-12: the shown number was the identity
+itself (`GlobalPlayer.pid`, written as `display` on every frame), created in order and never reused, so a deletion left a
+gap and a team of ten outfield players ended at B-12. New `soccer/labels.py`: `assign(result)` regenerates `display` from the
+confirmed roster (match entries, every frame, the `labels` map, `summary.labelling`), per team in creation order, no gaps,
+at most `outfieldPerTeam` (10) active numbers; a player who left (a correction) keeps the number and frees the slot; identities
+beyond the slots are `B-?` with their data kept; goalkeepers untouched. Called at the end of `pipeline.build_report` (before
+the roster, which takes `display` from the entries; the 2D view labels markers from the same entries) and in
+`corrections.apply_result` after every correction, which logs `PLAYER LABELS RENUMBERED` with every move. `id` is never
+changed: re-identification, galleries, tracklets, the timeline and corrections key on it. `tests/test_labels.py` runs the
+user's scenario (B-01..B-12, delete B-07 and B-08 -> B-01..B-10, the former B-09..B-12 shown as B-07..B-10, same internal
+ids on every frame, GK-A/GK-B untouched, roster and labels map updated, undo exact), a substitution (a player who left keeps
+the number, the 11th takes B-11), fewer than ten (not padded) and stability (no change without a roster change). 224 tests
+pass. Not changed: the online cap (`_create_or_hold` still creates an internal identity beyond the expected count after 5 s
+when every missing identity is implausible, with the sanity warning) and the page's roster headings.
+
+## Ball teleport to the penalty spot (2026-10-15)
+
+The failure (the user's clip `BallTelport.mp4`, broadcast 12.0-15 s, run `runs/2bac432528d0e568/20261015-143540-2a22d2`): the final
+path left the ball near midfield, sat on the right penalty spot (pitch (0.893, 0.505), 45.9 m away) from 12.57 to 13.37 s as
+TRACKED / STATIONARY, and came back. The causal pass never went there: it had reacquired a boot at track 3's feet at 11.93 s
+(detector 0.18, "4 px from the predicted position"), flagged the real ball OTHER_OBJECT while that lock was confident and JUMP
+once it was hidden (`BALL SWITCH WARNING` at 12.567 s: required 119 m/s), and showed the ball OCCLUDED at that player.
+
+Cause, from `path_dump.py` (the decoder re-run on the stored first pass, no detector): round 0 followed the real ball (tracklet
+32, detector 0.78-0.93, 4-5 m/s, every sighting JUMP-rejected by the causal pass). The trajectory review then cut three
+4-sighting stretches of it: a ball at 5 m/s passes through 0.5 m in four frames, so each stretch counted as "still", every
+sighting was a strong negative (JUMP), and the entry was a flight. With the real ball removed the next round took tracklet 129,
+the penalty spot (first sighting STATIC, the next 24 TRAJECTORY because the static flag flickered: the carried online
+calibration drifted, so `_painted_spot` within 1 m and the settled drift test in pitch metres came and went), and nothing
+cut it: TRAJECTORY is not a negative and one STATIC in 25 is under 40%. Three defects then: the review's stillness test had no
+speed in it; the decoder did not know the painted spots or things standing for seconds; a marking shorter than a run could be a
+stepping stone. Not a camera-motion or detector problem.
+
+What changed (`soccer/ball_path.py`, `soccer/ball.py`, `soccer/geometry.py`, `pipeline.py`, `README.md`, tests in
+`tests/test_ball_path.py` and `tests/test_ball.py`; 233 tests pass):
+
+- Field markings in the decoder (`nodes_of`, `_standing_markings`): a candidate within 1 m of a penalty or centre spot of the
+  offline registration (trusted, confidence 0.5 or more; `PAINTED_SPOTS` moved to `geometry.py`) keeps 40% of its
+  ball-likeness unless the causal pass tracked the ball there; so does every sighting of a tracklet that spans 2 s and never
+  leaves 0.6 m of its first sighting (pitch metres when registered, else camera-compensated image). `markingNodes` in
+  `summary.ball`. Explicit penalty-spot handling with temporal evidence, not a mask: a ball tracked on the spot stays.
+- Review stillness is a speed (`_review`): a stretch is still only when it moved under 1 m/s over its duration; the real ball
+  rolling through 0.5 m is never chopped, whatever the causal pass said. Markings count as negatives; a stretch made only of
+  markings is judged at any length (a stepping stone of two sightings is not a run), and a cut marking's other sightings go
+  with it (the decoder re-found the next two sightings of the same still thing each round until the rounds ran out).
+- Islands (`_review`): a run shorter than 1 s unreachable from the run before it and unable to reach the run after it
+  (both over 40 m/s) is cut, `REJECTED_IMPOSSIBLE_JUMP`; the frames stay unknown. Future-frame validation for a moving thing.
+- Causal `BALL SWITCH WARNING` (`_warn_switch`): elapsed time, required velocity, physical plausibility, near penalty spot
+  YES/NO, static field marking evidence HIGH/MEDIUM/LOW with the stillness scores, detector confidence, `/ FIELD_MARKING`
+  on a rejection of a known marking. The settled test (`_classify`) takes the smaller of the pitch and the camera-compensated
+  image distance, so a thing fixed to the field stays settled while a carried calibration drifts.
+- Tried and removed: a START penalty (JUMP_COST on a run that begins within 1 s of the last sighting on the path, faster than
+  40 m/s away from it). It fixed nothing the review did not, and on the same 60 s it made the decoder keep a static thing
+  outside the pitch (tracklet 1, pitch y 1.04) from 2.4 to 3.6 s and jump-link 36 m/s to the real ball at 4.47 s (13 teleports)
+  rather than pay to restart on the real ball at 2.40 s: every alternative was "impossible", so the penalty only moved the
+  jump. An impossible restart must cost what an impossible link costs and both must lose to leaving the gap unknown, which
+  is what the island rule does after the fact.
+
+Measurement (`ball_check.py`, re-decoding stored results from their first pass; the shipped Task 2 decoder is the "before").
+
+| window | before: tracked / missing / unknown, runs, bridged > 8 m/s, drift mean / max, cuts | after |
+|---|---|---|
+| teleport run 0-60 s | .576 / .422 / .002, 4, 48, 15.7 / 44.9, 3 (visits the spot 12.57-12.70+, furthest 45.9 m) | .569 / .430 / .001, 2, 48, 15.4 / 44.9, 3 (never visits, furthest 2.8 m; 10294 marking nodes) |
+| clip (ball boy, 10-50 s) | .672 / .327 / .001, 2, 49, 1.54 / 7.75, 4 (never visits) | .673 / .326 / .001, 2, 48, 1.54 / 7.75, 4 (never visits, furthest 5.7 m in 22-25 s) |
+| veo | .477 / .522 / .001, 2, 130, 4.17 / 42.6, 1 | .482 / .517 / .001, 2, 130, 4.17 / 42.6, 0 (the cut stretch was a rolling ball) |
+| amateur3_0 | .228 / .261 / .511, 2, 96, 2.34 / 20.9, 2 | identical |
+| amateur3_150 | .181 / .738 / .081, 4, 83, 9.66 / 36.1, 1 | .182 / .569 / .248, 3, 84, 7.36 / 36.1, 2 (a 9 s bridge anchored on a marking is unknown now) |
+| broadcast 0.5-180 s | .597 / .401 / .001, 6, 204, 17.4 / 59.9, 7 | .601 / .397 / .001, 6, 215, 17.4 / 59.9, 1 (six of the cuts were rolling-ball stretches) |
+
+A GPU rerun of the same 60 s with the final code (scratchpad `task4/broadcast0`, 4.76 fps) gives the same first pass (.504 / .474 / .022, 9 teleports, 2 foot switches: the settled-test change did not alter it here) and a final path that never visits the spot (furthest 2.8 m from the last sighting in 12.4-13.5 s; identical to the re-decode), with the `BALL SWITCH WARNING` at 12.57 s now carrying the elapsed time, the penalty-spot and the marking lines. No island was cut on any window (the rule fires in the unit test only), no teleport anywhere, the fast passes of the Veo and
+broadcast windows are unchanged (bridged > 8 m/s 130 and 215). Legitimate fast movement: links up to 40 m/s cost nothing extra,
+a 36 m/s flight is still linked when nothing cheaper exists, and the island rule needs both ends impossible.
+
+## A far-touchline player shown B-? for the whole run (2026-10-15)
+
+The failure (the user's clip `B_wrong_track.mp4`, broadcast 1.1-12.8 s of their run `runs/2bac432528d0e568/20261015-162859-23f55f`,
+0-60 s): a team B player on the far touchline is `B-?` at 1.6 s, drawn without any label from 2.8 to 7.8 s, `B-?` again after.
+What the data says: he is ONE local track (8, no gap in 60 s) and ONE internal identity, B-14, created at 8.2 s ("every missing
+identity of this group is implausible here; Team B now has 12 identities"), with his frames before 2.8 s labelled retroactively.
+Three things went wrong, none of them a lost track:
+
+- 2.8-7.8 s his kit read as neither team ("no consistent role or kit after 15 observations (kit matches neither team)"; a
+  30-px person), so the track was `unknown` (`UNK-8`), which the page does not draw outside the debug view. Observations in
+  that state were not kept for retroactive labelling (`identity.py` kept candidate, uncertain and nontarget ones), so when the
+  track became B-14 the undecided frames stayed `UNK-8`; the offline refinement then scored that stretch like any anonymous
+  fragment and the crops of a 30-px player did not pass the appearance floor.
+- Team B held 12 identities. B-05 (local track 10) and B-13 (track 34) were created at 0.8 and 3.8 s at the bottom edge of
+  the frame among the staff, seen 3.7 and 3.9 s, 63% of B-05's boxes cut by the frame edge, gone for good at 4.9 s; on 111
+  frames 11-12 team B outfield identities were in view at once (team A: 11 on 224 frames, A-11 the same way). `labels.plan`
+  numbered the first ten created, so B-14, the last, was `B-?` on every frame and his timeline slot carried `B-?`.
+- The roster had no notion of which identities are fielded: 12 "ACTIVE / OFF_SCREEN" slots, the two sideline people with
+  estimated positions for the 55 s they were not seen.
+
+What changed (`soccer/identity.py`, `soccer/tracklets.py`, `soccer/labels.py`, `soccer/roster.py`, `soccer/imputation.py`,
+`index.html`, `tools/compare.py`, `README.md`; tests in `tests/test_identity.py`, `tests/test_identity_encounters.py`,
+`tests/test_labels.py`; 239 tests pass):
+
+- Retroactive labelling covers the kit-undecided spell: 'unknown' observations stay pending (12 s buffer) and take the identity
+  when the track is identified, like candidate and uncertain ones (the local track is the same person; a track switch still
+  drops what came before it).
+- Offline, the local track is evidence (`refine`): an anonymous stretch within 1 s of an identified stretch of the SAME track,
+  with no track switch or appearance cut between, takes that identity without the appearance floor, unless the crops
+  contradict it (OSNet cosine under 0.55), the stretch voted the other team, or the identity was seen elsewhere meanwhile.
+  `TRACKLET CONNECT ... Same local track as B-14 after it`; `sameTrackContinued` in the identity metrics. Anonymous fragments
+  of 1 s or more that stay anonymous are logged as `TRACKLET UNRESOLVED` with the best candidate, its score, the floor and the
+  lead that stopped it (`unresolvedFragments`).
+- Slots by participation (`labels.plan`): when a team holds more active identities than it fields, the numbered slots go to
+  the identities with the most participation evidence over the whole segment (seconds observed with the box clear of the
+  frame edges and the person not outside the pitch, compared in 2 s steps so that a few frames between runs never move a
+  number; ties in creation order), numbers still in creation order. The entries and roster slots carry `confirmed` and
+  `participation`; `PLAYER LABELS` names every unconfirmed identity with how long it was seen, how much of that at an edge and
+  how many teammates were in view with it. The timeline keeps an unconfirmed identity's observed positions and estimates
+  nothing for it; the 2D view's missing-players line leaves it out. The roster count is supporting evidence only: nothing is
+  merged, deleted or invented from it (a referee classified as a B player with 19 s on the pitch cannot be told from a player
+  by participation; that remains the role classifier's and the corrections' job).
+
+Verification. Re-deriving the user's run with the new labels (scratch `task5/rederive.py`, no GPU): B-14 is `B-10` on all
+1650 frames, roster slot confirmed, timeline O 1650 / P 150; B-05 and B-13 are `B-?`, unconfirmed, timeline O for their 112 /
+116 observed frames and U elsewhere; A-11 the same. A GPU rerun of 0-20 s with the new identity code (scratch `task5/clipwin`):
+track 8 is B-14 on all 600 frames (270 of them labelled retroactively, the former `UNK-8` spell included), shown `B-10`; 0 id
+switches. That scratch run has no corrections applied (unlike the user's page), so the officials are 13 full-time team B
+identities there and the slot ranking among them is creation order.
+
+Two findings from the GPU regression batches (five windows, baseline = the Task 1 code's runs of 2026-10-14). The first batch
+never continued a single fragment on real footage (`sameTrackContinued` 0 everywhere) although the cases exist: on amateur
+150-210 s, track 100 is anonymous for 19.5 s (uncertain B-?) and then B-05 for 32 s on the same track. Two reasons, both fixed
+and tested: the continuation ran inside the generic loop, after the refinement had connected a look-alike on another track to
+B-05 by appearance, so B-05 counted as "seen elsewhere meanwhile" (the track itself outranks another track's appearance match:
+it now runs first, and again after the global assignment, `tracklets.continue_same_track` from `pipeline.finalize_identities`);
+and "seen elsewhere" was judged within +-50 ms of the fragment, which caught the neighbouring identified frame of the same track
+33 ms away (now strictly inside the fragment's span). Final rerun (scratch `task5/win3`):
+
+| window | identified share | id switches | fragmentation | tracklets connected | same-track continued | new identities |
+|---|---|---|---|---|---|---|
+| clip 10-50 s | .973 / .973 | 2 / 2 | .09 / .09 | 0 / 0 | 0 | 21 / 21 |
+| veo 1-31 s | .404 / .406 | 14 / 14 | .78 / .78 | 9 / 10 | 1 | 18 / 18 |
+| amateur 0-60 s | .682 / .684 | 24 / 24 | .96 / .96 | 17 / 17 | 0 | 23 / 23 |
+| amateur 150-210 s | .773 / .789 | 59 / 58 | 2.57 / 2.52 | 43 / 46 | 4 | 23 / 23 |
+| broadcast 0.5-180 s | .975 / .975 | 14 / 14 | .56 / .56 | 1 / 1 | 0 | 26 / 26 |
+
+(clip, amateur 0 s and broadcast from the second batch, which already had the final causal code and the same offline outcome
+for them: no same-track case exists on those windows.) Track 100 on amateur 150-210 s is B-05 from 158.67 s on (577 frames
+connected offline, OSNet cosine 0.81 to the gallery, no contradiction), the 19.5 s of B-? before the causal pass decided are
+corrected from the later frames; no frame carries one identity on two people. The occlusion regression of 2026-10-14 (B-07
+behind A-03, now shown as B-06/B-07 after relabelling) still passes on the new clip run. The far-touchline player of the user's
+clip is unchanged by the offline change: one track, B-14 on all 600 frames of the 0-20 s rerun, 270 of them retroactively.

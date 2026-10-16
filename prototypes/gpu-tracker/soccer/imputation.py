@@ -323,6 +323,11 @@ def estimate(result, size_length=105.0, size_width=68.0, min_confidence=.2):
         # slots are unknown there (the estimate resumes on the next calibrated frame).
         kind[~calibrated] = KINDS['U']
         for j, k in enumerate(members):
+            if not slots[k].get('confirmed', True):
+                # An unconfirmed identity (beyond the team's slots: probably not a fielded player) keeps its observed
+                # positions and gets no estimate where it was not seen.
+                kind[np.isnan(pos[:, k, 0]), j] = KINDS['U']
+        for j, k in enumerate(members):
             pid = slots[k]['id']
             xs, ys, kinds, sigmas = [], [], [], []
             for t in range(T):

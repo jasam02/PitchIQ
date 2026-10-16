@@ -21,7 +21,7 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import ball_path, imputation, lens, pitch_model, registration, roster, tracklets, visibility
+from soccer import ball_path, imputation, labels, lens, pitch_model, registration, roster, tracklets, visibility
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -526,13 +526,23 @@ def finalize_identities(frames, tracker):
     report = tracklets.refine(tracker.ids, frames, motions, tracker.width, tracker.height, size)
     # The fragments still anonymous after the refinement: one global assignment with mutual exclusion.
     assigned = tracklets.assign_fragments(tracker.ids, frames, motions, tracker.width, tracker.height, size)
+    # A fragment identified by the assignment hands its identity to the anonymous stretches of its own track.
+    continued = tracklets.continue_same_track(tracker.ids, frames, motions, tracker.width, tracker.height, size)
+    for key in ('connected', 'sameTrack', 'framesRestored'):
+        report[key] = report.get(key, 0)+continued[key]
+    report['connections'] = report.get('connections', [])+continued['connections']
     # Identities that may be one person: proposed for review in roster.mergeProposals, never merged here.
     proposals = tracklets.merge_proposals(tracker.ids, frames, motions, tracker.width, tracker.height, size)
+    # A later identity that only continues an earlier one across a short occlusion is merged into it; the other
+    # proposals stay for review.
+    merged = tracklets.apply_merges(tracker.ids, proposals['proposals'], frames[-1]['time'])
+    applied = {p['later'] for p in proposals['proposals'] if p.get('applied')}
     report['mergeProposals'] = proposals['proposals']
     report['mergeProposalCounts'] = {k: proposals[k] for k in ('pairsCompared', 'rejectedByAppearance', 'rejectedByContinuity', 'interleaved')}
+    report['merged'] = merged['merged']
     report['assigned'], report['framesAssigned'] = assigned['accepted'], assigned['framesAssigned']
     report['assignment'] = {k: assigned[k] for k in ('proposed', 'accepted', 'rejectedByLead', 'rejectedByScore', 'rounds')}
-    report['events'] = report['events']+assigned['events']+proposals['events']
+    report['events'] = report['events']+assigned['events']+continued['events']+[e for e in proposals['events'] if e.get('playerId') not in applied]+merged['events']
     tracker.events += report['events']
     tracker.events.sort(key=lambda e: e['time'])
     return report
@@ -605,6 +615,7 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             'teleports': jumps['teleports'], 'footSwitches': jumps['footSwitches'],
             'longestUnknownSeconds': ball_report['final']['longestUnknownSeconds'] if ball_report else None,
             'droppedFirstPassRuns': len(ball_report['dropped']) if ball_report else 0, 'firstPass': first_pass,
+            **({k: ball_report['final'].get(k, 0) for k in ('staticRunsDropped', 'longUnseenLinks', 'stationaryLinks', 'markingNodes')} if ball_report else {}),
             'reacquisitions': first_pass['reacquisitions'], 'lost': first_pass['lost'],
             'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
     nontarget = [p for f in frames for p in f['people'] if p.get('state') == 'nontarget']
@@ -671,6 +682,12 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
                             'Every roster slot not observed on a frame is classified from the camera view: expected in frame but not seen, off-screen, or unknown; this is evidence for the review, never a reason to remove or invent anyone.',
                             'Where a roster slot is not observed, the timeline carries an estimate with its kind and sigma: I (interpolated across a gap of at most a second), P (predicted: the straight line between two observations further apart, or, where only one side is observed, the last position moved with the visible teammates; the sigma says how far to trust it) or U (unknown: nothing supportable, no coordinates). Estimates are never observations and the 2D view draws them differently.',
                             'The ball is one physical identity (BALL-1). Its final trajectory is decoded offline over the whole segment from every frame\'s candidates and an explicit "not visible" node: a sighting that no plausible trajectory leads into or out of (a boot, a sock, a spot) is left out, short occlusions on a trajectory are bridged (MISSING), and everything else is UNKNOWN rather than a guess. The causal first pass is kept per frame as firstPass. No ball accuracy is claimed.']}
+    # Display labels (A-01, B-07) are regenerated from the confirmed roster, apart from the internal identities
+    # (soccer/labels.py): numbered without gaps, at most the outfield slots active at a time, the rest unconfirmed.
+    labelling = labels.assign(report)
+    if any(c['unconfirmed'] for c in labelling['counts'].values()):
+        events.append({'time': round(frames[-1]['time'], 3), 'kind': 'labels', 'track': None, 'playerId': None,
+                       'message': '\n'.join(['PLAYER LABELS']+labels.describe(labelling))})
     # The active roster and, per frame, what the camera sees of the pitch and where each unobserved slot stands
     # with respect to it: pure functions of the result, re-derived whenever a correction is applied.
     report['roster'] = roster.build(report)

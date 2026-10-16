@@ -28,7 +28,7 @@ import time
 import uuid
 from pathlib import Path
 
-from soccer import imputation, roster, visibility
+from soccer import imputation, labels, roster, visibility
 
 ROLES = ('player', 'goalkeeper', 'referee', 'excluded', 'left')   # 'referee' (older pages) means not a player: 'excluded'; 'left': substituted or sent off
 GROUPS = ('players', 'goalkeepers', 'referees')         # 'referees' only in results of earlier versions
@@ -189,6 +189,19 @@ def apply_result(result, corrections):
         match[key].sort(key=lambda e: (e.get('id') or '', e.get('track') or 0))
     _recount(result, sum(1 for a in applied if a['applied']))
     result['corrections'] = applied
+    # The display labels follow the corrected roster: no gaps, the outfield slots filled in order, internal
+    # identities untouched (soccer/labels.py).
+    labelling = labels.assign(result)
+    moved = {pid: (old, new) for pid, (old, new) in labelling['changed'].items() if old is not None}
+    if moved and applied:
+        when = max((float(c.get('time') or 0.0) for c in corrections), default=0.0)
+        event = {'time': round(when, 6), 'kind': 'labels', 'track': None, 'playerId': None, 'accepted': True,
+                 'message': '\n'.join(['PLAYER LABELS RENUMBERED', 'Internal identities unchanged; only the shown labels moved.']+labels.describe(labelling))}
+        events = result.setdefault('events', [])
+        at = len(events)
+        while at > 0 and events[at-1].get('time', 0) > event['time']:
+            at -= 1
+        events.insert(at, event)
     # The roster and the per-frame visibility follow from the corrected result.
     if result.get('frames') and result.get('video'):
         result['roster'] = roster.build(result)

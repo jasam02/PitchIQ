@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from soccer import ball_path
+from soccer import ball_path, field, registration
 
 
 def motions_of(result, args):
@@ -46,6 +46,31 @@ def motions_of(result, args):
     return out+[(None, False, False)]*(len(frames)-len(out))
 
 
+def to_pitch_of(frames):
+    """The offline registration stored per frame (`calibration.H`, world metres -> pixels, and its confidence) as the
+    `to_pitch(i, point_px)` the decoder uses to recognize the painted spots; None when no frame carries one."""
+    size = field.PitchSize()
+    for f in frames:
+        sz = (f.get('pitchModel') or {}).get('size')
+        if sz and sz.get('length'):
+            size.length, size.width = float(sz['length']), float(sz['width'])
+            break
+    Hs = []
+    for f in frames:
+        cal = f.get('calibration') or {}
+        h = cal.get('H')
+        Hs.append((np.array(h, float).reshape(3, 3), float(cal.get('confidence') or 0.0)) if h and len(h) == 9 else None)
+    if not any(Hs):
+        return None
+
+    def to_pitch(i, point):
+        if i >= len(Hs) or Hs[i] is None:
+            return None
+        p, _, _ = registration.position(Hs[i][0], size, point, Hs[i][1])
+        return p
+    return to_pitch
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('result')
@@ -66,7 +91,7 @@ def main():
             f['ball'] = {'state': 'UNKNOWN', 'confidence': 0.0}
     W, H, fps = result['video']['width'], result['video']['height'], result['video']['fps']
     motions = motions_of(result, args)
-    report = ball_path.finalize(frames, motions, W, H, fps)
+    report = ball_path.finalize(frames, motions, W, H, fps, to_pitch_of(frames))
     print('first pass:', json.dumps(report['firstPass']))
     print('final:     ', json.dumps(report['final']))
     for d in report['dropped']:

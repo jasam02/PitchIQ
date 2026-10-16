@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .geometry import clamp, signed_distance
+from .geometry import PAINTED_SPOTS, clamp, signed_distance
 from .pitch import nearest_boundary
 
 BALL_DIAMETER = .22      # metres
@@ -61,6 +61,9 @@ SWITCH_MARGIN = .25      # another candidate must beat the one on the predicted 
 FLAG_SECONDS = 1.5       # how long "seen at the same time as the ball" stays with a moving tracklet
 RELATIVE_FREE = .6       # metres a candidate must move relative to the player it sits on to count as free of them
 ENTRY_SLOW = 8.0         # m/s: a hidden ball may have rolled this fast unseen without any further evidence
+FAST_SPEED = 8.0         # m/s: from here the motion state is FAST rather than ROLLING
+REST_WINDOW = .4         # seconds of sightings that show the ball at rest (STATIONARY) when none of them ...
+REST_RADIUS = .25        # ... lies further than this (metres) from the oldest: no velocity is carried into the next prediction
 ACCEPT = {'LOCKED': .45, 'OCCLUDED': .5, 'RECOVERING': .55}
 HARD = ('SIZE', 'OUTSIDE_PITCH', 'OTHER_OBJECT', 'PLAYER_ATTACHED')
 REASONS = {'FIELD_LINE': 'BALL REJECTED: FIELD LINE', 'STATIC': 'BALL REJECTED: STATIC FALSE POSITIVE',
@@ -266,9 +269,6 @@ def analyse_patch(frame, cx, cy, d):
             'bulge': bool(comp and comp['bulge']), 'stretch': round(stretch, 2)}
 
 
-PAINTED_SPOTS = ((11/105, .5), (94/105, .5), (.5, .5))
-
-
 def _painted_spot(p):
     """Within ~1 m of a penalty spot or the centre spot on the calibrated pitch."""
     return p is not None and any(math.hypot((p[0]-x)*105, (p[1]-y)*68) <= 1.0 for x, y in PAINTED_SPOTS)
@@ -343,9 +343,24 @@ class BallTracker:
         px_m = max(1e-3, (a.px_m+b.px_m)/2)
         return math.hypot((a.stab[0]-b.stab[0])*self.W, (a.stab[1]-b.stab[1])*self.H)/px_m
 
+    def _metres_image(self, a, b):
+        """Metres between two candidates in camera-compensated image coordinates, whatever the calibration says."""
+        px_m = max(1e-3, (a.px_m+b.px_m)/2)
+        return math.hypot((a.stab[0]-b.stab[0])*self.W, (a.stab[1]-b.stab[1])*self.H)/px_m
+
     def _metres_since(self, entry, c):
         """Metres between an observed history entry (time, x, y, observed, stab, pitch, px_m) and a candidate."""
         return self._metres(Candidate(0, [], 0, entry[1], entry[2], 1, entry[6], entry[4], entry[5], None), c)
+
+    def _resting(self, time):
+        """The ball has been observed standing still: at least three sightings over the last REST_WINDOW
+        seconds, spanning a quarter second, none further than REST_RADIUS metres from the oldest of them.
+        Confirmed stillness, never the absence of evidence (an unseen ball is OCCLUDED, not STATIONARY)."""
+        recent = [h for h in self.history if h[3] and time-h[0] <= REST_WINDOW]
+        if len(recent) < 3 or recent[-1][0]-recent[0][0] < .25:
+            return False
+        oldest = recent[0]
+        return all(self._metres_since(oldest, Candidate(0, [], 0, h[1], h[2], 1, h[6], h[4], h[5], None)) <= REST_RADIUS for h in recent[1:])
 
     def _spot(self, c):
         for s in self.spots:
@@ -553,7 +568,9 @@ class BallTracker:
                 speed = moved/span if span > 1e-3 else 0.0
             long = t.window(time, STATIC_SECONDS+.5)
             if len(long) >= 3:
-                drift = max(self._metres(h[1], c) for h in long)
+                # A thing fixed to the field drifts in pitch coordinates while a carried calibration drifts; it does not
+                # drift in the camera-compensated image. Either distance saying "still" is enough.
+                drift = max(min(self._metres(h[1], c), self._metres_image(h[1], c)) for h in long)
                 age = time-long[0][0]
                 if drift <= STATIC_RADIUS and t.unreliable <= .2*len(t.hits):
                     settled = clamp(age/STATIC_SECONDS)
@@ -615,12 +632,18 @@ class BallTracker:
     def _warn_switch(self, c, time, gap, decision):
         kf = self.kf
         required = c.required if c.required is not None else (c.err or 0.0)/max(c.px_m, 1e-3)/max(gap, 1/self.fps)
+        static = c.scores.get('static', 0.0)
+        settled = c.scores.get('settled', 0.0)
+        spot = _painted_spot(c.pitch) and self.calibration >= .5
+        marking = 'HIGH' if static >= 1.0 or spot else 'MEDIUM' if settled >= .5 else 'LOW'
         lines = [f'Old position: x = {kf.x[0]:.0f}, y = {kf.x[1]:.0f} px ({self.phase}, hidden for {gap:.2f} s' + (f', at track {self.carrier["id"]}' if self.carrier else '') + ')',
                  f'New position: x = {c.cx:.0f}, y = {c.cy:.0f} px ({c.err:.0f} px from the prediction)',
-                 f'Required velocity: {required:.1f} m/s', f'Previous trajectory confidence: {self.confidence:.2f}',
-                 f'New detector score: {c.det:.2f}', f"Player attachment score: {c.scores['attach']:.2f}"
+                 f'Elapsed time: {max(gap, 1/self.fps):.3f} s', f'Required velocity: {required:.1f} m/s',
+                 f'Physical plausibility: {c.traj if c.traj is not None else 0.0:.2f} (trajectory consistency)', f'Previous trajectory confidence: {self.confidence:.2f}',
+                 f"Near penalty spot: {'YES' if spot else 'NO'}", f'Static field marking evidence: {marking} (static {static:.2f}, settled {settled:.2f})',
+                 f'Candidate detector confidence: {c.det:.2f}', f"Player attachment score: {c.scores['attach']:.2f}"
                  + (f" (on track {c.person.pid}, motion relative to them {c.relative if c.relative is not None else 0:.2f})" if c.person is not None and c.person.pid is not None else ''),
-                 f'Decision: {decision}' + (f' ({c.entry})' if c.entry else '')]
+                 f'Decision: {decision}' + (f' ({c.entry})' if c.entry else '') + (' / FIELD_MARKING' if decision != 'ACCEPTED' and marking == 'HIGH' else '')]
         self._event(time, 'BALL SWITCH WARNING', lines)
 
     def _unflag(self):
@@ -751,6 +774,8 @@ class BallTracker:
         self.history.append((time, chosen.cx, chosen.cy, True, chosen.stab, chosen.pitch, chosen.px_m))
         self.speeds.append((time, math.hypot(kf.x[2], kf.x[3])/kf.px_per_m))
         self._check_parked(chosen, time)
+        if self._resting(time):
+            kf.x[2:] = 0.0   # observed at rest: no stale velocity is carried on (a kick is caught by the uncertainty a player within reach adds)
 
     def _missing(self, time, dt, people):
         """No detection is the ball: it is hidden (behind or under a player), or gone."""
@@ -1015,7 +1040,7 @@ class BallTracker:
 
     def _output(self, time, chosen, to_pitch):
         if self.kf is None or self.confidence < (SHOW_CONFIDENCE if self.phase == 'LOCKED' else .25):
-            return {'state': 'UNKNOWN', 'phase': self.phase, 'confidence': round(self.confidence, 3)}
+            return {'state': 'UNKNOWN', 'phase': self.phase, 'confidence': round(self.confidence, 3), 'motion': 'UNKNOWN', 'origin': 'UNKNOWN'}
         kf = self.kf
         x, y = kf.x[0], kf.x[1]
         d = chosen.d if chosen is not None else self.last_d
@@ -1039,6 +1064,10 @@ class BallTracker:
         out['identity'] = round(self.confidence, 3)
         out['visual'] = chosen.visual if chosen is not None else None
         out['trajectory'] = chosen.traj if chosen is not None else None
+        # Where this position comes from, and the motion state the evidence supports: a hidden ball is OCCLUDED,
+        # never assumed still; STATIONARY needs sightings that show it at rest.
+        out['origin'] = 'OBSERVATION' if chosen is not None else 'PREDICTION'
+        out['motion'] = 'OCCLUDED' if self.phase in ('OCCLUDED', 'RECOVERING') else 'STATIONARY' if self._resting(time) else 'ROLLING' if speed < FAST_SPEED else 'FAST'
         if self.phase != 'LOCKED':
             out['missingFor'] = round(time-self.last_seen, 2)
             if self.carrier is not None:

@@ -95,6 +95,14 @@ SWITCH_COSINE = .55      # a clean crop this unlike the track's own first crops 
                          # (OSNet on small crops: another kit scores .36-.5, the same person .75-.95, one odd crop may dip to .5)
 SWITCH_CHECKS = 3        # ... that many ticks in a row, the crops alike each other (SWITCH_ALIKE): the local track moved to another
 SWITCH_ALIKE = .7        # person (an id switch inside one track); unlike crops are noise (a shadow, a half-hidden body)
+COVERED_FREEZE = .5      # share of a box inside another person's box above which its crop is contaminated as well: a small player behind a
+                         # near one keeps a small IoU with them while most of the crop shows the other person
+PARTIAL_HEIGHT = .8      # a box next to someone (occluded) shorter than this share of the track's recent clean height is a partial box: the
+                         # body is cut off, so its foot point, position and speed are wrong; the kinematic memory keeps the last clean box
+MAX_SPEED = 9.0          # m/s: a remembered velocity above a sprint is a measurement artifact and is never extrapolated faster than this
+SHORT_LOSS = 3.0         # s: an identity lost this recently that a new track strongly resembles (STRONG_LOOK) is never ruled out on the
+STRONG_LOOK = .65        # predicted position alone (that position came from where the occlusion lost them): the track waits for clean
+SHORT_HOLD = 4.0         # frames, IDENTITY_UNCERTAIN, for up to this many seconds of its own observation before the usual rules decide
 
 
 def r3(v):
@@ -198,6 +206,8 @@ class GlobalPlayer:
     excluded: bool = False                               # identified by you as not part of the match (recognised, then left out)
     last_track: int | None = None                        # the local track this identity was last carried by
     tracks: list = field(default_factory=list)           # every local track that carried this identity (fragmentation)
+    clean_seen: float = -math.inf                        # when the kinematic memory (stab, velocity, last_pitch, pitch_velocity) was last
+                                                         # taken from a clean box (a partial box at an occlusion holds the memory)
 
     @property
     def role_label(self):
@@ -283,6 +293,10 @@ class TrackState:
     excluded: str | None = None                     # the identity you marked as not part of the match that this track is
     overlap: float = 0.0                            # IoU of this frame's box with the nearest other person's box
     overlap_with: int | None = None                 # that person's local track
+    covered: float = 0.0                            # share of this frame's box inside another person's box
+    partial: bool = False                           # this frame's box is contaminated or cut off by someone: no kinematic memory from it
+    heights: deque = field(default_factory=lambda: deque(maxlen=HIST))   # camera-compensated box heights of recent clean evidence ticks
+    last_pitch_at: float = -math.inf                # the evidence tick last_pitch was taken on
     born_over: dict = field(default_factory=dict)   # {other track: max IoU} during the first 0.6 s (a duplicate box of them?)
     contaminated_at: float = -math.inf              # last frame whose crop overlapped another person
     memory: str = ''                                # what happened to the identity's appearance memory on this tick
@@ -298,6 +312,11 @@ class TrackState:
     exit_streak: int = 0                            # non-target people: consecutive ticks of clear player / goalkeeper evidence
     official_look: bool = False                     # confidently referee-like with independent support: the clean crops teach the
                                                     # classifier what the officials look like (anonymous: no identity is kept)
+
+    @property
+    def contaminated(self):
+        """This frame's crop is a mixture of two people (a box overlapping another, or mostly inside one): it updates no memory."""
+        return self.overlap >= OVERLAP_FREEZE or self.covered >= COVERED_FREEZE
 
 
 class IdentityManager:
@@ -369,6 +388,7 @@ class IdentityManager:
                                  revoked=str(v.get('revoked', '') or ''), manual=bool(v.get('manual')), excluded=bool(v.get('excluded')),
                                  keeper_goal=clamp(float(v.get('keeperGoal', 1.0 if v.get('roleLocked') and role == 'goalkeeper' else 0.0))),
                                  retired_into=v.get('retiredInto'), withdrawn=str(v.get('withdrawn', '') or ''))
+                g.clean_seen = g.last_seen
                 if 'kitTotal' in v:
                     g.kit_clear, g.kit_total = int(v.get('kitClear', 0)), int(v.get('kitTotal', 0))
                 elif role == 'player':
@@ -464,13 +484,19 @@ class IdentityManager:
         tr.reacquired = t-tr.last_time > LOST and tr.hits > 0
         tr.box, tr.score, tr.cls, tr.seen_at, tr.stab, tr.pitch = s['box'], s['score'], s['cls'], t, s['stab'], s.get('pitch')
         tr.zone, tr.occluded = s['zone'], s['occluded']
-        tr.overlap, tr.overlap_with = float(s.get('overlap', 0.0)), s.get('overlapWith')
-        contaminated = tr.overlap >= OVERLAP_FREEZE
+        tr.overlap, tr.overlap_with, tr.covered = float(s.get('overlap', 0.0)), s.get('overlapWith'), float(s.get('covered', 0.0))
+        contaminated = tr.contaminated
         if contaminated:
             tr.contaminated_at = t
         if tr.segment != ctx['segment']:
             tr.segment, tr.velocity, tr.pitch_velocity = ctx['segment'], (0.0, 0.0), None
             tr.hist.clear()
+            tr.heights.clear()
+        # A box cut off by the person in front (the detector saw a sliver of this player) has its foot point too high:
+        # a partial box. It says roughly where the person is, nothing about their speed; the kinematic memory keeps
+        # the last clean box.
+        typical = sorted(tr.heights)[len(tr.heights)//2] if len(tr.heights) >= 3 else None
+        tr.partial = contaminated or (tr.occluded and typical is not None and tr.stab.h < PARTIAL_HEIGHT*typical)
         tr.current = None
         if tick:
             tr.last_tick = t
@@ -490,13 +516,15 @@ class IdentityManager:
                     if not s['occluded'] and not contaminated and d.quality >= .3 and len(tr.clean_history) < 600 and \
                             (len(tr.clean_history) < 12 or t-tr.clean_history[-1][0] >= 1.0):
                         tr.clean_history.append((t, d))
-            if tr.hist:
-                prev = tr.hist[-1]
-                dt = t-prev[0]
-                if 1e-3 < dt <= 1.5:
-                    vx, vy = (tr.stab.x-prev[1])/dt, (tr.stab.y-prev[2])/dt
-                    tr.velocity = (.6*tr.velocity[0]+.4*vx, .6*tr.velocity[1]+.4*vy) if len(tr.hist) > 1 else (vx, vy)
-            tr.hist.append((t, tr.stab.x, tr.stab.y))
+            if not tr.partial:
+                if tr.hist:
+                    prev = tr.hist[-1]
+                    dt = t-prev[0]
+                    if 1e-3 < dt <= 1.5:
+                        vx, vy = (tr.stab.x-prev[1])/dt, (tr.stab.y-prev[2])/dt
+                        tr.velocity = (.6*tr.velocity[0]+.4*vx, .6*tr.velocity[1]+.4*vy) if len(tr.hist) > 1 else (vx, vy)
+                tr.hist.append((t, tr.stab.x, tr.stab.y))
+                tr.heights.append(tr.stab.h)
             vote = s.get('vote')
             h = max(tr.stab.h, .005)
             motion = (tr.velocity[0]*ctx['aspect']/h*PLAYER_HEIGHT, tr.velocity[1]/h*PLAYER_HEIGHT)  # metres per second
@@ -511,13 +539,16 @@ class IdentityManager:
                     # The identity's team history: how clearly (not loosely) its clean crops wear its team's kit.
                     g.kit_total += 1
                     g.kit_clear += self._clear_vote(vote, g.team, ctx['model'])
-            if tr.pitch is not None and tr.last_pitch is not None and 1e-3 < t-tr.last_time <= 1.5:
-                dt = t-tr.last_time
-                vx, vy = (tr.pitch[0]-tr.last_pitch[0])/dt, (tr.pitch[1]-tr.last_pitch[1])/dt
-                tr.pitch_velocity = (.6*tr.pitch_velocity[0]+.4*vx, .6*tr.pitch_velocity[1]+.4*vy) if tr.pitch_velocity else (vx, vy)
-            elif tr.pitch is None:
-                tr.pitch_velocity = None
-            tr.last_pitch = tr.pitch
+            # The pitch speed over the evidence tick (last_pitch is taken on ticks, so the interval is the tick's, not
+            # one frame's), from clean boxes only.
+            if not tr.partial:
+                if tr.pitch is not None and tr.last_pitch is not None and 1e-3 < t-tr.last_pitch_at <= 1.5:
+                    dt = t-tr.last_pitch_at
+                    vx, vy = (tr.pitch[0]-tr.last_pitch[0])/dt, (tr.pitch[1]-tr.last_pitch[1])/dt
+                    tr.pitch_velocity = (.6*tr.pitch_velocity[0]+.4*vx, .6*tr.pitch_velocity[1]+.4*vy) if tr.pitch_velocity else (vx, vy)
+                elif tr.pitch is None:
+                    tr.pitch_velocity = None
+                tr.last_pitch, tr.last_pitch_at = tr.pitch, t
         tr.last_box, tr.last_time = s['box'], t
 
     # ---------- team / role ----------
@@ -1601,12 +1632,19 @@ class IdentityManager:
         for p in open_plans:
             tr, best = p['tr'], p['all'][0]
 
+            def waits(s):
+                # An identity lost moments ago that this person strongly resembles is not ruled out on the predicted
+                # position alone (it came from where the occlusion lost them): the track waits for clean frames
+                # instead of becoming a new identity, for a while.
+                return s['missing'] <= SHORT_LOSS and s['appearance'] is not None and s['appearance'] >= STRONG_LOOK and \
+                    ctx['time']-tr.born <= SHORT_HOLD
+
             def implausible(s):
                 # Goalkeepers do not change jerseys mid-match: a clearly different jersey rules a missing one
                 # out, however well the place and the timing fit.
                 other_kit = tr.role == 'goalkeeper' and s['jersey'] <= .2 and s['appearance'] is not None and s['appearance'] < .6
-                return s['final'] < .3 or (s['spatial'] is not None and s['spatialShare'] >= .5 and s['spatial'] < .15) or \
-                    (p['stranger'] is not None and p['stranger']-s['final'] >= o.reid_margin) or other_kit
+                far = s['spatial'] is not None and s['spatialShare'] >= .5 and s['spatial'] < .15 and not waits(s)
+                return s['final'] < .3 or far or (p['stranger'] is not None and p['stranger']-s['final'] >= o.reid_margin) or other_kit
             hold = p['blind'] is not None or (tr.released is not None and ctx['time']-tr.released[1] < RELEASE_HOLD)
             if tr.role == 'goalkeeper' and self._keeper_confirmed(tr.decision) and ctx['time']-tr.born >= 10.0 and best['n'] >= p['need'] and not hold:
                 # A keeper confirmed at a goal for 10 s is decided: the absent keeper it resembles enough, or
@@ -1626,6 +1664,9 @@ class IdentityManager:
             second = p['all'][1]['final'] if len(p['all']) > 1 else 0.0
             if id(p) in why:
                 reason = why[id(p)]
+            elif best['final'] < o.reid_min and best['spatial'] is not None and best['spatial'] < .15 and waits(best):
+                reason = f"resembles {best['id']} (appearance {pct(best['appearance'])}), lost {best['missing']:.1f} s ago, " \
+                    f"but only {pct(best['spatial'])} plausible where this track appeared: waiting for clean frames"
             elif best['final'] < o.reid_min:
                 reason = f"best score {pct(best['final'])} below {pct(o.reid_min)}"
             elif p['blind'] is not None and p['blind'] >= second and p['blind'] >= (p['stranger'] or 0):
@@ -1667,7 +1708,10 @@ class IdentityManager:
     def _score(self, tr, g, ctx):
         """Components in [0,1]; None = unknown (its weight is removed)."""
         gap = abs(tr.born-g.last_seen) if g.restored and g.track is None and g.segment is None else max(0.0, tr.born-g.last_seen)
-        k = min(gap, 2.0)
+        # The kinematic memory may be older than the last sighting (partial boxes at an occlusion hold it): the reach
+        # of the remembered position grows from there.
+        since = max(gap, tr.born-g.clean_seen) if math.isfinite(g.clean_seen) else gap
+        k = min(since, 2.0)
         team = tr.role == 'goalkeeper' or tr.team is None or g.team is None or tr.team == g.team
         c = compare(g.gallery, self._probes(tr)) if g.gallery and tr.descs else None
         appearance = c['appearance'] if c else None
@@ -1681,7 +1725,7 @@ class IdentityManager:
             dt = max(0.0, ctx['time']-g.last_seen)
             h = max(.005, (g.stab.h+tr.stab.h)/2)
             k2 = min(dt, 2.0)
-            m = math.hypot((tr.stab.x-g.stab.x-g.velocity[0]*k2)*ctx['aspect'], tr.stab.y-g.stab.y-g.velocity[1]*k2)/h*PLAYER_HEIGHT
+            m = self._reach(tr.stab.x-g.stab.x, tr.stab.y-g.stab.y, g.velocity, k2, lambda dx, dy: math.hypot(dx*ctx['aspect'], dy)/h*PLAYER_HEIGHT)
             spatial = math.exp(-.5*(m/(3+7*dt))**2)
             final = combine({'appearance': appearance, 'uniform': uniform, 'spatial': spatial, 'temporal': 1.0, 'team': team})
             return {'appearance': appearance, 'jersey': jersey, 'uniform': uniform, 'team': team, 'spatial': spatial,
@@ -1691,10 +1735,10 @@ class IdentityManager:
         duplicate = g.last_track is not None and tr.born_over.get(g.last_track, 0.0) >= DUPLICATE_BIRTH
         together = same and tr.born < g.last_seen-1e-3 and not released and not duplicate
         spatial = movement = None
-        sigma = 3+7*gap
+        sigma = 3+7*since
         if tr.first_pitch is not None and g.last_pitch is not None and sigma <= SPATIAL_HORIZON:
-            v = g.pitch_velocity or (0.0, 0.0)
-            m = math.hypot((tr.first_pitch[0]-g.last_pitch[0]-v[0]*k)*PITCH_LENGTH, (tr.first_pitch[1]-g.last_pitch[1]-v[1]*k)*PITCH_WIDTH)
+            m = self._reach(tr.first_pitch[0]-g.last_pitch[0], tr.first_pitch[1]-g.last_pitch[1], g.pitch_velocity, k,
+                            lambda dx, dy: math.hypot(dx*PITCH_LENGTH, dy*PITCH_WIDTH))
             spatial = math.exp(-.5*(m/sigma)**2)
         if same:
             extra = max(0, ctx['drift']-g.drift)
@@ -1702,7 +1746,7 @@ class IdentityManager:
             metres = lambda dx, dy: math.hypot(dx*ctx['aspect'], dy)/h*PLAYER_HEIGHT
             loose = sigma+5*extra
             if spatial is None and extra <= 6 and loose <= SPATIAL_HORIZON:
-                m = metres(tr.first_stab.x-g.stab.x-g.velocity[0]*k, tr.first_stab.y-g.stab.y-g.velocity[1]*k)
+                m = self._reach(tr.first_stab.x-g.stab.x, tr.first_stab.y-g.stab.y, g.velocity, k, metres)
                 spatial = math.exp(-.5*(m/loose)**2)
             # Exit edge vs entry edge, and (after a short gap) whether the new track appeared where the old
             # one was heading. After a longer absence a returning player usually comes back the other way.
@@ -1722,6 +1766,18 @@ class IdentityManager:
                                                'movement': movement, 'temporal': temporal, 'team': team})
         return {'appearance': appearance, 'jersey': jersey, 'uniform': uniform, 'team': team, 'spatial': spatial,
                 'movement': movement, 'temporal': temporal, 'final': final, 'missing': gap, 'cosine': c.get('cosine') if c else None}
+
+    @staticmethod
+    def _reach(dx, dy, v, k, metres):
+        """Metres between where a new track appeared (dx, dy from the remembered position, in image or pitch units)
+        and where the identity is expected: it kept moving at its remembered velocity for k seconds, or it stopped
+        (a player hidden behind someone often has), whichever is closer. The velocity is capped at a sprint: anything
+        faster is a measurement artifact, not a run."""
+        vx, vy = v or (0.0, 0.0)
+        speed = metres(vx, vy)
+        if speed > MAX_SPEED:
+            vx, vy = vx*MAX_SPEED/speed, vy*MAX_SPEED/speed
+        return min(metres(dx-vx*k, dy-vy*k), metres(dx, dy))
 
     @staticmethod
     def _summarize(pid, steps):
@@ -1828,7 +1884,7 @@ class IdentityManager:
             owner = self.goalkeeper_of(team)
             if owner is not None and not self._take_slot(tr, tr.decision, owner, pid, f'a stronger goalkeeper candidate for team {team} ({pid}: {(tr.decision.scores.get("keeper") or {}).get("route", "")})', ctx, out):
                 team, tr.team = None, None
-        g = GlobalPlayer(pid, role, team, first_seen=ctx['time'], last_seen=ctx['time'], last_box=list(tr.box), created_on=tr.id)
+        g = GlobalPlayer(pid, role, team, first_seen=ctx['time'], last_seen=ctx['time'], last_box=list(tr.box), created_on=tr.id, clean_seen=ctx['time'])
         if role == 'goalkeeper' and tr.decision is not None:
             g.keeper_goal = tr.decision.scores['nearGoal']
         if role != 'player':
@@ -2218,21 +2274,31 @@ class IdentityManager:
                     person['reason'] = tr.reason[:160]
                 if tr.excluded:
                     person['manual'], person['excludedId'] = True, tr.excluded
-                if not tr.retired and tr.state in ('candidate', 'uncertain', 'nontarget'):
-                    tr.pending.append(person)   # kept: may be labelled retroactively once the person is identified
+                if not tr.retired and tr.state in ('candidate', 'uncertain', 'unknown', 'nontarget'):
+                    # Kept: labelled retroactively once the person is identified. A spell with the kit undecided
+                    # ('unknown': a small, distant player) is the same local track and the same person.
+                    tr.pending.append(person)
                     while tr.pending and t-tr.pending[0]['time'] > BUFFER_SECONDS:
                         tr.pending.popleft()
                 out['people'].append(person)
                 continue
-            g.last_seen, g.last_box, g.stab, g.segment, g.drift = t, list(tr.box), tr.stab, ctx['segment'], ctx['drift']
-            g.velocity, g.exit_edge, g.status = tr.velocity, '', 'active'
-            if tr.pitch is not None:
-                g.last_pitch, g.pitch_velocity = tr.pitch, tr.pitch_velocity
-            else:
-                g.last_pitch = g.pitch_velocity = None
+            # The kinematic memory (where they are and how fast they move, in the image and on the pitch) comes from
+            # clean boxes: a partial box at an occlusion holds the last clean one, unless that is stale or from another
+            # camera segment.
+            fresh = not tr.partial or g.stab is None or g.segment != ctx['segment'] or t-g.clean_seen > 1.5
+            g.last_seen, g.last_box, g.segment, g.drift = t, list(tr.box), ctx['segment'], ctx['drift']
+            g.exit_edge, g.status = '', 'active'
+            if fresh:
+                g.stab, g.velocity, g.clean_seen = tr.stab, tr.velocity, t
+                if tr.pitch is not None:
+                    g.last_pitch, g.pitch_velocity = tr.pitch, tr.pitch_velocity
+                else:
+                    g.last_pitch = g.pitch_velocity = None
             if tick:
                 self._remember(tr, g, t, out)
                 person['stableRole'], person['memory'] = ROLE_OUT.get(g.role, 'UNKNOWN'), tr.memory
+                if tr.partial:
+                    person['partial'] = True
                 g.history.append({'t': r3(t), 'box': person['box'], **({'pitch': person['pitch']} if 'pitch' in person else {})})
             visible.append(g)
             if tr.zone == 'outside' and tr.outside_run > 10:
@@ -2263,8 +2329,9 @@ class IdentityManager:
         if cur is None:
             tr.memory = 'frozen: no crop'
             return
-        if tr.overlap >= OVERLAP_FREEZE:
-            tr.memory = f'frozen: overlap {tr.overlap:.2f}' + (f' with track {tr.overlap_with}' if tr.overlap_with is not None else '')
+        if tr.contaminated:
+            tr.memory = (f'frozen: overlap {tr.overlap:.2f}' if tr.overlap >= OVERLAP_FREEZE else f'frozen: {tr.covered:.0%} of the box inside another') + \
+                (f' with track {tr.overlap_with}' if tr.overlap_with is not None else '')
             other = self.tracks.get(tr.overlap_with) if tr.overlap_with is not None else None
             if other is not None and other.state == 'nontarget' and tr.overlap >= .25:
                 key = (min(tr.id, other.id), max(tr.id, other.id))
@@ -2307,7 +2374,7 @@ class IdentityManager:
         the switch lose that label (the offline pass reconnects them). Returns True when the track was
         re-born."""
         cur = tr.current
-        if cur is None or tr.retired or tr.excluded or tr.occluded or tr.overlap >= OVERLAP_FREEZE or cur.quality < .3 or \
+        if cur is None or tr.retired or tr.excluded or tr.occluded or tr.contaminated or cur.quality < .3 or \
                 cur.embedding is None or len(tr.first) < 2:
             return False
         refs = [f.embedding for f in tr.first]+([x.d.embedding for x in g.gallery] if g is not None else [])
@@ -2379,6 +2446,7 @@ class IdentityManager:
         tr.evidence, tr.decision = RoleEvidence(), None
         tr.team_votes.clear()
         tr.hist.clear()
+        tr.heights.clear()
         tr.velocity, tr.pitch_velocity = (0.0, 0.0), None
         recent = [(d, when, occluded) for d, when, occluded in tr.descs if when >= since-1e-6]
         tr.descs.clear()

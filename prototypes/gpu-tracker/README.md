@@ -350,8 +350,8 @@ them. The **global identity manager** keeps a registry of real people:
 
 | Field | Meaning |
 |---|---|
-| `id`, `longId` | `A-07` / `TeamA_Player_07`, `GK-1` / `Goalkeeper_01`: the persistent identity (players and goalkeepers only) |
-| `display` | what the overlay shows: `A-07`, `GK-A` / `GK-B` (goalkeepers by team) |
+| `id` | `A-07`, `GK-1`: the persistent internal identity (players and goalkeepers only). Created once, never renumbered, never reused; everything keys on it |
+| `display`, `longId` | what the overlay, the roster and the 2D view show: `A-07` / `TeamA_Player_07`, `GK-A` / `GK-B` (goalkeepers by team). Regenerated from the confirmed roster (below), so it can differ from `id` |
 | `team`, `role`, `label` | `A` / `B` / none; `PLAYER`, `GOALKEEPER`; combined `PLAYER_TEAM_A`, `GOALKEEPER_TEAM_B` |
 | `status` | `ACTIVE`, `MISSING`, `OFF_SCREEN` (left at an image edge), `RETIRED` (merged into the goalkeeper it really was), `WITHDRAWN` (a referee-like person promoted by mistake) |
 | `roleLocked`, `roleHistory` | whether the goalkeeper role is locked, and when and why the role changed |
@@ -369,19 +369,60 @@ working.
 Identities are never deleted. When a promoted track appears, it is first compared
 with every missing identity of the same team and role. The score combines
 appearance (OSNet similarity against the whole gallery, best two pairs), shorts
-and socks colour, team (a hard gate), spatial plausibility (where it left vs where
-the new track appeared, within the same camera segment or on the calibrated
-pitch, with a reach that grows with time missing), exit/entry edge, and time
-missing. A reconnection needs several scored observations, a score of at least
+and socks colour, team (a hard gate), spatial plausibility (where the new track
+appeared against where the identity is expected: its last clean position carried
+on at its remembered speed, or held where it was, since a player hidden behind
+someone has often stopped, whichever is closer; within the same camera segment or
+on the calibrated pitch, with a reach that grows with the time since that clean
+position; the speed is measured over the evidence tick from clean boxes only and
+capped at a sprint), exit/entry edge, and time missing. A reconnection needs
+several scored observations, a score of at least
 0.72, and a 0.15 lead over the second-best identity **and** over "an unseen
 teammate" (the chance this is someone not seen yet, estimated from how alike the
 other known teammates look). Otherwise the decision is deferred and logged, and
 the track shows as `IDENTITY_UNCERTAIN`. For example, 51% / 48% / 45% is
 deferred; a later 93% / 41% / 38% reconnects. Once resolved, the observations
-collected while uncertain are labelled retroactively (`evidence: reidentified`).
+collected while uncertain are labelled retroactively (`evidence: reidentified`),
+and so are those of a spell in which the kit read as neither team (`UNK-8`: a
+small, distant player whose colours take seconds to settle): the local track
+is the same person, so the frames of the last 12 s take the identity as soon
+as it is decided.
+
+**Display labels** (`soccer/labels.py`). The number a player is shown with is
+not the internal identity. Per team, the confirmed outfield players, in the
+order their identities were created, take `A-01`, `A-02`, ... without gaps, up
+to the outfield slots a team fields at a time (10; `outfieldPerTeam` in the
+settings). A player who left the match (substituted or sent off, a correction)
+keeps their number and frees a slot, so a substitute takes the next number.
+When a team holds more active identities than it fields, the slots go to the
+identities with the most participation evidence over the whole segment
+(seconds observed with the box clear of the frame edges and the person not
+outside the pitch; ties in creation order), never to the first created: a
+person seen for four seconds at the bottom edge among the staff does not keep
+a slot from a player tracked for the whole minute on the far touchline whose
+identity was decided late. The roster count is supporting evidence only:
+nothing is merged, deleted or invented from it, and `PLAYER LABELS` says for
+every unconfirmed identity how long it was seen, how much of that at an edge,
+and how many teammates were in view with it. Identities beyond the active
+slots are shown as `A-?` (unconfirmed) with all their tracking data kept for
+re-identification and corrections (the roster slot says `confirmed: false`,
+the timeline keeps their observed positions and estimates nothing for them),
+until a slot frees up. Goalkeepers are `GK-A` / `GK-B` and are not counted. Labels are
+regenerated at the end of a run and after every correction, never while
+tracking: when you delete two false players shown as `B-07` and `B-08`, the
+remaining players are renumbered `B-01`..`B-10`, the person who was `B-11`
+is shown as `B-09`, and their `id`, appearance memory, trajectory and
+timeline slot are unchanged (`PLAYER LABELS RENUMBERED` lists every move,
+`summary.labelling` the counts). The review page shows `display · id` when
+they differ.
 
 A new global identity is created only when no missing identity can be this
-person. About 11 identities per team is a sanity reference, not a hard rule: at
+person. A track that strongly resembles an identity lost less than 3 s ago
+(appearance 0.65 or more) is never ruled out on the predicted position alone: it
+waits as `IDENTITY_UNCERTAIN` (`waiting for clean frames` in its reason) for up
+to 4 s of its own observation before the usual rules decide, so a local tracker
+interruption at an occlusion does not mint a new identity. About 11 identities
+per team is a sanity reference, not a hard rule: at
 the limit a new identity needs every missing teammate to be implausible and at
 least 5 s of observation, and a sanity warning is logged. More identities than
 expected usually means players were recreated instead of re-identified.
@@ -396,10 +437,18 @@ identity (other kit, or very different OSNet appearance) releases it.
 **Close encounters and contaminated crops.** Local track id, global identity,
 team and role are four different things, and a local tracker interruption must
 not erase the real person. Every sample carries the IoU of its box with the
-nearest other person's box (`occlusion`, `occludedWith`); above 0.15 the crop is
+nearest other person's box (`occlusion`, `occludedWith`) and the share of its box
+inside another person's box; above 0.15 IoU, or more than half inside another
+box (a small player behind a near one keeps a small IoU), the crop is
 contaminated and updates nothing: no kit vote, no detector vote (the position
 cues still count), no appearance gallery, and the track's "first clean crops"
-are left alone. A crop joins an identity's gallery only when it is clean, of
+are left alone. A partial box, contaminated or next to someone and shorter than
+80% of the track's recent clean boxes (the detector saw a sliver of a player
+going behind another, its foot point too high), leaves the kinematic memory
+alone as well: the identity's last position and speed, in the image and on the
+pitch, stay those of the last clean box (`partial: true` on the frame), so the
+re-identification after the occlusion predicts from where the player really
+was. A crop joins an identity's gallery only when it is clean, of
 decent quality, on the pitch, the binding has settled (0.6 s old, not after a
 crossing) and it still looks like the gallery (OSNet cosine ≥ 0.45), so a local
 track that silently moved to the person next door cannot write them into the
@@ -467,7 +516,21 @@ directions), the time gap (≤ 10 s; a fragment without usable crops only within
 seen elsewhere during the fragment is never a candidate. A fragment is connected at
 a combined score ≥ 0.6 with a 0.1 lead, every frame takes the identity's id,
 team and role (`evidence: connected offline`, `firstPassLabel` kept), and
-`TRACKLET CONNECT` events give the scores. There are no referee identities to
+`TRACKLET CONNECT` events give the scores. The local track is itself evidence:
+an anonymous stretch of a track (`UNK-8`, or `B-?` before the identity was
+decided) within 1 s of an identified stretch of the same track, with no track
+switch or appearance cut between them, is that identity whatever OSNet makes
+of thirty-pixel crops, unless the crops clearly contradict it (cosine under
+0.55), the fragment voted the other team, or the identity was seen elsewhere
+meanwhile. This runs before the appearance matching (the track itself outranks another
+track's appearance match to the same identity, so a look-alike seen meanwhile
+is never connected) and again after the global assignment (a fragment
+identified there hands the identity to the anonymous stretches of its own
+track). This is how a player first identified late, from the clearer
+frames, gets his earlier frames back (future frames correct earlier labels),
+and `TRACKLET UNRESOLVED` says why a fragment of a second or more stayed
+anonymous (best candidate, score, floor, lead, or why its own track did not
+carry the identity to it). There are no referee identities to
 connect anything to. The 2D match view reads these finalized labels, so a
 player who was B-02 → B-? → ignored in the causal pass stays B-02 throughout.
 `summary.identity` reports id switches, mixed tracklets, track switches found
@@ -477,8 +540,8 @@ should stay at zero), referee identities (always 0), ignored tracks and frames
 by hint, withdrawn identities, ignored / deferred role updates, close
 encounters with ignored people, how many players came through them and were
 re-identified after them, new player identities, teams over their count,
-fragments connected (ignored fragments included) and frames restored to
-players.
+fragments connected (ignored fragments included), frames restored to
+players, and identities merged offline.
 
 **The active roster and what the camera sees** (`soccer/roster.py`,
 `soccer/visibility.py`; pure functions of the finished result, re-derived
@@ -494,9 +557,18 @@ tracked people with a team but no identity, and `mergeProposals`: pairs of
 identities that may be one person (same team, never seen on the same frame, one
 observed entirely before the other, galleries mutually the most similar at 0.7
 or above, and a plausible move between the last sighting of one and the first
-of the other). A proposal is listed for your review and logged as MERGE
-PROPOSED; nothing is merged automatically until proposals have been scored
-against corrections on enough videos. On every frame with a registration,
+of the other). A proposal that describes a short occlusion is applied: the
+later identity began within 3 s of the earlier one's last sighting, that
+sighting was inside the frame (not an exit through an edge), the move is
+plausible and measured, neither identity was set by you and the later one was
+created in this run. The later identity is retired into the earlier one
+(`match.retired`, `retiredInto`), every frame labelled with it takes the earlier
+identity (`evidence: merged offline`, `firstPassLabel` kept), the galleries are
+joined and `MERGE APPLIED` is logged (`summary.identity.mergedOffline`). Every
+other proposal is listed for your review and logged as MERGE PROPOSED
+(`applied: false`); longer gaps are not merged automatically until proposals
+have been scored against corrections on enough videos. On every frame with a
+registration,
 `view` is the part of the pitch the camera sees (the frame rectangle cut at the
 horizon, mapped to the ground, clipped to the pitch plus 5 m, as a normalized
 polygon), and `visibility` classifies every roster slot that is not observed on
@@ -802,9 +874,15 @@ lower body** (not the player the ball was hidden at) is a boot or a sock until
 proven otherwise: it counts only when the mean prediction itself reaches it or
 it has moved relative to that player (0.6 m over 0.6 s counts as free). Every
 such decision is logged as `BALL SWITCH WARNING` (old and new position,
-required velocity, previous trajectory confidence, detector score, player
-attachment and relative motion, `ACCEPTED` / `REJECTED (JUMP | NO_ENTRY |
-UNCONFIRMED)`). The lock's "seen elsewhere while the ball was tracked" flags
+elapsed time, required velocity, physical plausibility, previous trajectory
+confidence, whether the candidate lies on a penalty or centre spot of a
+trusted registration, the static field-marking evidence with its stillness
+scores, detector confidence, player attachment and relative motion,
+`ACCEPTED` / `REJECTED (JUMP | NO_ENTRY | UNCONFIRMED)`, with
+`/ FIELD_MARKING` when the thing is a known marking). A thing fixed to the
+field stays "settled" while a carried calibration drifts: its stillness is
+judged in the camera-compensated image as well as on the pitch, and either
+saying still is enough. The lock's "seen elsewhere while the ball was tracked" flags
 lapse once the ball has been hidden for 0.4 s (a wrong lock must not keep
 excluding the real ball). A ball hidden by a player is carried with that
 player (the track follows their feet, unless the ball was moving away from
@@ -837,7 +915,13 @@ wide. The output keeps detector confidence apart from identity: `identity` (the
 track), `visual` (this observation) and `trajectory` (its consistency) are
 reported separately, and the overlay reads `BALL LOCKED · identity 0.92 ·
 visual 0.74 · trajectory 0.96`, `BALL OCCLUDED · likely interaction B-02 ·
-hidden 0.42 s`, or `BALL RECOVERING · candidate paths: 4`.
+hidden 0.42 s`, or `BALL RECOVERING · candidate paths: 4`. Every frame also
+says where its position comes from (`origin`: `OBSERVATION` or `PREDICTION`)
+and the motion state the evidence supports (`motion`: `STATIONARY` when the
+sightings of the last 0.4 s show the ball at rest, `ROLLING` below 8 m/s,
+`FAST` above, `OCCLUDED` while hidden, `UNKNOWN` without a ball). A ball
+observed at rest carries no velocity into the next prediction; an unseen ball
+is `OCCLUDED`, never assumed still.
 
 **The final trajectory is decoded offline** (`soccer/ball_path.py`), because an
 uploaded video is known end to end. Every frame is a layer of nodes — its
@@ -854,9 +938,18 @@ mediocre true sighting is kept rather than skipped), and for starting (3.2;
 +4 when the trajectory starts on a player's lower body: nothing arrived there)
 or ending a trajectory. Links may skip up to 1.2 s, so a ball seen at frame 100
 and 130 need not be "found" in between; those frames come out `MISSING` with
-an interpolated position. A candidate glued to the same spot on one player's
-lower body loses ball-likeness (0.55; 0.3 after a second), and one the causal
-pass saw while it confidently tracked the ball elsewhere loses half. The
+an interpolated position. A link whose implied speed says the ball stayed where
+it was (under 1 m/s) may skip up to 3 s: a ball seen again where it vanished
+most likely stayed there, hidden. A flight (8 m/s or more) into or out of a
+sighting that stands still with no player within reach (+12: a ball does not
+stop dead on the grass by itself, nor start from rest without a touch), and a
+link faster than a hard shot (40 m/s) between sightings of two different
+things (+12), cost more than ending and starting a trajectory. People rejected
+as outside the pitch (ball boys, staff) are not players who can take, stop or
+hide the ball. A candidate glued to the same spot on one player's lower body
+loses ball-likeness (0.55; 0.3 after a second), and one the causal pass saw
+while it confidently tracked the ball elsewhere keeps a fifth (there is one
+ball: such a thing never pays for a frame by itself). The
 effect: a boot that the first pass took for the ball while the real ball was
 hidden is a short run that connects to nothing and never pays for its start;
 the decoded path leaves those frames NOT VISIBLE, and a later sighting of the
@@ -865,6 +958,60 @@ trajectory (`phase: PATH`, one identity `BALL-1`, `bridged` on interpolated
 frames); the causal pass stays as `ball.firstPass`; `BALL PATH` events explain
 every first-pass run the final path leaves out (the speed reaching it would
 have needed). The 2D match view and the ball metrics use the final trajectory.
+
+**Field markings.** The decoder knows the painted spots: a candidate within
+1 m of a penalty spot or the centre spot of the offline registration (when
+that registration is trusted, confidence 0.5 or more) keeps 40% of its
+ball-likeness, unless the causal pass tracked the ball there (a penalty about
+to be taken is still the ball). A tracklet whose sightings span 2 s or more
+and all lie within 0.6 m of the first (on the registered pitch, else
+camera-compensated in the image) is a thing standing still for seconds, a
+marking, debris or a bag, and its sightings are discounted the same way,
+again except those the causal pass took. Such sightings never pay for a frame
+by themselves, so the path only goes to them when it rolled there; `summary.ball.markingNodes`
+counts them. This is explicit penalty-spot handling with temporal evidence,
+not a mask: a ball placed on the spot and tracked there stays on the path.
+
+**Trajectory review.** The decoded path is then reviewed and decoded again
+(up to eight rounds). A still stretch of the path (every sighting within
+0.5 m of its first, camera-compensated, moving slower than 1 m/s over its
+duration, at least four sightings, or any number when every one of them is a
+known marking) whose sightings the causal pass ruled out (40% or more with
+`JUMP`, `NO_ENTRY`, `OTHER_OBJECT`, `STATIC`, `FIELD_LINE` or
+`PLAYER_ATTACHED`, or markings: the hidden ball could not have got there, it
+was seen while the ball was confidently elsewhere, or it is a known spot,
+paint or a boot) and that nothing was seen rolling to, judged from the last
+sighting the causal pass accepted (a flight, 0.5 s or more unseen, or nothing
+at all; rejected waypoints in between are not sightings), is a white thing
+standing where the ball was known not to be, a ball boy's ball on the
+touchline or the penalty spot for instance. Its sightings are cut out
+(a marking's other sightings with them, so it cannot serve as the next
+stepping stone across the same gap), `BALL TRAJECTORY REVIEW` is logged with
+the frames, the last accepted sighting, the visual evidence, the motion over
+the stretch, the causal pass's reasons and the decision
+(`REJECTED_STATIC_UNANCHORED`), and the path is decoded without them, so a
+ball that vanished at a player and was seen again there comes out as one
+stationary trajectory, hidden in between, rather than an excursion to the
+touchline and back. A rolling ball is never a still stretch, whatever the
+causal pass said about it: the speed test keeps the review from chopping the
+real ball into pieces when the causal pass was locked on a boot. An **island**,
+a run shorter than 1 s that no ball could have reached from the run before it
+nor left for the run after it (both faster than a hard shot, 40 m/s), is cut
+too (`REJECTED_IMPOSSIBLE_JUMP`): whatever it was, the ball was somewhere else
+just before and just after, and its frames stay unknown rather than a
+teleport out and back. `UNCONFIRMED`, `LOW_SCORE` and
+`TRAJECTORY` are not negatives: the real ball gets them while the causal pass
+re-acquires it. A ball at rest the causal pass tracked, found nothing against,
+or saw rolling there, is kept. Every frame of the final path says where its
+position comes from (`origin`: `OBSERVATION` for a sighting with detector
+confidence 0.3 and ball-likeness 0.5 or more, `WEAK_DETECTION` below,
+`INTERPOLATION` for a bridged frame, `UNKNOWN`) and how the ball moved
+(`motion`, from the link speeds: `STATIONARY`, `ROLLING`, `FAST`, `OCCLUDED`);
+`summary.ball` counts the stretches the review cut (`staticRunsDropped`), the
+links that are flights (`longUnseenLinks`) and the stationary links
+(`stationaryLinks`). The decoder's per-frame costs are not confidences: a
+weak sighting on the path is shown as such, and the ball-likeness it is
+accepted with is never a measure of how sure the sighting is.
 `ball_cleanup.py <result.json>` re-decodes an existing result without the
 detector (camera motion from `frames[].motion`, an `.npz`, or re-estimated from
 the video).

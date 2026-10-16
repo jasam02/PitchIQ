@@ -70,6 +70,14 @@ def config_from(settings):
     return Config(field, options, settings.get('boundaries', []), settings.get('calibrations', []), bool(settings.get('debug', True)))
 
 
+def _inside(box, other):
+    """Share of a box's area inside another box: a small player behind a near one keeps a small IoU with them while
+    most of the crop shows the other person."""
+    ix = max(0.0, min(box[0]+box[2], other[0]+other[2])-max(box[0], other[0]))
+    iy = max(0.0, min(box[1]+box[3], other[1]+other[3])-max(box[1], other[1]))
+    return ix*iy/max(box[2]*box[3], 1e-9)
+
+
 def _occluded(box, others, aspect):
     for o in others:
         if o is box:
@@ -358,16 +366,19 @@ class SoccerTracker:
             d = tracked[index]
             pitch_point = self.keyframes.to_pitch(d['box'])
             sx, sy, sh = self.state.stabilize(d['box'])
-            # How much of this box another person's box covers (the crop is then a mixture of two people),
-            # and whose: the identity manager freezes appearance, kit and role memory on such frames.
-            overlap, overlap_with = 0.0, None
+            # How much of this box another person's box covers (the crop is then a mixture of two people), whose,
+            # and how much of it lies inside another box: the identity manager freezes appearance, kit, role and
+            # kinematic memory on such frames.
+            overlap, overlap_with, covered = 0.0, None, 0.0
             for other_id, other_box in tracked_boxes.items():
                 if other_id != local_id:
                     o = iou(d['box'], other_box)
                     if o > overlap:
                         overlap, overlap_with = o, other_id
+                    covered = max(covered, _inside(d['box'], other_box))
             sample = {'id': local_id, 'box': d['box'], 'score': d['score'], 'cls': d['cls'], 'zone': d['zone'],
-                      'occluded': _occluded(d['box'], boxes, self.aspect), 'stab': Stab(sx, sy, sh), 'overlap': round(overlap, 3), 'overlapWith': overlap_with}
+                      'occluded': _occluded(d['box'], boxes, self.aspect), 'stab': Stab(sx, sy, sh), 'overlap': round(overlap, 3), 'overlapWith': overlap_with,
+                      'covered': round(covered, 3)}
             if pitch_point is not None:
                 sample['pitch'] = pitch_point
             descriptor = descriptors.get(local_id)

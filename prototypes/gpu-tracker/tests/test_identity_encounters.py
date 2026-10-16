@@ -8,11 +8,12 @@ import numpy as np
 
 import scene  # noqa: F401  (sys.path)
 from soccer import tracklets
+from soccer.identity import long_id
 from soccer.appearance import Descriptor, add_to_gallery
 from soccer.geometry import iou
-from soccer.identity import IdentityManager, Options, Stab, TrackState
+from soccer.identity import GlobalPlayer, IdentityManager, Options, Stab, TrackState
 from soccer.teams import kit_vote
-from test_identity import JERSEY, MODEL, SHORTS, Driver, Person, box_at, onehot, roster, unit
+from test_identity import JERSEY, MODEL, SHORTS, Driver, Person, box_at, inside, onehot, roster, unit
 
 
 class Mixed(Person):
@@ -42,11 +43,12 @@ class EncounterDriver(Driver):
             for k, o in boxes.items():
                 if k != tid and iou(b, o) > overlap:
                     overlap, other = iou(b, o), k
+            covered = max((inside(b, o) for k, o in boxes.items() if k != tid), default=0.0)
             z = zone(tid) if callable(zone) else zone
             c = cues(tid) if callable(cues) else cues
             detector = cls(tid) if callable(cls) else p.detector_class()
             samples.append({'id': tid, 'box': b, 'score': .9, 'cls': detector, 'zone': z, 'occluded': overlap > .02,
-                            'overlap': overlap, 'overlapWith': other,
+                            'overlap': overlap, 'overlapWith': other, 'covered': covered,
                             'stab': Stab(x, y, .12), 'descriptor': d, 'vote': kit_vote(self.model, d.jersey, d.shorts), 'cues': c or {}})
         out = self.ids.update({'time': self.t, 'tick': True, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                'model': self.model, 'pitch_reliable': True, 'filter_enabled': True, 'aspect': 16/9,
@@ -428,6 +430,182 @@ class OfflineTrackletTests(unittest.TestCase):
         report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
         self.assertEqual(report['splits'], 0, report['events'])
         self.assertTrue([e for e in report['events'] if e['message'].startswith('TRACKLET SPLIT SKIPPED')])
+
+
+class SameTrackContinuationTests(unittest.TestCase):
+    """An anonymous stretch of a local track (UNK-n: the kit undecided on a small player) right next to an identified
+    stretch of the same track, with no cut between, is that identity; the crops are not required, only not contradicted."""
+
+    def scene(self, descriptor_of=None):
+        d = EncounterDriver()
+        team = team_scene()
+        d.run(4, team)
+        pid, person = team[13][0] and {p['track']: p for p in d.people[-1]}[13]['id'], team[13][0]
+        frames = [{'time': k*.2, 'people': list(frame)} for k, frame in enumerate(d.people)]
+        t0 = frames[-1]['time']+.2
+        x, y = team[13][1], team[13][2]
+        stretch = []
+        for k in range(10):   # 2 s with the kit undecided on the same track 13, no identity
+            t = t0+.2*k
+            p = {'time': round(t, 3), 'track': 13, 'box': [round(v, 5) for v in box_at(x+.002*k, y)], 'score': .85, 'cls': 'player', 'zone': 'inside',
+                 'evidence': 'observed', 'id': None, 'display': 'UNK-13', 'label': 'UNKNOWN', 'team': None, 'role': 'UNKNOWN', 'state': 'unknown',
+                 'identityConfidence': 0.0, 'roleConfidence': 0.0, 'reason': 'no consistent role or kit after 15 observations'}
+            frames.append({'time': round(t, 3), 'people': [p]})
+            stretch.append(p)
+        tr = d.ids.tracks.get(13) or d.ids.ended.get(13)
+        if descriptor_of is not None:
+            tr.clean_history = [(t0+.2*k, descriptor_of()) for k in range(4)]
+        return d.ids, frames, stretch, pid, person
+
+    def test_the_unknown_stretch_takes_the_identity_of_its_own_track(self):
+        manager, frames, stretch, pid, person = self.scene()
+        report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+        self.assertEqual((report['connected'], report['sameTrack']), (1, 1), report)
+        self.assertTrue(all(p['id'] == pid and p['team'] == 'B' and p['role'] == 'PLAYER' and p['evidence'] == 'connected offline' for p in stretch), stretch[-1])
+        self.assertEqual(stretch[0]['firstPassLabel'], 'UNK-13')
+        msg = report['events'][0]['message']
+        self.assertTrue(msg.startswith('TRACKLET CONNECT'), msg)
+        self.assertIn('Same local track as', msg)
+        self.assertIn('no track switch or appearance cut between', msg)
+        m = tracklets.metrics(manager, frames, report['events'], report)
+        self.assertEqual(m['trackletsConnected'], 1)
+        self.assertEqual(m['sameTrackContinued'], 1)
+
+    def test_frames_a_video_frame_apart_are_continued(self):
+        # The pipeline observes every frame (33 ms apart): the identified frame right before the stretch is not
+        # "the identity seen elsewhere meanwhile".
+        manager, frames, stretch, pid, person = self.scene()
+        last = frames[len(frames)-11]   # the last identified frame of track 13
+        for k, f in enumerate(frames[len(frames)-10:]):
+            f['time'] = round(last['time']+.0333+.2*k, 4)   # the stretch begins one video frame after the identified frame
+            for p in f['people']:
+                p['time'] = f['time']
+        report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+        self.assertEqual(report['sameTrack'], 1, [e['message'][:120] for e in report['events']])
+
+    def test_crops_that_contradict_the_identity_stop_the_continuation(self):
+        other = Person('A')
+        manager, frames, stretch, pid, person = self.scene(descriptor_of=other.descriptor)
+        report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+        self.assertEqual(report['sameTrack'], 0, report)
+        self.assertTrue(all(p['id'] is None for p in stretch))
+
+    def test_the_track_itself_outranks_another_tracks_appearance_match(self):
+        # The amateur case: track 13 is anonymous for 2 s and then carries B-xx (the causal pass decided late); meanwhile
+        # another track (70, a look-alike teammate) overlaps those 2 s and would match B-xx by appearance. The continuation
+        # runs first, so track 13's stretch is B-xx and track 70, seen while B-xx was seen on track 13, is never B-xx.
+        manager, frames, stretch, pid, person = self.scene()
+        twin = Person('B', unique=person.unique)   # the same OSNet look
+        t0 = frames[len(frames)-10]['time']
+        other = []
+        for k in range(10):
+            t = t0+.2*k
+            q = {'time': round(t, 3), 'track': 70, 'box': [round(v, 5) for v in box_at(.62+.002*k, .62)], 'score': .9, 'cls': 'player', 'zone': 'inside',
+                 'evidence': 'observed', 'id': None, 'display': 'B-?', 'label': 'IDENTITY_UNCERTAIN', 'team': 'B', 'role': 'PLAYER', 'state': 'uncertain',
+                 'identityConfidence': 0.0, 'roleConfidence': .5}
+            frames[len(frames)-10+k]['people'].append(q)
+            other.append(q)
+        tr = TrackState(70, t0, 0, Stab(.62, .62, .12), None, 'inside', '', box_at(.62, .62), Stab(.62, .62, .12), 0)
+        for k in range(4):
+            tr.descs.append((twin.descriptor(), t0+.2*k, False))
+        manager.ended[70] = tr
+        report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+        self.assertEqual(report['sameTrack'], 1, report)
+        self.assertTrue(all(p['id'] == pid for p in stretch))
+        self.assertTrue(all(p['id'] is None for p in other), 'the look-alike on another track must not take the identity seen on its own track meanwhile')
+
+    def test_a_second_pass_continues_from_a_fragment_the_assignment_identified(self):
+        # After the global assignment identified the later stretch of a track, continue_same_track hands the identity
+        # to the anonymous stretch before it.
+        manager, frames, stretch, pid, person = self.scene()
+        for p in stretch[5:]:   # as if the assignment had just identified the second half
+            manager._style(p, manager.registry[pid], .8)
+            p['evidence'] = 'assigned offline'
+            manager.registry[pid].emitted_all.append(p)
+        report = tracklets.continue_same_track(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+        self.assertEqual(report['sameTrack'], 1, report)
+        self.assertTrue(all(p['id'] == pid for p in stretch[:5]), [p.get('id') for p in stretch[:5]])
+
+
+class OfflineMergeTests(unittest.TestCase):
+    """A new identity the causal pass made for a player who was only hidden for a moment is merged back into the
+    identity it continues; a later identity after a longer gap, or after an exit through a frame edge, stays a
+    proposal for review."""
+
+    def scene(self, gap=.5, edge=False):
+        d = EncounterDriver()
+        team = team_scene()
+        out = d.run(4, team)
+        pid, person = out[13]['id'], team[13][0]
+        rest = {k: v for k, v in team.items() if k != 13}
+        d.step(rest, ended=[13])
+        frames = [{'time': round(k*.2, 3), 'people': list(f)} for k, f in enumerate(d.people)]
+        manager = d.ids
+        a = manager.registry[pid]
+        mine = [p for p in a.emitted_all if p.get('id') == pid]
+        if edge:
+            # The player's last sighting touched the right edge of the frame: they left the view.
+            for p in mine[-3:]:
+                p['box'] = [p['box'][0], p['box'][1], 1.0-p['box'][0], p['box'][3]]
+        last = max(p['time'] for p in mine)
+        # The causal pass made the same person a new identity on track 60, `gap` seconds later, a metre away.
+        t0 = round(last+gap, 3)
+        b = GlobalPlayer(manager._next_id_for('player', 'B'), 'player', 'B', status='active', first_seen=t0, last_seen=round(t0+2.0, 3),
+                         created_on=60, identity_confidence=.8, team_confidence=.75)
+        x, y = team[13][1]+.01, team[13][2]
+        b.last_box, b.tracks, b.track = box_at(x, y), [60], 60
+        for k in range(3):
+            b.gallery = add_to_gallery(b.gallery, person.descriptor(), t0+.8*k)
+        manager.registry[b.pid] = b
+        rows = []
+        for k in range(11):
+            t = round(t0+.2*k, 3)
+            p = {'time': t, 'track': 60, 'box': [round(v, 5) for v in box_at(x+.002*k, y)], 'score': .9, 'cls': 'player', 'zone': 'inside',
+                 'evidence': 'observed', 'id': b.pid, 'display': b.pid, 'label': 'PLAYER_TEAM_B', 'team': 'B', 'role': 'PLAYER', 'state': 'confirmed',
+                 'identityConfidence': .8, 'roleConfidence': .75}
+            frames.append({'time': t, 'people': [p]})
+            b.emitted_all.append(p)
+            rows.append(p)
+        b.observations = len(rows)
+        tr = TrackState(60, t0, 0, Stab(x, y, .12), None, 'inside', '', box_at(x, y), Stab(x, y, .12), 0)
+        tr.player_id, tr.state = b.pid, 'confirmed'
+        manager.tracks[60] = tr
+        frames.sort(key=lambda f: f['time'])
+        motions = [(np.eye(3), True, False)]*len(frames)
+        proposals = tracklets.merge_proposals(manager, frames, motions, 1280, 720)
+        merged = tracklets.apply_merges(manager, proposals['proposals'], frames[-1]['time'])
+        return manager, a, b, rows, proposals, merged, frames
+
+    def test_identity_created_after_a_short_occlusion_is_merged_into_the_one_it_continues(self):
+        manager, a, b, rows, proposals, merged, frames = self.scene()
+        self.assertEqual(len(proposals['proposals']), 1, proposals)
+        self.assertEqual((merged['merged'], proposals['proposals'][0]['applied']), (1, True), (merged, proposals['proposals']))
+        self.assertEqual((b.status, b.retired_into), ('retired', a.pid))
+        self.assertTrue(all(p['id'] == a.pid and p['display'] == a.pid and p['evidence'] == 'merged offline' and p['firstPassLabel'] == b.pid for p in rows), rows[0])
+        self.assertIn(60, a.tracks)
+        self.assertEqual(manager.tracks[60].player_id, a.pid)
+        self.assertTrue(merged['events'] and merged['events'][0]['message'].startswith('MERGE APPLIED'), merged['events'])
+        self.assertIn(f'{long_id(b.pid)} is {long_id(a.pid)}', merged['events'][0]['message'])
+        groups = manager.summary()
+        self.assertEqual([e['id'] for e in groups['retired']], [b.pid])
+        self.assertEqual(groups['retired'][0]['retiredInto'], a.pid)
+        self.assertNotIn(b.pid, [e['id'] for e in groups['players']])
+        m = tracklets.metrics(manager, frames, merged['events'], {'merged': merged['merged']})
+        self.assertEqual(m['mergedOffline'], 1)
+        self.assertNotIn(b.pid, {p.get('id') for f in frames for p in f['people']})
+
+    def test_a_later_identity_after_a_longer_gap_stays_a_proposal(self):
+        manager, a, b, rows, proposals, merged, frames = self.scene(gap=6.0)
+        self.assertEqual(len(proposals['proposals']), 1, proposals)
+        self.assertEqual((merged['merged'], proposals['proposals'][0]['applied']), (0, False))
+        self.assertEqual(b.status, 'active')
+        self.assertTrue(all(p['id'] == b.pid for p in rows))
+
+    def test_a_later_identity_after_an_exit_through_the_frame_edge_stays_a_proposal(self):
+        manager, a, b, rows, proposals, merged, frames = self.scene(edge=True)
+        self.assertEqual(len(proposals['proposals']), 1, proposals)
+        self.assertFalse(proposals['proposals'][0]['vanishedInside'])
+        self.assertEqual((merged['merged'], b.status), (0, 'active'))
 
 
 class AssignmentTests(unittest.TestCase):

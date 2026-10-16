@@ -156,3 +156,7 @@ def scale_matrix(sx, sy):
 def to_normalized(matrix_px, width, height):
     """Express a pixel->pixel transform in normalized image coordinates."""
     return scale_matrix(1/width, 1/height) @ matrix_px @ scale_matrix(width, height)
+
+
+# The painted spots of a 105 x 68 m pitch in normalized pitch coordinates: left penalty spot, right penalty spot, centre spot.
+PAINTED_SPOTS = ((11/105, .5), (94/105, .5), (.5, .5))

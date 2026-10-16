@@ -2,7 +2,10 @@
 status at the end of the segment, derived from a finished result (pure: the same result gives the same
 roster, after a correction too).
 
-A slot is an active participant, never a guaranteed location. Statuses at the end of the segment:
+A slot is an active participant, never a guaranteed location. A slot beyond the team's active outfield
+slots (soccer/labels.py: the least participation evidence when a team holds more identities than it
+fields) is `confirmed: False`: shown as A-?, its observations kept, no positions estimated for it.
+Statuses at the end of the segment:
 ACTIVE (observed within the last second), OFF_SCREEN (last seen leaving through a frame edge),
 UNKNOWN (missing without an exit seen), LEFT (you marked the player as substituted or sent off) and
 RETIRED (merged into another identity). The expected sizes of the teams come from the run's
@@ -77,7 +80,9 @@ def build(result):
             slots.append({'id': pid, 'display': e.get('display', pid), 'team': e.get('team'), 'role': role, 'status': status,
                           'firstSeen': obs['first'].get(pid), 'lastSeen': last, 'observedFrames': n,
                           'tracks': sorted(t for t in obs['tracks'].get(pid, ()) if t is not None),
-                          'lastPitch': e.get('lastPitch'), 'exitEdge': e.get('exitEdge') or '', 'left': left.get(pid), 'manual': bool(e.get('manual'))})
+                          'lastPitch': e.get('lastPitch'), 'exitEdge': e.get('exitEdge') or '', 'left': left.get(pid), 'manual': bool(e.get('manual')),
+                          # Beyond the team's active slots (soccer/labels.py): shown as A-?, no estimated positions, data kept.
+                          'confirmed': bool(e.get('confirmed', True)), 'participation': e.get('participation')})
     for e in match.get('retired', []):
         if e.get('id'):
             slots.append({'id': e['id'], 'display': e.get('display', e['id']), 'team': e.get('team'), 'role': 'PLAYER' if e.get('role') != 'GOALKEEPER' else 'GOALKEEPER',

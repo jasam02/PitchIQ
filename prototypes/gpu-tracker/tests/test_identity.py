@@ -1,4 +1,5 @@
 import contextlib
+import math
 import unittest
 
 import numpy as np
@@ -87,6 +88,13 @@ def box_at(x, y, h=.12):
     return [x-w/2, y-h, w, h]
 
 
+def inside(b, o):
+    """Share of box b inside box o (what tracker.py supplies as 'covered'; the EncounterDriver measures it)."""
+    ix = max(0.0, min(b[0]+b[2], o[0]+o[2])-max(b[0], o[0]))
+    iy = max(0.0, min(b[1]+b[3], o[1]+o[3])-max(b[1], o[1]))
+    return ix*iy/max(b[2]*b[3], 1e-9)
+
+
 class Driver:
     def __init__(self, options=None, saved=None):
         self.ids = IdentityManager(options or Options(), saved)
@@ -96,11 +104,13 @@ class Driver:
         self.people = []
         self.pitch_reliable = True   # False: no usable pitch on these frames (the registration failed, not the tracking)
 
-    def step(self, visible, ended=(), zone='inside', segment=0, dt=.2, cues=None, ball=None):
+    def step(self, visible, ended=(), zone='inside', segment=0, dt=.2, cues=None, ball=None, boxes=None, pitch=None, tick=True):
         """visible: {local id: (Person, x, y)}; zone and cues: a value or a function of the local id; ball: its
-        camera-stabilized (x, y) when known."""
+        camera-stabilized (x, y) when known; boxes: {local id: box} replacing the box drawn for a person (a sliver
+        beside someone); pitch: {local id: (x, y)} normalized pitch positions; tick: False for a frame between
+        evidence ticks (the pipeline observes every frame, with a tick every 0.2 s)."""
         samples = []
-        boxes = {tid: box_at(x, y) for tid, (_, x, y) in visible.items()}
+        boxes = {tid: list((boxes or {}).get(tid) or box_at(x, y)) for tid, (_, x, y) in visible.items()}
         for tid, (p, x, y) in visible.items():
             d = p.descriptor()
             b = boxes[tid]
@@ -108,8 +118,10 @@ class Driver:
             z = zone(tid) if callable(zone) else zone
             c = cues(tid) if callable(cues) else cues
             samples.append({'id': tid, 'box': b, 'score': .9, 'cls': p.detector_class(), 'zone': z, 'occluded': occluded,
-                            'stab': Stab(x, y, .12), 'descriptor': d, 'vote': kit_vote(self.model, d.jersey, d.shorts), 'cues': c or {}})
-        out = self.ids.update({'time': self.t, 'tick': True, 'samples': samples, 'ended': [{'id': i} for i in ended],
+                            'stab': Stab(x, y, b[3]), 'descriptor': d, 'vote': kit_vote(self.model, d.jersey, d.shorts), 'cues': c or {}})
+            if pitch and tid in pitch:
+                samples[-1]['pitch'] = tuple(pitch[tid])
+        out = self.ids.update({'time': self.t, 'tick': tick, 'samples': samples, 'ended': [{'id': i} for i in ended],
                                'model': self.model, 'pitch_reliable': self.pitch_reliable, 'filter_enabled': True, 'aspect': 16/9,
                                'segment': segment, 'drift': 0, 'ball': {'stab': ball, 'pitch': None} if ball else None})
         self.events += out['events']
@@ -129,6 +141,119 @@ class Driver:
 
 def roster(team, n, x0=.2):
     return [(Person(team), x0+i*.06, .5+.03*(i % 3)) for i in range(n)]
+
+
+class ShortOcclusionTests(unittest.TestCase):
+    """A player who disappears behind someone for a moment keeps their identity: the position and speed remembered
+    for them come from clean boxes, measured over the evidence tick, and a new local track nearby is compared with
+    them before anything else."""
+
+    FPS = 30
+
+    def frames(self, d, seconds, visible, pitch, ended=(), boxes=None):
+        """Frames at 30 fps with an evidence tick every sixth frame, as the pipeline observes them; visible, pitch
+        and boxes may be functions of the time."""
+        out = None
+        for k in range(round(seconds*self.FPS)):
+            t = d.t
+            n = getattr(d, 'frame_no', 0)
+            d.frame_no = n+1
+            out = d.step(visible(t) if callable(visible) else visible, ended=ended if k == 0 else (),
+                         pitch=pitch(t) if callable(pitch) else pitch, boxes=boxes(t) if callable(boxes) else boxes,
+                         dt=1/self.FPS, tick=n % 6 == 0)
+        return out
+
+    def test_pitch_speed_is_measured_over_the_evidence_tick_not_one_frame(self):
+        d = Driver()
+        still = {i+1: t for i, t in enumerate(roster('B', 4))}
+        pitch_still = {tid: (x, y) for tid, (_, x, y) in still.items()}
+        runner = Person('B')
+        # The runner crosses the pitch at 5.25 m/s (.05 of its length per second); the camera follows them, so the
+        # image hardly moves.
+        visible = lambda t: {**still, 9: (runner, .5+.005*t, .5)}
+        pitch = lambda t: {**pitch_still, 9: (.3+.05*t, .4)}
+        self.frames(d, 3, visible, pitch)
+        v = d.ids.tracks[9].pitch_velocity
+        self.assertIsNotNone(v)
+        self.assertAlmostEqual(v[0]*105, 5.25, delta=.8, msg='metres per second along the pitch over the tick, not six times that')
+        self.assertAlmostEqual(v[1]*68, 0.0, delta=.8)
+
+    def test_player_hidden_behind_an_opponent_for_half_a_second_keeps_identity(self):
+        # B-07 on the broadcast clip: the player runs behind an opponent, the detector sees a sliver of them for
+        # two ticks (a short box beside the opponent, its foot point too far up the pitch), the local track ends,
+        # and 0.5 s later they come out on a new local track 2.5 m further along. The new track must get the
+        # same identity, not a new one.
+        d = Driver()
+        others = {i+1: t for i, t in enumerate(roster('B', 4, x0=.1))}
+        others.update({i+11: (p, x, .85) for i, (p, x, _) in enumerate(roster('A', 4, x0=.1))})
+        pitch_others = {tid: (x, y) for tid, (_, x, y) in others.items()}
+        runner, blocker = Person('B'), Person('A')
+        bx, by = .60, .70          # the blocker stands still; the runner comes from the left at 5 m/s
+        speed = .0476              # image and pitch units per second (one unit is the pitch length)
+
+        def visible(t):
+            v = {**others, 30: (blocker, bx, by)}
+            if t < 2.2-1e-6:
+                v[21] = (runner, .50+speed*t, by)
+            elif t >= 2.7-1e-6:
+                v[22] = (runner, .50+speed*t, by)
+            return v
+
+        def pitch(t):
+            p = {**pitch_others, 30: (bx, by)}
+            if t < 2.2-1e-6:
+                lift = .0 if t < 1.8-1e-6 else .015 if t < 2.0-1e-6 else .03   # the sliver's foot point: 1-2 m too far up the pitch
+                p[21] = (.50+speed*t, by-lift)
+            elif t >= 2.7-1e-6:
+                p[22] = (.50+speed*t, by)
+            return p
+
+        def boxes(t):
+            if 1.8-1e-6 <= t < 2.2-1e-6:
+                full = box_at(bx, by)
+                keep = .75 if t < 2.0-1e-6 else .55
+                return {21: [full[0]-.3*full[2], full[1]+(1-keep)*full[3], .4*full[2], keep*full[3]]}   # a sliver beside the blocker, cut off
+            return None
+
+        self.frames(d, 2.2, visible, pitch, boxes=boxes)
+        pid = d.ids.tracks[21].player_id
+        self.assertTrue(pid and pid.startswith('B-'), d.ids.tracks[21].reason)
+        g = d.ids.registry[pid]
+        self.assertIsNotNone(g.pitch_velocity)
+        self.assertLess(math.hypot(g.pitch_velocity[0]*105, g.pitch_velocity[1]*68), 9.0, 'the remembered speed comes from clean boxes, not the sliver')
+        self.assertAlmostEqual(g.last_pitch[1], by, delta=.005, msg='the remembered position comes from the last clean box, not the sliver')
+        n = len(d.ids.registry)
+        self.frames(d, .5, visible, pitch, ended=[21])
+        out = self.frames(d, 3, visible, pitch)
+        self.assertEqual(out[22]['id'], pid, (out[22], [e['message'][:160] for e in d.events if e['track'] == 22]))
+        self.assertEqual(len(d.ids.registry), n, 'no new identity for the player who was behind the opponent')
+        reid = [e for e in d.kinds('reid') if e['track'] == 22]
+        self.assertTrue(reid, [e['message'][:120] for e in d.events if e['track'] == 22])
+        self.assertGreaterEqual(reid[0]['scores']['spatial'], .5, reid[0]['scores'])
+        self.assertFalse([e for e in d.kinds('new-identity') if e['track'] == 22])
+
+    def test_a_look_alike_of_a_player_lost_moments_ago_is_waited_for_not_made_a_new_identity(self):
+        d = Driver()
+        team = roster('B', 5)
+        visible = {i+1: t for i, t in enumerate(team)}
+        pitch = {tid: (x, y) for tid, (_, x, y) in visible.items()}
+        d.run(3, visible, pitch=pitch)
+        pid = d.ids.tracks[5].player_id
+        self.assertTrue(pid)
+        rest = {k: v for k, v in visible.items() if k != 5}
+        d.step(rest, ended=[5], pitch=pitch)
+        d.run(.4, rest, pitch=pitch)
+        # Someone who looks exactly like them appears 0.6 s later, 30 m from where they vanished: not where they can
+        # be, but not someone new either while the player lost moments ago may be them.
+        back = dict(rest)
+        back[50] = (team[4][0], .9, .5)
+        pitch[50] = (team[4][1]+.3, team[4][2])
+        out = d.run(3, back, pitch=pitch)
+        self.assertIsNone(out[50]['id'], out[50])
+        self.assertEqual(out[50]['display'], 'B-?')
+        self.assertEqual(len(d.ids.registry), 5, 'no new identity while the player lost moments ago may still be this person')
+        waits = [e for e in d.kinds('deferred') if e['track'] == 50 and 'waiting for clean frames' in e['message']]
+        self.assertTrue(waits, [e['message'] for e in d.kinds('deferred')])
 
 
 class IdentityTests(unittest.TestCase):
@@ -906,3 +1031,38 @@ class UnknownPitchTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class UndecidedKitTests(unittest.TestCase):
+    """A small, distant player whose kit reads as neither team for a while (state 'unknown', UNK-n) is the same local
+    track and the same person: once the kit settles and the track is identified, the undecided frames take the identity
+    retroactively, like the candidate frames before them."""
+
+    def test_an_unknown_spell_is_labelled_once_the_track_is_identified(self):
+        d = Driver()
+        team = {10+i: t for i, t in enumerate(roster('A', 3, x0=.1)+roster('B', 3, x0=.6))}
+        d.run(2, team)
+        far = Person('GK', cls='player')          # a kit matching neither team: 'unknown' after enough observations
+        far.cls = 'player'
+        far_id = 40
+        scene = dict(team)
+        scene[far_id] = (far, .5, .2)
+        d.run(4, scene)                           # candidate, then unknown
+        states = [frame_people[far_id]['state'] for frame_people in (({p['track']: p for p in fr}) for fr in d.people) if far_id in frame_people]
+        self.assertIn('unknown', states, states[-5:])
+        far.kit, far.shorts = 'B', 'B'           # closer now: the kit reads as team B (the same person: the OSNet look is unchanged)
+        out = None
+        for _ in range(60):
+            out = d.step(scene)
+        self.assertEqual(out[far_id]['state'], 'confirmed', out[far_id])
+        pid = out[far_id]['id']
+        self.assertTrue(pid and pid.startswith('B-'), out[far_id])
+        labelled = [{p['track']: p for p in fr}.get(far_id) for fr in d.people]
+        labelled = [p for p in labelled if p is not None]
+        unknown_frames = [p for p in labelled if p.get('firstPassLabel') is None and p.get('evidence') == 'reidentified']
+        self.assertTrue(unknown_frames, 'nothing labelled retroactively')
+        # Every frame of the undecided spell within the buffer carries the identity now.
+        since = labelled[-1]['time']-11.0
+        spell = [p for p in labelled if p['time'] >= since and p['time'] < out[far_id]['time']-.01]
+        self.assertTrue(spell and all(p.get('id') == pid for p in spell), [(p['time'], p.get('id'), p.get('display')) for p in spell if p.get('id') != pid][:8])
+

@@ -113,7 +113,7 @@ def metrics(result, name=''):
            'identifiedShare': s.get('identifiedShare'),
            'identifiedByHeight': {f'{lo}-{hi if hi < 10000 else ""}px': (round(v[1]/v[0], 3) if v[0] else None) for (lo, hi), v in by_height.items()},
            'identity': {k: ident.get(k) for k in ('idSwitches', 'trackSwitchesFoundOnline', 'globalIdFragmentation', 'newPlayerIdentities', 'teamsOverCap',
-                                                  'trackletsConnected', 'localTracks', 'fragments', 'closeEncounters', 'playersLostAfterEncounter')},
+                                                  'trackletsConnected', 'mergedOffline', 'sameTrackContinued', 'unresolvedFragments', 'localTracks', 'fragments', 'closeEncounters', 'playersLostAfterEncounter')},
            'deferredDecisions': s.get('deferredDecisions'), 'globalIdentities': s.get('globalIdentities'),
            'pitch': {'meanConfidence': (s.get('pitch') or {}).get('meanConfidence'), 'levels': (s.get('pitch') or {}).get('levels'),
                      'calibratedShare': reg.get('calibratedShare'), 'confidentShare': reg.get('confidentShare'),

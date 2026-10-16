@@ -16,6 +16,14 @@ position alone): NON_TARGET is "not interpreted as a player now", not "deleted".
 referee identities to connect anything to. A fragment whose identity was clearly seen elsewhere at
 the same time can never be that identity. Connected fragments take the identity's id, team and role
 on every frame (so the 2D view keeps the player).
+
+The same local track is itself evidence: an anonymous stretch of a track (the kit undecided on a
+small, distant player: UNK-8; or B-? before the identity was decided) that lies within CONTINUE_GAP of
+an identified stretch of the same track, with no cut between them, is that identity, whatever OSNet
+makes of thirty-pixel crops, unless the crops clearly contradict it. This is what resolves a player
+first identified late from the clearer frames: his earlier frames take the identity (future frames
+correct earlier labels). Anonymous fragments of UNRESOLVED_MIN or more that stay anonymous are logged
+(TRACKLET UNRESOLVED) with the best candidate and why it was not enough.
 """
 import bisect
 import math
@@ -24,8 +32,8 @@ from collections import Counter, defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .appearance import compare, embedding_cosine
-from .geometry import clamp
+from .appearance import add_to_gallery, compare, embedding_cosine
+from .geometry import clamp, edge_of
 from .identity import PLAYER_HEIGHT, ROLE_OUT, combine, long_id, r3
 
 MAX_GAP = 10.0        # seconds between an identity's sighting and a fragment it may continue
@@ -42,6 +50,9 @@ SCENE_TRACKS = 4      # appearance cuts on this many tracks within SCENE_WINDOW 
 SCENE_WINDOW = .75
 PITCH_MIN = .2        # registration confidence from which pitch positions (metres) replace camera-compensated image distances
 ASSIGN_ROUNDS = 5     # rounds of the global assignment of the remaining anonymous fragments
+CONTINUE_GAP = 1.0    # s: an anonymous fragment this close to an identified fragment of the SAME local track, with no cut between, is
+                      # that identity (the track never changed hands); only crops that contradict (SPLIT_COSINE) stop it
+UNRESOLVED_MIN = 1.0  # s: anonymous fragments at least this long that stay anonymous are logged with their best candidate
 
 
 class _Scorer:
@@ -175,15 +186,10 @@ def appearance_cuts(history):
     return cuts
 
 
-def refine(manager, frames, motions, width, height, size=None):
-    """Split and connect. manager: the IdentityManager after the causal pass (its registry, galleries and
-    ended tracks); frames: the per-frame observations (people dicts are relabelled in place); motions: per
-    frame (M pixels previous->this or None, reliable, cut); size: the pitch size, when the frames carry
-    registered pitch positions (spatial evidence in metres). Returns a report with the counts and events."""
-    report = {'tracks': 0, 'fragments': 0, 'mixed': 0, 'splits': 0, 'connected': 0, 'ignoredRestored': 0,
-              'stripped': 0, 'framesRestored': 0, 'events': [], 'connections': []}
-    if not frames or len(motions) != len(frames):
-        return report
+def _build_fragments(manager, frames, motions, width, height, size, report):
+    """Every local track cut where its identity label changes, where the causal pass found a TRACK SWITCH and where its
+    clean crops stop looking like the ones before (unless many tracks change together: a scene change). Returns the
+    scorer, the fragments (track, rows, id, segment, cut, stale) and the splits; counts into the report."""
     by_track = defaultdict(list)
     for i, f in enumerate(frames):
         for p in f.get('people', []):
@@ -192,9 +198,7 @@ def refine(manager, frames, motions, width, height, size=None):
             by_track[p['track']].append((i, p))
     report['tracks'] = len(by_track)
     sc = _Scorer(manager, frames, motions, width, height, size)
-    track_state, times, observed_between = sc.track_state, sc.times, sc.observed_between
-
-    # ---- cuts: identity changes, TRACK SWITCH times from the causal pass, appearance changes in the clean crops
+    track_state = sc.track_state
     fragments, splits = [], []
     proposed = {}
     for tid in by_track:
@@ -241,6 +245,112 @@ def refine(manager, frames, motions, width, height, size=None):
             if before and after:
                 splits.append({'track': tid, 'time': c, 'cosine': cos, 'how': how, 'before': before, 'after': after, 'outcome': []})
     report['fragments'], report['splits'] = len(fragments), len(splits)
+    return sc, fragments, splits
+
+
+def _continue_fragments(manager, frames, fragments, sc, report, note=None):
+    """The same local track is evidence: an anonymous fragment within CONTINUE_GAP of an identified fragment of the same
+    track in the same segment (no track switch or appearance cut between) is that identity, whatever OSNet makes of
+    small crops, unless the crops contradict it (SPLIT_COSINE), the fragment voted the other team, the identity was seen
+    elsewhere meanwhile, or the two sides name different identities (the track changed hands unnoticed). Runs until
+    nothing changes, so a continued fragment can carry the identity on to its other neighbour. A refusal is kept on the
+    fragment ('continueNote') for the TRACKLET UNRESOLVED log. Returns the number continued."""
+    done = 0
+    changed = True
+    while changed:
+        changed = False
+        for k, frag in enumerate(fragments):
+            if frag['id'] is not None or frag.get('continued'):
+                continue
+            rows = frag['rows']
+            t0, t1 = frames[rows[0][0]]['time'], frames[rows[-1][0]]['time']
+            if t1-t0 < MIN_FRAGMENT or any(p.get('state') == 'nontarget' for _, p in rows):
+                continue
+            found = []
+            for side, j in (('before', k-1), ('after', k+1)):
+                if j < 0 or j >= len(fragments):
+                    continue
+                other = fragments[j]
+                if other['track'] != frag['track'] or other['segment'] != frag['segment'] or other['id'] is None or other['stale']:
+                    continue
+                gap = t0-frames[other['rows'][-1][0]]['time'] if side == 'before' else frames[other['rows'][0][0]]['time']-t1
+                if gap > CONTINUE_GAP:
+                    continue
+                g = manager.registry.get(other['id'])
+                if g is None or g.role != 'player' or g.team not in ('A', 'B') or g.excluded or g.withdrawn or g.status in ('retired', 'substituted', 'unknown'):
+                    continue
+                found.append((g, side, gap))
+            if not found:
+                continue
+            if len({g.pid for g, _, _ in found}) > 1:
+                frag['continueNote'] = f"the same track carries {found[0][0].pid} before and {found[1][0].pid} after it: it changed hands unnoticed"
+                continue
+            g, side, gap = found[0]
+            descs = sc.descs_of(frag['track'], t0, t1)
+            teams_here = Counter(p.get('team') for _, p in rows if p.get('team') in ('A', 'B'))
+            vote = teams_here.most_common(1)[0][0] if teams_here else None
+            c = compare(g.gallery, descs) if g.gallery and descs else None
+            cosine = c.get('cosine') if c else None
+            if vote is not None and vote != g.team:
+                frag['continueNote'] = f'same track as {g.pid} but voted team {vote}'
+            elif sc.observed_between(g.pid, t0+1e-3, t1-1e-3):
+                # Strictly inside the fragment's span: the neighbouring fragment's own frames lie a frame outside it.
+                frag['continueNote'] = f'same track as {g.pid}, who was seen elsewhere meanwhile'
+            elif cosine is not None and cosine < SPLIT_COSINE:
+                frag['continueNote'] = f'same track as {g.pid} but the crops contradict it (OSNet cosine {cosine:.2f})'
+            if frag.get('continueNote'):
+                if note is not None:
+                    note(frag, f"{t0:.2f}-{t1:.2f} s: {frag['continueNote']}; not continued")
+                continue
+            conf = r3(g.identity_confidence or ACCEPT)
+            was = f"{rows[0][1].get('display')}"
+            states = Counter(p.get('state') for _, p in rows)
+            sc.adopt(g, rows, None, conf, 'connected offline', frag['track'])
+            frag['id'], frag['continued'] = g.pid, True
+            done += 1
+            changed = True
+            report['connected'] = report.get('connected', 0)+1
+            report['sameTrack'] = report.get('sameTrack', 0)+1
+            report['framesRestored'] = report.get('framesRestored', 0)+len(rows)
+            lines = ['TRACKLET CONNECT', f"Tracklet {frag['track']} ({t0:.2f}-{t1:.2f} s, {len(rows)} frames, first pass: {was}) -> {long_id(g.pid)}",
+                     f'Global Identity: {g.pid} ({ROLE_OUT[g.role]}, team {g.team})',
+                     f"Same local track as {g.pid} {side} it ({gap:.2f} s apart), no track switch or appearance cut between: the track never changed hands",
+                     'Appearance similarity: ' + ('not usable (small or dirty crops); not required here' if cosine is None else f'OSNet cosine {cosine:.2f} (no contradiction)'),
+                     f"Team consistency: {'yes' if vote == g.team else 'no team vote (kit undecided on these frames)'}",
+                     f"First pass states: {', '.join(f'{k} {v}' for k, v in states.most_common())}",
+                     f'Final: continued; identity confidence {conf:.2f}']
+            report.setdefault('events', []).append({'time': r3(t0), 'kind': 'tracklet', 'track': frag['track'], 'playerId': g.pid, 'message': '\n'.join(lines)})
+            report.setdefault('connections', []).append({'track': frag['track'], 'start': r3(t0), 'end': r3(t1), 'to': g.pid, 'from': None, 'final': conf, 'sameTrack': True})
+            if note is not None and frag['cut'] is not None:
+                note(frag, f"{t0:.2f}-{t1:.2f} s -> {g.pid} (same track)")
+    return done
+
+
+def continue_same_track(manager, frames, motions, width, height, size=None):
+    """The same-track continuation alone, for a second pass after the global assignment: a fragment identified there
+    hands its identity to the anonymous stretches of its own track. Returns {'connected', 'sameTrack', 'framesRestored',
+    'events', 'connections'}."""
+    report = {'connected': 0, 'sameTrack': 0, 'framesRestored': 0, 'events': [], 'connections': []}
+    if not frames or len(motions) != len(frames):
+        return report
+    scratch = {'tracks': 0, 'fragments': 0, 'mixed': 0, 'splits': 0, 'events': []}
+    sc, fragments, _ = _build_fragments(manager, frames, motions, width, height, size, scratch)
+    _continue_fragments(manager, frames, fragments, sc, report, None)
+    report['events'].sort(key=lambda e: e['time'])
+    return report
+
+
+def refine(manager, frames, motions, width, height, size=None):
+    """Split and connect. manager: the IdentityManager after the causal pass (its registry, galleries and
+    ended tracks); frames: the per-frame observations (people dicts are relabelled in place); motions: per
+    frame (M pixels previous->this or None, reliable, cut); size: the pitch size, when the frames carry
+    registered pitch positions (spatial evidence in metres). Returns a report with the counts and events."""
+    report = {'tracks': 0, 'fragments': 0, 'mixed': 0, 'splits': 0, 'connected': 0, 'ignoredRestored': 0,
+              'stripped': 0, 'framesRestored': 0, 'sameTrack': 0, 'unresolved': 0, 'events': [], 'connections': []}
+    if not frames or len(motions) != len(frames):
+        return report
+    sc, fragments, splits = _build_fragments(manager, frames, motions, width, height, size, report)
+    times, observed_between = sc.times, sc.observed_between
 
     def unknown(person, why):
         person['firstPassLabel'] = person.get('display')
@@ -254,6 +364,9 @@ def refine(manager, frames, motions, width, height, size=None):
             if sp['track'] == frag['track'] and abs(sp['time']-frag['cut'][0]) < 1e-6:
                 sp['outcome'].append(text)
 
+    # The track itself first: it outranks an appearance match of another track to the same identity.
+    _continue_fragments(manager, frames, fragments, sc, report, note)
+
     for frag in fragments:
         rows = frag['rows']
         t0, t1 = frames[rows[0][0]]['time'], frames[rows[-1][0]]['time']
@@ -262,6 +375,8 @@ def refine(manager, frames, motions, width, height, size=None):
                 note(frag, f'{t0:.2f}-{t1:.2f} s: too short to compare')
             continue
         pid = frag['id']
+        if frag.get('continued'):
+            continue
         if pid is not None and not frag['stale']:
             if frag['cut'] is not None:
                 note(frag, f'{t0:.2f}-{t1:.2f} s: {pid}, identified during the run after the cut; kept')
@@ -313,6 +428,19 @@ def refine(manager, frames, motions, width, height, size=None):
                     unknown(person, 'the team label was earned before the cut')
                 note(frag, f"{t0:.2f}-{t1:.2f} s: no dormant player matched; " + ('shown as ?' if stale_team else 'label kept') +
                      (f" (best {best['g'].pid} {best['final']:.2f})" if best else ''))
+            if pid is None and t1-t0 >= UNRESOLVED_MIN:
+                report['unresolved'] += 1
+                why = ('no dormant identity of the team to compare with' if best is None else
+                       f"best {best['g'].pid} {best['final']:.2f}" + (f" (needs {ACCEPT:.2f})" if best['final'] < ACCEPT else '') +
+                       (f", appearance {best['appearance']:.2f} under the floor {floor:.2f}" if best['appearance'] is not None and best['appearance'] < floor else '') +
+                       (f", lead over {second['g'].pid} {best['final']-second['final']:.2f} under {LEAD:.2f}" if second is not None and best['final']-second['final'] < LEAD else ''))
+                if frag.get('continueNote'):
+                    why += f"; {frag['continueNote']}"
+                states = Counter(p.get('state') for _, p in rows)
+                lines = ['TRACKLET UNRESOLVED', f"Tracklet {frag['track']} ({t0:.2f}-{t1:.2f} s, {len(rows)} frames, first pass: {rows[0][1].get('display')}) stays without an identity",
+                         f"Team vote: {team or 'none (kit undecided)'}; first pass states: {', '.join(f'{k} {v}' for k, v in states.most_common())}",
+                         f'Why: {why}', 'Decision: left as it is (no identity is forced; the global assignment may still place it)']
+                report['events'].append({'time': r3(t0), 'kind': 'tracklet', 'track': frag['track'], 'playerId': None, 'message': '\n'.join(lines)})
             continue
         g = best['g']
         conf = r3(min(best['final'], g.identity_confidence or best['final']))
@@ -453,6 +581,9 @@ def assign_fragments(manager, frames, motions, width, height, size=None):
 MERGE_APPEARANCE = .7    # mutual gallery similarity two identities need before a merge is proposed
 MERGE_MAX_SPEED = 8.0    # m/s: the move from the last sighting of one to the first of the other must be plausible
 MERGE_MIN_GAP = .5       # s: the gap used for that speed is never shorter than this
+MERGE_APPLY_GAP = 3.0    # s: a later identity that begins this soon after the earlier one vanished inside the frame (not through an
+                         # edge), continuous and mutually most similar, is the same player hidden for a moment: merged into the earlier
+                         # one (apply_merges); a longer gap, an exit, or an identity you set stays a proposal for review
 
 
 def merge_proposals(manager, frames, motions, width, height, size=None):
@@ -512,7 +643,8 @@ def merge_proposals(manager, frames, motions, width, height, size=None):
             plausible = spatial is None or spatial >= .1
         proposal = {'earlier': a.pid, 'later': b.pid, 'team': a.team, 'appearance': r3(v), 'gap': r3(first_b[0]-last_a[0]),
                     'speed': None if speed is None else r3(speed), 'imageSpatial': None if spatial is None else r3(spatial),
-                    'continuity': 'pitch' if speed is not None else ('image' if spatial is not None else 'unmeasured'), 'plausible': bool(plausible)}
+                    'continuity': 'pitch' if speed is not None else ('image' if spatial is not None else 'unmeasured'), 'plausible': bool(plausible),
+                    'vanishedInside': not edge_of(last_a[2]), 'at': r3(first_b[0]), 'applied': False}
         if not plausible:
             report['rejectedByContinuity'] += 1
             continue
@@ -522,6 +654,56 @@ def merge_proposals(manager, frames, motions, width, height, size=None):
                                  'message': f"MERGE PROPOSED (not applied)\n{long_id(a.pid)} (last seen {last_a[0]:.2f} s) and {long_id(b.pid)} (first seen {first_b[0]:.2f} s) may be one person: "
                                             f"galleries mutually most similar at {v:.2f}, never seen together, {how}. Review it in the page; nothing is merged automatically."})
     report['proposals'].sort(key=lambda x: -x['appearance'])
+    return report
+
+
+def apply_merges(manager, proposals, time):
+    """Apply the proposals that describe a short occlusion: the later identity began within MERGE_APPLY_GAP of the
+    earlier one's last sighting, which was inside the frame (an occlusion or a missed detection, not an exit), the
+    move between them is plausible and measured, neither identity is one you set, and the later one was created in
+    this run. The later identity is retired into the earlier one: every observation labelled with it takes the
+    earlier identity (evidence 'merged offline', the first-pass label kept), its gallery samples join the earlier
+    gallery, its local tracks are recorded on the earlier identity. The other proposals stay for review. Returns
+    {'merged', 'events'}."""
+    report = {'merged': 0, 'events': []}
+    for p in proposals:
+        a, b = manager.registry.get(p['earlier']), manager.registry.get(p['later'])
+        if a is None or b is None or not p['plausible'] or p['continuity'] == 'unmeasured' or not p.get('vanishedInside') or p['gap'] > MERGE_APPLY_GAP:
+            continue
+        if a.manual or b.manual or b.restored or b.created_on is None or a.status in ('retired', 'substituted') or b.status in ('retired', 'substituted'):
+            continue
+        moved = 0
+        for person in list(b.emitted_all):
+            if person.get('id') != b.pid:
+                continue
+            person['firstPassLabel'] = person.get('firstPassLabel') or person.get('display')
+            manager._style(person, a, min(person.get('identityConfidence', 1), a.identity_confidence or 1))
+            person['evidence'] = 'merged offline'
+            a.emitted_all.append(person)
+            moved += 1
+        b.emitted_all, b.observations = [], 0
+        a.observations += moved
+        for s in b.gallery:
+            a.gallery = add_to_gallery(a.gallery, s.d, s.time, manager.o.gallery_size)
+        a.tracks += [t for t in b.tracks if t not in a.tracks]
+        if b.last_seen > a.last_seen:
+            a.last_seen, a.last_box, a.last_pitch, a.exit_edge, a.status = b.last_seen, list(b.last_box), b.last_pitch, b.exit_edge, b.status
+            a.stab, a.velocity, a.pitch_velocity, a.segment, a.drift, a.clean_seen = b.stab, b.velocity, b.pitch_velocity, b.segment, b.drift, b.clean_seen
+            a.track, a.here = b.track, b.here
+            live = manager.tracks.get(b.track) if b.track is not None else None
+            if live is not None and live.player_id == b.pid:
+                live.player_id = a.pid
+        a.kit_clear, a.kit_total = a.kit_clear+b.kit_clear, a.kit_total+b.kit_total
+        a.history.extend(b.history)
+        b.status, b.retired_into, b.track, b.here = 'retired', a.pid, None, False
+        b.role_history.append((r3(time), 'retired', f'was {a.pid}: the same player, hidden for {p["gap"]:.1f} s'))
+        p['applied'] = True
+        report['merged'] += 1
+        how = f"{p['speed']:.1f} m/s on the pitch" if p['speed'] is not None else f"image continuity {p['imageSpatial']:.2f}"
+        lines = ['MERGE APPLIED', f"{long_id(b.pid)} is {long_id(a.pid)}: created {p['gap']:.2f} s after {a.pid} vanished inside the frame, galleries mutually "
+                 f"most similar at {p['appearance']:.2f}, never seen together, {how}.",
+                 f"{moved} observations of {b.pid} relabelled {a.pid} (first-pass label kept); {b.pid} retired."]
+        report['events'].append({'time': p.get('at', r3(time)), 'kind': 'merge', 'track': None, 'playerId': a.pid, 'message': '\n'.join(lines)})
     return report
 
 
@@ -597,6 +779,7 @@ def metrics(manager, frames, events, report):
             'newPlayerIdentities': sum(1 for e in events if e['kind'] == 'new-identity' and e.get('playerId', '')[:2] in ('A-', 'B-')),
             'teamsOverCap': over,
             'trackletsConnected': report.get('connected', 0), 'ignoredFragmentsRestored': report.get('ignoredRestored', 0),
+            'sameTrackContinued': report.get('sameTrack', 0), 'unresolvedFragments': report.get('unresolved', 0),
             'framesRestoredToPlayers': report.get('framesRestored', 0), 'restoredFromLabels': dict(shown),
             'assignedOffline': report.get('assigned', 0), 'framesAssignedOffline': report.get('framesAssigned', 0),
-            'assignment': report.get('assignment')}
+            'assignment': report.get('assignment'), 'mergedOffline': report.get('merged', 0)}
