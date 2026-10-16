@@ -13,7 +13,8 @@ from urllib.parse import unquote
 from flask import Flask, abort, jsonify, request, send_file
 from waitress import serve
 import corrections
-from pipeline import ROOT, gpu_info, metadata, run
+from download_model import get_model
+from pipeline import RESOURCES, ROOT, gpu_info, metadata, run
 from soccer import analytics, calibration
 
 
@@ -157,6 +158,20 @@ def uploaded_videos():
     return out
 
 
+def preload_models():
+    """Load the detectors and the appearance embedder (pipeline.RESOURCES) in the background while the page comes
+    up: they stay loaded in this process for every run, so no run pays the model loading again. A run that
+    starts before they are ready waits for them (Resources.load holds a lock); a failure here is only printed
+    and the first run loads them itself."""
+    def load():
+        try:
+            RESOURCES.load(get_model())
+            print('Detectors and appearance model loaded; they stay loaded between runs.', flush=True)
+        except Exception as error:   # noqa: BLE001 - the first run reports the real error
+            print(f'Models not preloaded ({error}); the first run will load them.', flush=True)
+    threading.Thread(target=load, name='preload', daemon=True).start()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--video', help='Optional: open this video at start. Videos can also be uploaded in the page.')
@@ -164,6 +179,7 @@ def main():
     parser.add_argument('--run', action='store_true', help='Process the first 60 seconds immediately (needs --video).')
     args = parser.parse_args()
     gpu = gpu_info()
+    preload_models()
     active = {'video': None}
     if args.video:
         source = Path(args.video)

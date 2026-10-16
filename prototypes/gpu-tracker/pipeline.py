@@ -281,6 +281,44 @@ def preview(frame, observation, path, pitch=None, trail=()):
     temporary.replace(path)
 
 
+class Resources:
+    """The detector instances and the appearance embedder of one process, loaded on the first run and kept
+    for the next ones (the ~10 s of model loading per run): one detector for the main thread, one for the
+    prefetch worker (a predictor keeps state between calls, so each thread has its own), one embedder (a
+    stateless ONNX session). Nothing in them depends on a run: the predictor re-applies its arguments on
+    every call and its warm-up is a dummy forward pass, so a kept instance gives what a fresh one gives.
+    `RESOURCES` is the process's pair; a new Resources() loads afresh (tools/run_segment.py --fresh-models)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.model_path = None
+        self.detector = self.worker_detector = self.appearance = None
+
+    @property
+    def loaded(self):
+        return self.detector is not None
+
+    def load(self, model_path, progress=None):
+        """Load once (or again for another checkpoint); later calls return at once."""
+        with self.lock:
+            if self.detector is None or Path(model_path) != self.model_path:
+                if progress is not None:
+                    progress({'stage': 'Loading soccer detector and player appearance model', 'progress': 0})
+                detector = YOLO(str(model_path))
+                if dict(detector.names) != {0: 'ball', 1: 'goalkeeper', 2: 'player', 3: 'referee'}:
+                    raise RuntimeError(f'Unexpected detector classes: {detector.names}')
+                self.detector, self.worker_detector, self.appearance = detector, YOLO(str(model_path)), Appearance()
+                self.model_path = Path(model_path)
+            return self
+
+    def release(self):
+        with self.lock:
+            self.detector = self.worker_detector = self.appearance = self.model_path = None
+
+
+RESOURCES = Resources()   # one pair of detectors and one embedder per process, kept between runs
+
+
 class Prefetch:
     """Decodes the segment's frames and runs the whole-frame detector (and the ball tile scans) ahead on a
     worker thread with its own detector instance, so the GPU works on the next frames while the CPU tracks
@@ -297,8 +335,8 @@ class Prefetch:
     has room for that frame, so the word it reads is at most `depth` frames old."""
 
     def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=None, batch=DETECT_BATCH,
-                 scan_every=BALL_SCAN_S):
-        self.video_path, self.model_path = video_path, model_path
+                 scan_every=BALL_SCAN_S, model=None):
+        self.video_path, self.model_path, self.model = video_path, model_path, model   # model: the worker's own detector instance, else loaded here
         self.first_frame, self.fps, self.start, self.finish, self.roll_until = first_frame, fps, start, finish, roll_until
         self.detail, self.tiles, self.cancelled = detail, tiles, cancelled
         # Consecutive frames of the segment go through the whole-frame detector `batch` at a time (the last
@@ -330,7 +368,7 @@ class Prefetch:
         capture = None
         pending = []   # frames of the segment waiting for the batched whole-frame detector: (index, stamp, frame)
         try:
-            model = YOLO(str(self.model_path))   # a predictor keeps state between calls: one per thread
+            model = self.model if self.model is not None else YOLO(str(self.model_path))   # a predictor keeps state between calls: one per thread
             capture = cv2.VideoCapture(str(self.video_path))
             capture.set(cv2.CAP_PROP_POS_FRAMES, self.first_frame)
             index = self.first_frame
@@ -419,8 +457,10 @@ class Prefetch:
         self.thread.join(timeout=10)
 
 
-def run(video_path, output, config, progress, cancelled, previous=None):
-    """previous: saved identities of an earlier run of this video, to continue its global identities."""
+def run(video_path, output, config, progress, cancelled, previous=None, resources=None):
+    """previous: saved identities of an earlier run of this video, to continue its global identities.
+    resources: the Resources (detectors, embedder) to run with; the process's RESOURCES by default, loaded on
+    the first run and kept for the next."""
     started = time.perf_counter()
     output.mkdir(parents=True, exist_ok=True)
     gpu = gpu_info()
@@ -429,11 +469,11 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     start = float(config.get('start', 0))
     finish = min(meta['duration'], start+float(config.get('seconds', 60)))
     model_path = get_model()
-    progress({'stage': 'Loading soccer detector and player appearance model', 'progress': 0, 'gpu': gpu})
-    model = YOLO(str(model_path))
-    if dict(model.names) != {0: 'ball', 1: 'goalkeeper', 2: 'player', 3: 'referee'}:
-        raise RuntimeError(f'Unexpected detector classes: {model.names}')
-    appearance = Appearance()
+    shared = resources if resources is not None else RESOURCES
+    if not shared.loaded:
+        progress({'stage': 'Loading soccer detector and player appearance model', 'progress': 0, 'gpu': gpu})
+    shared.load(model_path)
+    model, appearance = shared.detector, shared.appearance
     tracker = SoccerTracker(width, height, config_from(config), BotSortTracker(fps), appearance.embed, previous, fps)
     # Keyframes just outside the segment are not lost: the frames from such a keyframe to the start are processed
     # for camera motion and pitch evidence only (pre-roll), and after the end up to such a keyframe (post-roll).
@@ -450,7 +490,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
     clock = time.perf_counter
     ahead = Prefetch(video_path, model_path, first_frame, fps, start, finish, roll_until, int(config.get('imageSize', 1280)),
                      bool(config.get('ballTiles', False)), cancelled, batch=int(config.get('detectBatch', DETECT_BATCH)),
-                     scan_every=float(config.get('ballScanEvery', BALL_SCAN_S)))
+                     scan_every=float(config.get('ballScanEvery', BALL_SCAN_S)), model=shared.worker_detector)
     try:
         for kind, index, stamp, frame, rows, tile_rows, spent in ahead:
             if cancelled():

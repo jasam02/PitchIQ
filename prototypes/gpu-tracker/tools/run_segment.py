@@ -62,7 +62,10 @@ def build_config(settings, start, seconds, image_size=None, ball_tiles=None, dro
     return config
 
 
-def run_job(job, quiet=False):
+def run_job(job, quiet=False, resources=None):
+    """resources: pipeline.Resources to run with (the process's shared pair by default: the detectors and the
+    embedder stay loaded from one job of a --batch to the next, as in the server; a fresh Resources() loads
+    them anew, as a separate process would)."""
     import pipeline
     video, key = resolve_video(job['video'])
     settings = load_settings(key, job.get('settings'))
@@ -82,7 +85,7 @@ def run_job(job, quiet=False):
         last['stage'], last['tenth'] = stage, tenth
     (out/'meta.json').write_text(json.dumps({'commit': commit_hash(), 'video': str(video), 'key': key, 'config': config,
                                              'started': time.strftime('%Y-%m-%d %H:%M:%S')}, indent=1), encoding='utf-8')
-    report = pipeline.run(video, out, config, progress, lambda: False, None)
+    report = pipeline.run(video, out, config, progress, lambda: False, None, resources)
     summary = report['summary']
     print(f"{out}: {summary['processedFrames']} frames in {summary['elapsedSeconds']:.0f}s ({summary['processingFPS']} fps), "
           f"identified {summary['identifiedShare']}, pitch {summary['pitch']['meanConfidence']}, ball tracked {summary['ball']['trackedShare']}", flush=True)
@@ -104,6 +107,8 @@ def main(argv=None):
     ap.add_argument('--ball-scan-every', type=float, help='seconds between safeguard ball tile scans while the ball is locked (default: pipeline.BALL_SCAN_S)')
     ap.add_argument('--batch', help='JSON file: a list of jobs {video, start, seconds, out, settings?, drop_keyframes?, no_calibrations?, detect_batch?, ball_scan_every?}')
     ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--fresh-models', action='store_true', help='load the detectors and the embedder anew for every job of a --batch (as separate processes would) '
+                                                              'instead of keeping them loaded from one job to the next')
     a = ap.parse_args(argv)
     if a.batch:
         jobs = json.loads(Path(a.batch).read_text(encoding='utf-8'))
@@ -114,7 +119,11 @@ def main(argv=None):
                  'ball_tiles': None if a.ball_tiles is None else bool(a.ball_tiles), 'drop_keyframes': a.drop_keyframe, 'no_calibrations': a.no_calibrations,
                  'detect_batch': a.detect_batch, 'ball_scan_every': a.ball_scan_every}]
     for job in jobs:
-        run_job(job, a.quiet)
+        resources = None
+        if a.fresh_models:
+            import pipeline
+            resources = pipeline.Resources()
+        run_job(job, a.quiet, resources)
 
 
 if __name__ == '__main__':

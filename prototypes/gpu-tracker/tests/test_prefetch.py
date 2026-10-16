@@ -181,6 +181,16 @@ class BatchedDetectionTests(unittest.TestCase):
                         break
                 ahead.close()
                 self.assertFalse(ahead.thread.is_alive())
+                # A detector instance handed in (the process's kept worker detector) is used; none is loaded.
+                def refuse(path):
+                    raise AssertionError('the worker loaded a detector of its own')
+                pipeline.YOLO = refuse
+                own = StubDetector()
+                ahead = pipeline.Prefetch(path, 'unused.pt', 0, FPS, 0.0, 1.0, None, 1536, False, lambda: False, batch=4, model=own)
+                items = list(ahead)
+                ahead.close()
+                self.assertEqual(len(items), 12)
+                self.assertEqual(own.calls, [(4, 960), (4, 1536)]*3)
             finally:
                 pipeline.YOLO = original
 
