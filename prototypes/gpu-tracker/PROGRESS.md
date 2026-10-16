@@ -679,3 +679,135 @@ connected offline, OSNet cosine 0.81 to the gallery, no contradiction), the 19.5
 corrected from the later frames; no frame carries one identity on two people. The occlusion regression of 2026-10-14 (B-07
 behind A-03, now shown as B-06/B-07 after relabelling) still passes on the new clip run. The far-touchline player of the user's
 clip is unchanged by the offline change: one track, B-14 on all 600 frames of the 0-20 s rerun, 270 of them retroactively.
+
+## Player analytics: heatmap, average positions, movement trails (2026-10-15)
+
+New panel between the 2D match view and the identity events (`index.html`), one pitch with three tabs (HEATMAP, AVERAGE
+POSITION, MOVEMENT TRAIL) and a toolbar (team, player, range: processed segment / the five-minute block the playhead is
+in / custom; scope for the averages: selected player, team A, team B, both). The computation is a Python module
+(`soccer/analytics.py`), the page (`analytics.js`) only draws: `GET /api/analytics?player=&t0=&t1=&scope=` (`server.py`)
+answers one selection from the observed samples of the saved result, extracted once per result file and cached by its
+modification time (a correction rewrites the file). The page caches answers per result and clears them when the result
+reloads, so corrections, exclusions and relabelling apply. Reuses tactical.js: the board (`drawPitch`, `geometry`,
+goal-end labels) and the page's team colours. Clicking a player in Match identities selects them for the analytics too.
+
+Rules (documented in the module and the README): only confirmed team players and goalkeepers of the final roster with a
+confirmed slot; an observation counts when the person is confirmed, identity confidence >= .3, the position is on the
+pitch (within 2% of the lines, never clamped), registration confidence >= .5 and the box is not cut by the frame edge;
+estimates never count. Samples smoothed with the 2D view's 0.14 s window within runs. A sample stands for half the gap
+to each neighbour, at most .25 s a side (half a frame on an open side): denser sampling is not more occupancy, a long
+absence counts a quarter second at each end only. Coverage = the union of those seconds over the interval; < 50% is
+flagged. Heatmap: 1 m grid, Gaussian sigma 2.5 m, total preserved, square-root colour ramp, legend in seconds per cell.
+Average: the time-weighted mean; low coverage drawn dashed with the percentage. Trail: joined across gaps <= 1 s only;
+a step over 2 m faster than 12 m/s is a registration glitch and a break (a far player's half-metre jitter is not: the
+first rule without the distance broke B-14's path 82 times); START/END, arrowheads, a white dot following the video.
+
+Verified in the browser on the user's 0-60 s run (server on port 8766): A-01's heatmap (coverage 98%), both teams'
+average positions with GK-B dashed at 10% coverage, B-14's trail (two segments, one 5 s gap, 114 m) and a custom
+10-20 s range (one segment, 19.4 m), the roster click selecting B-14; no console errors from the page. On the real
+result: JSON load 0.3 s, extraction 0.04 s, one report 6 ms, 81 KB. `tests/test_analytics.py`: 16 tests on synthetic
+trajectories (density proportional to observed time, sampling rate without effect, absence not counted, range, validity
+rules, time-weighted mean, two local tracks one identity, roster and corrections, trail breaks and jitter, axis
+convention, report shape). 258 tests pass.
+
+## Review page redesign: one workspace, a carousel of three views (2026-10-15)
+
+Styling and layout only (`index.html`; `tactical.js`, `analytics.js`, the server and every algorithm untouched; the page
+script kept, with additive edits). White design system (background #FFFFFF / #F7F9F7, brand green #17834A, text #17211B,
+muted #68736B, borders #E3E8E3; system sans-serif; subtle borders, one small shadow on the drawer and the popover; no
+gradients, glows or cards). Header: a typographic PitchIQ wordmark with a small pitch mark, the match name, New match /
+Edit tracking / Advanced. One workspace with TRACKING, 2D MATCH and ANALYTICS tabs (green underline) above it; the views
+are three sections in a `.carousel`, all mounted, switched by CSS transitions on transform and opacity (the outgoing view
+slides 62% aside and shrinks to .74 with a 6 degree turn while the incoming one does the reverse; the container's height
+transitions between the two natural heights; forward is the loop order, a tab takes the shorter direction; arrows and the
+keyboard arrows step the loop; reduced motion swaps instantly; phones slide without the off-screen previews). Per-view
+controls under the workspace; the analytics toolbar stays above its pitch. Drawers for the identities and corrections,
+for upload and processing, and for the summary, debug overlays, events, pitch confirmation and keyframes (a side column
+on wide screens, an overlay with a backdrop under 1100 px). Added on the way: playback speed, full screen, the timeline
+CSV button and the lineup/footprint checkboxes were not bound before and are now; the identity-debug overlay and the video
+HUD are off by default. Verified in the browser on the user's run at 1440 px, tablet and phone widths: the tabs switch
+the views with the video time preserved (paused at 00:35, the board shows 00:35), the Web Animations API lists the
+transform and opacity transitions on both views and the height transition on the workspace (the harness's animation
+clock does not advance while its tools run, so no midpoint photo), the roster click in the Edit tracking drawer selects
+the player for the analytics, the Advanced drawer lists the summary and events, the correction popover opens on a player
+box, no page errors. 258 tests pass (no Python changed).
+
+## Review page, second pass: a bounded media stage, one transport, full screen (2026-10-15)
+
+Still `index.html` only. What the user found after the first pass: plain white space, small generic type, browser-default
+controls, the video growing past the viewport when the drawer closed (controls pushed off-screen), no playback controls on
+the 2D view, no usable controls in full screen. Changes: a light canvas (#F8FAF8) with white surfaces, system Inter/Segoe UI
+Variable stack, a match header (kicker, title, metadata chips, status chip), a 1560 px shell; the carousel kept as is. The
+media stage: `.media{width:min(100%, var(--stage-h) * var(--ar))}` with `--ar` the video's aspect (from its metadata) or
+the board's 1.48, and `--stage-h` measured by `fitStage()` (viewport height minus the stage's top, the transport and the
+visible controls) on resize, view switch, drawer toggle and fullscreen change; the transport bar's width follows the
+active media. One transport under the stage for every view: SVG icons, played portion in green, duration, speed, full
+screen; the script's `#play/#back/#next/#timeline/#time` ids kept, its `video.onplay/onpause` and the per-frame time
+update now call the `playback` controller (the video element stays the only clock; the board and analytics read it every
+frame as before). Keyboard shortcuts (space/k, arrows, shift-arrows, f, escape) that yield to inputs, buttons, the popover
+and the drawing modes. Full screen on the stage wrapper (view + transport) with idle-hiding controls; a fixed-layer
+fallback with the same presentation when the Fullscreen API is refused (the in-app browser refuses it). Display options
+as chips, custom selects, consistent 34 px controls, the identity popover restyled. Verified in the browser on the user's
+run: 1920x1080 video 1274x717 with the transport ending at 1024 px (in view), 1440x900 and 1366x768 in view, the 2D view
+plays/pauses from the shared bar with the board at the video's time, space toggles when nothing is focused, fallback full
+screen shows the dark stage with the controls; tablet and phone without overflow; no page errors. 258 tests pass (no
+Python changed).
+
+## PitchIQ Studio: the third pass on the review page (2026-10-15)
+
+`index.html` and the insight panel in `analytics.js`; nothing else. Design tokens in `:root` (colours, radii, shadows,
+spacing, durations, control heights, the type stack). A light shell with a dark media stage (#111915 with a thin
+#263429 border and a soft shadow) holding the video or the board and the transport; the Analytics view turns the stage
+light and hides the transport (the user asked for no playback controls there). Match hero: kicker, 32 px title from the
+upload's original name, one line of real context (status with a pulsing dot while processing, length, resolution and
+fps, tracked identities, analysed stretch). Segmented view switcher with a sliding indicator (transform transition) and
+the loop arrows; a stage label and a status (No analysis yet / Processing / Tracking available / Error) on the right.
+Analytics as a two-column dashboard: pitch left (sized by `--stage-h`), insight panel right (`#anInsights`, rows written
+by `describe()` in analytics.js: player, team swatch, interval, observed duration, coverage flagged when low, samples,
+peak occupancy and smoothing, average X/Y, segments / distance / gaps, excluded samples), the legend and a note; a reveal
+on tab change; stacked under 1180 px. Welcome state when no video is open (`.stage.welcome-view`): heading, one sentence,
+Upload match video (opens the file picker) and Open an earlier upload (opens the New match drawer) with a pitch
+illustration. Micro-interactions: pressed buttons and chips, drawer and popover entrance, selection transitions; reduced
+motion disables them. Fixes on the way: the analytics canvas is redrawn when its layout width changes (the board module
+clears it on resize), the stage's own padding is in the height fit, the switcher hides in the welcome state.
+
+Verified in the in-app browser on the user's run at 1440x900: the dark stage with the video (913x514) and the transport
+in view; the 2D match (board 710x480) at the video's time; Analytics with the insight rows and no transport, the canvas
+drawn after the layout change; the welcome state on a server with no video; then 1920x1080, 1366x768, tablet and phone
+without overflow and with the controls in view. 258 tests pass (no Python changed).
+
+## Dark Studio and the Analyze Segment dock: the fourth pass on the review page (2026-10-15)
+
+`index.html` only; no Python, no tactical.js, no analytics.js. The light shell became the dark graphite / forest-green
+theme (tokens in `:root`: #101715 app, #19221F / #202B26 / #28342D surfaces, #090E0C media, #F1F5F2 / #9AAA9F / #718278
+text, #334038 borders, #19B96B green with #22CF79 hover and #117B49 deep, #D96B6B danger; radii 12 / 10 / 7 / 6 / 5 px;
+no gradients, glows or large shadows). Header 60 px with "Match studio / <file>" and New match (solid green), Edit
+tracking, Advanced (dark secondary). Hero: kicker, 26 px title, one line of real data (analysis state with a dot, length,
+resolution, FPS, analysed stretch). Segmented switcher with a lighter selected surface and a thin green indicator; the
+carousel kept. The stage is at most 1450 px wide and height-fitted by `fitStage()` (which now also reserves the dock's
+head on screens at least 860 px tall; shorter screens scroll). The transport: outline icons, a larger green play, green
+progress, one clock; hidden on Analytics; fullscreen keeps it.
+
+The permanent right-hand upload / processing drawer page is gone. Its controls moved into `section.dock#dock` under
+the media: the source row (`#srcName`, `#srcMeta`, Change video toggling `#earlier` with `#uploads` + `#openUpload`,
+`#upload` + `#file`, upload progress), the trim timeline (`#trimRuler`, `#trimStrip` with the `#trimThumbs` canvas,
+`#trimRange`, handles `#trimStart` / `#trimEnd` as keyboard sliders, `#trimPlayhead`, `#trimTip`), the range row
+(`#trimStartInput`, `#trimEndInput`, `#trimDuration`, `#run` restyled as ANALYZE, `#stop`), the status row (`#progress`,
+`#status`, `#live`) and `details#procSettings` with the existing inputs (`#resolution`, `#perTeam`, `#margin`,
+`#fieldFilter`, `#continueIds`, `#ballTiles`, `#previousIds`, `#gpu`). The hidden `#start` / `#seconds` inputs stay and
+are written by the trim component, so `settings()` and the `#run` handler (`/api/run`) are unchanged. The `trim`
+module keeps its own state (duration, fps, start, end): pointer events with capture for mouse and touch, a rAF render
+during drags, frame snapping at the real fps, min 0.5 s, max 180 s (the backend's limit), range moves that keep the
+length, keyboard steps (frame / shift second / page 10 s / Home / End), mm:ss.ff parsing, an adaptive ruler, thumbnails
+from a hidden muted video element (sequential seeks, cached per width). `trim.init()` runs with the saved settings of
+the open video, so the previous run's range comes back. `stageStatus()` feeds the hero line and the dock state;
+`focusDock()` serves New match and the welcome's Open an earlier upload. The welcome state adds `dock.no-source`.
+
+Verified in the in-app browser (two review servers: the broadcast upload on 8766, no video on 8767): dark theme on all
+three views, drawers for Edit tracking and Advanced, New match focusing the dock; dragging the end handle (end 2:28.87,
+replay untouched, no run started), dragging the range (start 23.10, length kept), keyboard steps (three frames and a
+second), typed times, invalid text restored, the 0.5 s floor and the 3 min ceiling, seeking the replay without moving
+the range; a real run from ANALYZE on the Veo clip (0-1 s at 960) with the progress in the dock and the hero and the
+result loading afterwards (the clip's saved run files were restored afterwards); 1920x1080, 1440x900, 1366x768, 768x1024
+and 375x812 without horizontal overflow (phone: full-width strip, 20 px handles with 44 px targets, stacked fields,
+full-width ANALYZE). 258 tests pass (no Python changed).

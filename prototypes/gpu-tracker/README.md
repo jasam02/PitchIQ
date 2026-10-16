@@ -1016,6 +1016,136 @@ accepted with is never a measure of how sure the sighting is.
 detector (camera motion from `frames[].motion`, an `.npz`, or re-estimated from
 the video).
 
+## The review page
+
+`index.html` is PitchIQ Studio in a dark graphite and forest-green theme:
+app background #101715, surfaces #19221F / #202B26 / #28342D, a near-black
+media stage #090E0C, text #F1F5F2 with #9AAA9F and #718278 for secondary and
+muted text, #334038 borders, #19B96B green (#22CF79 on hover, #117B49 deep),
+flat surfaces without gradients, glows or large shadows. The header (60 px)
+carries the wordmark, a thin divider, "Match studio / <file>" and three
+actions: **New match** (jumps to the source row of the dock below the media),
+**Edit tracking** (the match identities and the corrections) and **Advanced**
+(the result summary, debug overlays, identity events, pitch confirmation,
+calibration and boundary keyframes); the two drawers open beside the
+workspace on wide screens and over it on narrow ones. The match hero shows
+the upload's name as the title with one line of real data: the analysis
+state (No analysis yet, Processing N%, Analysis complete, Processing failed),
+the length, resolution and frame rate, and the analysed stretch. Above the
+stage a segmented switcher (Tracking, 2D match, Analytics; a sliding lighter
+surface with a thin green indicator, arrows, the keyboard arrows) faces a
+stage label and a status.
+
+**The stage.** The video and the board sit on the near-black surface (12 px
+radius, 1 px border, at most 1450 px wide) sized by the width available AND
+by the height left under the stage (`--stage-h`, measured from the stage's
+position, the transport, the visible controls and, on screens at least
+860 px tall, the head of the dock), so the media, its controls and the dock's
+title are in view on a desktop; shorter screens scroll. Switching views keeps
+the carousel: the active view slides aside and shrinks while the next grows
+in from the other side; all three stay mounted; reduced motion swaps
+instantly.
+
+**One match clock.** The `<video>` element is the only playback timeline: the
+board and the analytics read its time every frame, and the one transport bar
+under the media drives it from the Tracking and 2D match views (a green play
+button, outline icons, frame steps, a seek slider with the played portion in
+green, one time and duration readout, speed, full screen). Analytics has no
+transport. Keyboard on the two replay views: space or `k`, arrows for a
+frame (shift, 5 s), `f`, escape. **Full screen** keeps the controls, fading
+while playing; where the browser refuses the API the stage takes the
+viewport as a fixed layer.
+
+**Analyze segment.** Under the media a dock (#19221F, 1 px #334038 border,
+12 px radius) replaces the old upload panel; everything that panel had lives
+here. The *source row* names the open video with its length, resolution and
+frame rate, and offers **Change video** (the earlier uploads with Open) and
+**Upload video**. The *segment timeline* is a video-editor trim strip over
+the full source: a time ruler whose labels adapt to the width, a 64 px strip
+of real frames of the source (drawn by a second muted video element, cached
+per width), a start and an end handle with grips, a green translucent
+selected region with a green outline, dimmed unselected regions and a white
+playhead showing where the replay is. Drag a handle to move one end; drag
+the middle to move the whole range at the same length; the handles are
+keyboard sliders (arrows one frame, shift one second, Page Up/Down ten,
+Home/End); touch works through pointer events. The range obeys 0 ≤ start <
+end ≤ duration, snaps to whole frames at the video's real frame rate, is at
+least 0.5 s and at most 3 minutes (the prototype's per-run limit), starts as
+the first minute (or the whole clip) and restores the range of the previous
+run of the same video. START and END are editable mm:ss.ff fields, DURATION
+follows. **ANALYZE** sends start and end as start and length to the same
+`/api/run` as before; while it runs the button is disabled, the dock and the
+hero show the stage, the progress and the latest processed frame, **Stop**
+cancels, and an error keeps the range. The analysis range and the playback
+clock are separate: dragging never moves or starts the replay, seeking never
+moves the range. **Processing settings** (collapsed by default) holds the
+detection detail, expected identities per team, touchline tolerance, the
+on-pitch filter, continuing identities, the extra small-ball scans, the
+previous run's identities and the GPU. The dock collapses to its title (the
+choice is remembered) and is hidden when no video is open.
+
+**Analytics** stays a dashboard: the stage takes the panel surface, the
+transport is gone, the pitch sits left and the insight panel right; under
+1180 px the panel stacks under the pitch. **No match open** shows a welcome
+stage with an upload action and, when earlier uploads exist, a way to open
+one. Per-view display options sit under the stage as chips. The same
+elements and script as before stand behind all of it; the correction popover
+still opens on a player's box.
+
+## Player analytics
+
+Below the 2D match view, the **Player analytics** panel (`analytics.js`,
+`soccer/analytics.py`, `GET /api/analytics`) shows, for one player and one time
+range, where they spent their observed time (HEATMAP), their average position
+(AVERAGE POSITION, alone or with every player of a team or both teams as a
+formation-like picture) and their observed path (MOVEMENT TRAIL), on the same
+pitch as the 2D view, in the same coordinates (x 0..1 left goal line to right
+goal line, y 0..1 far touchline to near touchline), with the same team colours.
+Nothing is recomputed from the video: the server extracts the observed samples
+of the saved result once per result file (so a correction, which rewrites
+the file, rebuilds them with the corrected roster) and answers each selection
+from them; the page caches the answers per result.
+
+Who is analysed: the final roster's team players and goalkeepers with a
+confirmed slot. Referees, staff, excluded, retired and unconfirmed (`A-?`)
+identities are not, and a relabelled player keeps only their own identity's
+positions. What counts: an observation of that identity on a frame where the
+person is confirmed, the identity confidence is 0.3 or more, the pitch
+position lies on the pitch (within 2% of the lines; nothing is clamped), the
+registration's confidence at that point is 0.5 or more and the box is not cut
+by the frame edge. Estimates of the timeline (interpolated, predicted) are not
+observations and never count. The samples are smoothed with the 2D view's
+0.14 s centred window (never across a gap).
+
+Time, not frames: a sample stands for half the distance to its neighbours,
+at most 0.25 s a side (and half a frame on an open side), so denser sampling
+never means more occupancy, and of a long absence only a quarter second at
+each end is counted. Coverage is the union of those seconds over the selected
+interval; under 50% the view says so, and a player without samples gets "Not
+enough reliable tracking data for this analysis." Ranges: the processed
+segment, the five-minute block the playhead is in (it follows the video), or a
+custom interval.
+
+- **Heatmap**: observed seconds accumulated on a 1 m grid, Gaussian-smoothed
+  (sigma 2.5 m, the total preserved), drawn with a square-root ramp and a
+  legend in seconds per cell.
+- **Average position**: the time-weighted mean of the observed positions, a
+  circle in the team colour with the label; low coverage is a dashed circle
+  with the percentage. A mathematical summary, not a place the player stood,
+  and not a role.
+- **Movement trail**: consecutive observations joined; broken (nothing drawn)
+  where more than 1 s passed unseen or where the position jumped more than
+  2 m faster than 12 m/s (a registration glitch); START and END markers,
+  direction arrowheads, and a white dot that follows the video along the
+  observed path only.
+
+Clicking a player in the Match identities list selects them for the
+analytics too. `tests/test_analytics.py` checks the calculations on synthetic
+trajectories: density proportional to observed time, sampling rate without
+effect, absences not counted, ranges, validity rules, the time-weighted mean,
+local tracks combined under one identity, the final roster and corrections,
+trail breaks, and the axis convention.
+
 `tests/ball_eval.py` renders a panning broadcast sequence with all of these
 distractors — and two scenarios where the ball is hidden at a dribble while a
 running player's white boots appear a few metres away — and prints the metrics

@@ -14,7 +14,7 @@ from flask import Flask, abort, jsonify, request, send_file
 from waitress import serve
 import corrections
 from pipeline import ROOT, gpu_info, metadata, run
-from soccer import calibration
+from soccer import analytics, calibration
 
 
 def _number(payload, key, default, low, high, message):
@@ -215,6 +215,48 @@ def main():
     @app.get('/tactical.js')
     def tactical():
         return send_file(ROOT/'tactical.js', mimetype='application/javascript')
+
+    @app.get('/analytics.js')
+    def analytics_script():
+        return send_file(ROOT/'analytics.js', mimetype='application/javascript')
+
+    # The observed samples of the shown result, extracted once per result file (a correction rewrites the file, so its
+    # modification time changes and the samples are rebuilt with the corrected roster).
+    samples_cache = {}
+    samples_lock = threading.Lock()
+
+    def samples_of(video):
+        path = video.result_dir/'result.json' if video.result_dir else None
+        if path is None or not path.exists():
+            abort(404)
+        stamp = (str(path), path.stat().st_mtime_ns, path.stat().st_size)
+        with samples_lock:
+            cached = samples_cache.get('current')
+            if cached is not None and cached[0] == stamp:
+                return cached[1]
+        built = analytics.Samples(json.loads(path.read_text(encoding='utf-8')))
+        with samples_lock:
+            samples_cache['current'] = (stamp, built)
+        return built
+
+    @app.get('/api/analytics')
+    def analytics_report():
+        """Heatmap, average positions and movement trail of one player over a time range, from the saved result."""
+        v = need_video()
+        player = request.args.get('player', '')
+        scope = request.args.get('scope', 'selected')
+        if scope not in ('selected', 'A', 'B', 'both'):
+            return jsonify(error='scope must be selected, A, B or both'), 400
+        try:
+            t0 = float(request.args['t0']) if 't0' in request.args else None
+            t1 = float(request.args['t1']) if 't1' in request.args else None
+            if (t0 is not None and not math.isfinite(t0)) or (t1 is not None and not math.isfinite(t1)):
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify(error='t0 and t1 must be seconds'), 400
+        samples = samples_of(v)
+        a, b = analytics.clamp_range(samples, t0, t1)
+        return jsonify(analytics.report(samples, player, a, b, scope))
 
     @app.get('/video')
     def video():
