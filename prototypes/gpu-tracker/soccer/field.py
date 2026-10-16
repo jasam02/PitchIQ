@@ -256,63 +256,177 @@ def _initial(points, size):
     return H
 
 
+_SPLIT = 134217729.0   # 2**27 + 1 (Veltkamp): splits a double into two halves whose product is exact
+
+
+def _dl_mul(x, y):
+    """The product of two doubles as (rounded product, exact remainder); Dekker 1971."""
+    t = x*_SPLIT
+    xh = t-(t-x)
+    xl = x-xh
+    t = y*_SPLIT
+    yh = t-(t-y)
+    yl = y-yh
+    p = xh*yh
+    q = xh*yl+xl*yh
+    z = p+q
+    return z, p-z+q+xl*yl
+
+
+def _hypot(x, y):
+    """Elementwise sqrt(x*x + y*y) rounded exactly as Python's math.hypot rounds it (the accurately
+    rounded 2-norm of CPython's Modules/mathmodule.c: lossless scaling by a power of two, double-length
+    squares and sums, one differential correction of the root). The pitch residuals used math.hypot per
+    point before they were vectorized; numpy's hypot differs from it by one ulp in a sixth of all cases,
+    enough to move the fit's stopping point, so this keeps the fitted homographies bit for bit."""
+    x, y = np.abs(np.asarray(x, np.float64)), np.abs(np.asarray(y, np.float64))
+    big = np.maximum(x, y)
+    _, exponent = np.frexp(big)
+    special = (big == 0) | (exponent < -1022) | ~np.isfinite(big)
+    if special.any():
+        # A zero, an infinity, a NaN or a subnormal maximum: math.hypot decides those, the rest goes below.
+        out = np.empty_like(big)
+        keep = ~special
+        out[keep] = _hypot(x[keep], y[keep]) if keep.any() else 0.0
+        flat, fx, fy = out.reshape(-1), x.reshape(-1), y.reshape(-1)
+        for i in np.flatnonzero(special.reshape(-1)):
+            flat[i] = math.hypot(fx[i], fy[i])
+        return flat.reshape(out.shape)
+    scale = np.ldexp(1.0, -exponent)
+    s = np.stack((x, y))*scale                 # lossless scaling: both in [0, 1)
+    t = s*_SPLIT                               # dl_mul(s, s) for both rows at once
+    sh = t-(t-s)
+    sl = s-sh
+    p = sh*sh
+    q = 2.0*(sh*sl)
+    ph = p+q
+    pl = p-ph+q+sl*sl
+    csum = 1.0+ph[0]                           # dl_fast_sum(1.0, ph0), then (csum, ph1): in that order
+    frac2 = (1.0-csum)+ph[0]
+    frac1 = pl[0]
+    total = csum+ph[1]
+    frac2 = frac2+((csum-total)+ph[1])
+    frac1 = frac1+pl[1]
+    csum = total
+    h = np.sqrt(csum-1.0+(frac1+frac2))
+    ph, pl = _dl_mul(-h, h)
+    total = csum+ph
+    frac2 = frac2+((csum-total)+ph)
+    frac1 = frac1+pl
+    csum = total
+    h = h+(csum-1.0+(frac1+frac2))/(2.0*h)     # differential correction
+    return h/scale
+
+
+def _project_rows(M, rows):
+    """M @ row for every row of (n, 3), as a stack of matrix-vector products: numpy's own small-matrix
+    loop, the arithmetic the per-point `H @ [x, y, 1.0]` used, bit for bit (a (n, 3) @ M.T goes through
+    BLAS and rounds differently)."""
+    return np.matmul(M[None], rows[:, :, None])[:, :, 0]
+
+
+def _safe_depth(w):
+    """The homogeneous depth as a divisor: a point at (numerically) zero depth divides by 1e-12, as before."""
+    return np.where(np.abs(w) > 1e-12, w, 1e-12)
+
+
+def _prepared(obs, sz, learn):
+    """The observations as arrays for _residuals: the world coordinates of the named landmarks and lines
+    depend on the pitch size, so they are rebuilt when the size is being learned (it changes with the
+    parameters) and kept otherwise. The one-entry cache lives in the fit's own copy of the observations
+    (its '_cache' entry); a caller's dict is never written."""
+    cache = obs.get('_cache')
+    key = (sz.length, sz.width)
+    if cache is not None and cache.get('key') == key:
+        return cache['prep']
+    marks = landmarks(sz)
+    catalogue = {name: (a, b) for name, a, b in lines(sz)}
+    points, segs, circle = obs.get('points', ()), obs.get('lines', ()), obs.get('circle')
+    prep = {'world': np.array([[marks[p['name']][0], marks[p['name']][1], 1.0] for p in points], np.float64).reshape(-1, 3),
+            'pixels': np.array([[p['x'], p['y']] for p in points], np.float64).reshape(-1, 2),
+            'line_a': np.array([[catalogue[l['name']][0][0], catalogue[l['name']][0][1], 1.0] for l in segs], np.float64).reshape(-1, 3),
+            'line_b': np.array([[catalogue[l['name']][1][0], catalogue[l['name']][1][1], 1.0] for l in segs], np.float64).reshape(-1, 3),
+            'ends': np.array([[list(l['a']), list(l['b'])] for l in segs], np.float64).reshape(-1, 2, 2),
+            'weights': np.array([l.get('weight', 1.0) for l in segs], np.float64),
+            'circle': (np.array([[x, y, 1.0] for x, y in circle], np.float64).reshape(-1, 3)
+                       if circle is not None and len(circle) else np.zeros((0, 3), np.float64)),
+            'centre': circle_centre(sz)}
+    if cache is not None:
+        cache['key'], cache['prep'] = key, prep
+    return prep
+
+
 def _residuals(params, obs, width, height, size, prior, learn, prior_grid, prior_weight, circle_scale):
+    """The residual vector of the fit, in this order: the landmark points (x, y each; in pixels, or in
+    metres over the local image scale with obs['metric']), the painted lines (both observed endpoints'
+    distances to the predicted line, weighted), the centre-circle points (radius error, scaled to pixels),
+    the prior grid, the gauge term on the homography's norm and, when the size is learned, the weak pull
+    towards the standard size. Vectorized over the observations; the arithmetic per observation is the
+    one the earlier per-point loops did, bit for bit (see _hypot)."""
     H = params[:9].reshape(3, 3)
     sz = PitchSize(params[9], params[10], size.source) if learn else size
-    marks = landmarks(sz)
-    out = []
-    metric = obs.get('metric', False)
-    for p in obs.get('points', ()):
-        X = marks[p['name']]
-        q = H @ [X[0], X[1], 1.0]
-        w = q[2] if abs(q[2]) > 1e-12 else 1e-12
-        rx, ry = q[0]/w-p['x'], q[1]/w-p['y']
+    prep = _prepared(obs, sz, learn)
+    world, line_a, circle = prep['world'], prep['line_a'], prep['circle']
+    metric = bool(obs.get('metric', False)) and len(world) > 0
+    pairs = []   # the (x, y) arrays whose hypot the parts need, taken in one call below
+    if len(world):
+        q = _project_rows(H, world)
+        proj = q[:, :2]/_safe_depth(q[:, 2])[:, None]
+        res_points = proj-prep['pixels']
         if metric:
             # Residual in metres: pixel error over the local image scale, so far landmarks (few pixels
             # per metre) weigh as much as near ones.
-            qx, qy = H @ [X[0]+1.0, X[1], 1.0], H @ [X[0], X[1]+1.0, 1.0]
-            wx, wy = (qx[2] if abs(qx[2]) > 1e-12 else 1e-12), (qy[2] if abs(qy[2]) > 1e-12 else 1e-12)
-            scale = math.sqrt(max(1e-6, math.hypot(qx[0]/wx-q[0]/w, qx[1]/wx-q[1]/w)*math.hypot(qy[0]/wy-q[0]/w, qy[1]/wy-q[1]/w)))
-            rx, ry = rx/scale, ry/scale
-        out += [rx, ry]
-    catalogue = {name: (a, b) for name, a, b in lines(sz)}
-    for l in obs.get('lines', ()):
-        a, b = catalogue[l['name']]
-        qa, qb = H @ [a[0], a[1], 1.0], H @ [b[0], b[1], 1.0]
-        line = np.cross(qa, qb)
-        norm = math.hypot(line[0], line[1])
-        if norm < 1e-12:
-            out += [0.0, 0.0]
-            continue
-        wt = l.get('weight', 1.0)
-        for x, y in (l['a'], l['b']):
-            out.append(wt*(line[0]*x+line[1]*y+line[2])/norm)
-    circle = obs.get('circle')
-    if circle is not None and len(circle):
+            qx, qy = _project_rows(H, world+[1.0, 0.0, 0.0]), _project_rows(H, world+[0.0, 1.0, 0.0])
+            dx = qx[:, :2]/_safe_depth(qx[:, 2])[:, None]-proj
+            dy = qy[:, :2]/_safe_depth(qy[:, 2])[:, None]-proj
+            pairs += [(dx[:, 0], dx[:, 1]), (dy[:, 0], dy[:, 1])]
+    if len(line_a):
+        line = np.cross(_project_rows(H, line_a), _project_rows(H, prep['line_b']))
+        pairs.append((line[:, 0], line[:, 1]))
+    inverse = None
+    if len(circle):
         try:
             inverse = np.linalg.inv(H)
         except np.linalg.LinAlgError:
             inverse = None
-        cx, cy = circle_centre(sz)
-        for x, y in circle:
-            if inverse is None:
-                out.append(0.0)
-                continue
-            u = inverse @ [x, y, 1.0]
-            w = u[2] if abs(u[2]) > 1e-12 else 1e-12
-            r = math.hypot(u[0]/w-cx, u[1]/w-cy)
-            out.append((r-RADIUS)*circle_scale)
+        if inverse is not None:
+            u = _project_rows(inverse, circle)
+            w = _safe_depth(u[:, 2])
+            cx, cy = prep['centre']
+            pairs.append((u[:, 0]/w-cx, u[:, 1]/w-cy))
+    norms = []
+    if pairs:
+        joined = _hypot(np.concatenate([x for x, _ in pairs]), np.concatenate([y for _, y in pairs]))
+        norms = np.split(joined, np.cumsum([len(x) for x, _ in pairs])[:-1])
+    parts = []
+    if len(world):
+        if metric:
+            scale = np.sqrt(np.maximum(1e-6, norms.pop(0)*norms.pop(0)))
+            res_points = res_points/scale[:, None]
+        parts.append(res_points.ravel())
+    if len(line_a):
+        norm = norms.pop(0)
+        usable = norm >= 1e-12
+        ends = prep['ends']
+        distance = line[:, None, 0]*ends[:, :, 0]+line[:, None, 1]*ends[:, :, 1]+line[:, None, 2]
+        res = prep['weights'][:, None]*distance/np.where(usable, norm, 1.0)[:, None]
+        parts.append(np.where(usable[:, None], res, 0.0).ravel())
+    if len(circle):
+        if inverse is None:
+            parts.append(np.zeros(len(circle), np.float64))
+        else:
+            parts.append((norms.pop(0)-RADIUS)*circle_scale)
     if prior is not None and prior_grid is not None and len(prior_grid):
         q = np.c_[prior_grid, np.ones(len(prior_grid))] @ H.T
         w = q[:, 2:3].copy()
         w[np.abs(w) < 1e-12] = 1e-12
         q = q[:, :2]/w
-        out += (prior_weight*(q-obs['prior_px']).ravel()).tolist()
-    out.append(1e3*(np.linalg.norm(params[:9])-1.0))
+        parts.append(prior_weight*(q-obs['prior_px']).ravel())
+    parts.append([1e3*(np.linalg.norm(params[:9])-1.0)])
     if learn:
         # Weak pull towards the standard size: the size only moves when the landmarks demand it.
-        out += [.02*(params[9]-DEFAULT_LENGTH), .02*(params[10]-DEFAULT_WIDTH)]
-    return np.asarray(out, np.float64)
+        parts.append([.02*(params[9]-DEFAULT_LENGTH), .02*(params[10]-DEFAULT_WIDTH)])
+    return np.concatenate([np.asarray(part, np.float64).ravel() for part in parts])
 
 
 def fit(obs, width, height, size=None, prior=None, learn_size=False, prior_weight=.08, max_rms_px=None):
@@ -346,7 +460,7 @@ def fit(obs, width, height, size=None, prior=None, learn_size=False, prior_weigh
     constraints = 2*len(points)+2*len(segs)+len(circle)
     if constraints < (8 if prior is None else 2):
         return _rejected(bad, 'too few observations')
-    obs = dict(obs, points=points, lines=segs, circle=circle)
+    obs = dict(obs, points=points, lines=segs, circle=circle, _cache={})
     prior_grid = None
     if prior is not None:
         # Ground points spread over the image under the prior, as world coordinates.

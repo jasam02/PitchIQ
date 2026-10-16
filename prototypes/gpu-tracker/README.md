@@ -52,6 +52,10 @@ given, add `--run` to start processing immediately. Use `start.cmd --port 8766`
 Accepted re-identifications, role changes, crossing corrections and sanity
 warnings are also printed in the console.
 
+Frames are decoded and detected one step ahead on a worker thread while the
+tracker works on the current frame; the pitch fit is vectorized with the same
+arithmetic as before, so results are unchanged by either.
+
 Choose a segment up to 180 seconds long. For a longer match, process consecutive
 segments and tick **Continue identities from the previous run**: the next run
 starts from the saved global identities (and their appearance galleries) of the

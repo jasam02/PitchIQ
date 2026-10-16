@@ -6,6 +6,8 @@ global identity manager that keeps one identity per real person across exits and
 """
 import os
 import json
+import queue
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -263,6 +265,92 @@ def preview(frame, observation, path, pitch=None, trail=()):
     temporary.replace(path)
 
 
+class Prefetch:
+    """Decodes the segment's frames and runs the whole-frame detector (and the ball tile scans) one step
+    ahead on a worker thread with its own detector instance, so the GPU works on the next frame while the
+    CPU tracks the current one. Items come out in frame order and are exactly what the serial loop computed:
+    ('roll', index, stamp, frame, None, None, spent) for a pre-roll or post-roll frame (camera motion only)
+    and ('frame', index, stamp, frame, rows, tile_rows, spent) for a frame of the segment, tile_rows being
+    None on the frames the scans skip; spent holds the worker's seconds per stage. The detections do not
+    depend on the tracker, so running them early changes nothing; the passes that do (far tiles, lost-track
+    crops, the ball search crop) stay with the tracker on the main thread."""
+
+    def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=2):
+        self.video_path, self.model_path = video_path, model_path
+        self.first_frame, self.fps, self.start, self.finish, self.roll_until = first_frame, fps, start, finish, roll_until
+        self.detail, self.tiles, self.cancelled = detail, tiles, cancelled
+        self.queue = queue.Queue(maxsize=depth)
+        self.stopped = threading.Event()
+        self.error = None
+        self.thread = threading.Thread(target=self._work, name='prefetch', daemon=True)
+        self.thread.start()
+
+    def _work(self):
+        clock = time.perf_counter
+        capture = None
+        try:
+            model = YOLO(str(self.model_path))   # a predictor keeps state between calls: one per thread
+            capture = cv2.VideoCapture(str(self.video_path))
+            capture.set(cv2.CAP_PROP_POS_FRAMES, self.first_frame)
+            index = self.first_frame
+            while not self.stopped.is_set() and not self.cancelled():
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                stamp = float(capture.get(cv2.CAP_PROP_POS_MSEC))/1000
+                if stamp <= 0 and index:
+                    stamp = index/self.fps
+                if stamp < self.start-1e-6 or (stamp >= self.finish and self.roll_until is not None and stamp <= self.roll_until+.15):
+                    self._put(('roll', index, stamp, frame, None, None, {'detect': 0.0, 'ballTiles': 0.0}))
+                    index += 1
+                    continue
+                if stamp >= self.finish:
+                    break
+                spent = {}
+                t0 = clock()
+                rows = detect(model, frame, self.detail)
+                spent['detect'] = clock()-t0
+                tile_rows, spent['ballTiles'] = None, 0.0
+                if self.tiles and (index-self.first_frame) % 2 == 0:
+                    t0 = clock()
+                    tile_rows = ball_tiles(model, frame)
+                    spent['ballTiles'] = clock()-t0
+                self._put(('frame', index, stamp, frame, rows, tile_rows, spent))
+                index += 1
+        except BaseException as error:   # noqa: BLE001 - handed to the consumer
+            self.error = error
+        finally:
+            if capture is not None:
+                capture.release()
+            self._put(None)
+
+    def _put(self, item):
+        while not self.stopped.is_set():
+            try:
+                self.queue.put(item, timeout=.1)
+                return
+            except queue.Full:
+                continue
+
+    def __iter__(self):
+        while True:
+            item = self.queue.get()
+            if item is None:
+                if self.error is not None:
+                    raise self.error
+                return
+            yield item
+
+    def close(self):
+        self.stopped.set()
+        try:
+            while True:
+                self.queue.get_nowait()
+        except queue.Empty:
+            pass
+        self.thread.join(timeout=10)
+
+
 def run(video_path, output, config, progress, cancelled, previous=None):
     """previous: saved identities of an earlier run of this video, to continue its global identities."""
     started = time.perf_counter()
@@ -279,30 +367,28 @@ def run(video_path, output, config, progress, cancelled, previous=None):
         raise RuntimeError(f'Unexpected detector classes: {model.names}')
     appearance = Appearance()
     tracker = SoccerTracker(width, height, config_from(config), BotSortTracker(fps), appearance.embed, previous, fps)
-    capture = cv2.VideoCapture(str(video_path))
     # Keyframes just outside the segment are not lost: the frames from such a keyframe to the start are processed
     # for camera motion and pitch evidence only (pre-roll), and after the end up to such a keyframe (post-roll).
     keyframe_times = sorted(float(c['time']) for c in (config.get('calibrations') or []))
     roll_from = min((t for t in keyframe_times if start-ROLL_SECONDS <= t < start), default=None)
     roll_until = max((t for t in keyframe_times if finish <= t <= finish+ROLL_SECONDS), default=None)
     first_frame = int(round((start if roll_from is None else roll_from)*fps))
-    capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
     frames = []
     torch.cuda.reset_peak_memory_stats()
     (output/'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     log = (output/'events.log').open('w', encoding='utf-8')
     index, last_notice, logged, pitch, far_passes, ball_searches, rolled, crop_passes = first_frame, -10, 0, None, 0, 0, 0, 0
-    timing = Counter()   # seconds per stage, for summary.timing
+    timing = Counter()   # seconds per stage, for summary.timing (detect and ballTiles: the worker's, overlapping the tracking)
     clock = time.perf_counter
+    ahead = Prefetch(video_path, model_path, first_frame, fps, start, finish, roll_until, int(config.get('imageSize', 1280)),
+                     bool(config.get('ballTiles', False)), cancelled)
     try:
-        while not cancelled():
-            ok, frame = capture.read()
-            if not ok:
+        for kind, index, stamp, frame, rows, tile_rows, spent in ahead:
+            if cancelled():
                 break
-            stamp = float(capture.get(cv2.CAP_PROP_POS_MSEC))/1000
-            if stamp <= 0 and index:
-                stamp = index/fps
-            if stamp < start-1e-6 or (stamp >= finish and roll_until is not None and stamp <= roll_until+.15):
+            timing['detect'] += spent['detect']
+            timing['ballTiles'] += spent['ballTiles']
+            if kind == 'roll':
                 # Pre-roll or post-roll: camera motion and pitch evidence only, no detections, nothing emitted.
                 t0 = clock()
                 tracker.roll(frame, stamp)
@@ -316,13 +402,7 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                     progress({'stage': f'Carrying the calibration through the frames {which} (camera motion only)', 'progress': 1.0 if stamp >= finish else 0.0,
                               'videoTime': stamp, 'elapsed': round(elapsed, 1), 'frames': len(frames), 'gpu': gpu})
                     last_notice = elapsed
-                index += 1
                 continue
-            if stamp >= finish:
-                break
-            t0 = clock()
-            rows = detect(model, frame, int(config.get('imageSize', 1280)))
-            timing['detect'] += clock()-t0
             ball_rows = rows[rows[:, 5] == 0].tolist()
             band = tracker.far_band()
             if band is not None:
@@ -336,10 +416,8 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                 t0 = clock()
                 rows = merge_crops(rows, local_crops(model, frame, windows))
                 timing['localCrops'] += clock()-t0
-            if config.get('ballTiles', False) and (index-first_frame) % 2 == 0:
-                t0 = clock()
-                ball_rows += ball_tiles(model, frame)
-                timing['ballTiles'] += clock()-t0
+            if tile_rows is not None:
+                ball_rows += tile_rows
             window = tracker.ball.search_window()
             if window is not None and config.get('ballSearch', True):
                 ball_searches += 1
@@ -373,9 +451,8 @@ def run(video_path, output, config, progress, cancelled, previous=None):
                           'processingFPS': round(len(frames)/elapsed, 1), 'people': len(observation['people']),
                           'identities': {k: len(v) for k, v in counts.items()}, 'warning': tracker.keyframes.warning})
                 last_notice = elapsed
-            index += 1
     finally:
-        capture.release()
+        ahead.close()
         log.close()
     if not frames:
         raise RuntimeError('No video frames were processed.')

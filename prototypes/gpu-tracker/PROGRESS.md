@@ -811,3 +811,37 @@ the range; a real run from ANALYZE on the Veo clip (0-1 s at 960) with the progr
 result loading afterwards (the clip's saved run files were restored afterwards); 1920x1080, 1440x900, 1366x768, 768x1024
 and 375x812 without horizontal overflow (phone: full-width strip, 20 px handles with 44 px targets, stacked fields,
 full-width ANALYZE). 258 tests pass (no Python changed).
+
+## Faster without changing the tracking (2026-10-16)
+
+The rule for this pass: every result stays bit for bit what the committed code produces. Profiling a 10 s broadcast
+run (cProfile; 1536, ball scans on) put the pitch homography refinement first: `soccer/field.py`'s `_residuals` was
+pure-Python loops over landmarks, lines and up to 600 centre-circle points, scipy's least-squares solver evaluates it
+about 180 times per fit (finite-difference Jacobian), and the pipeline refines on most frames; that was about a third
+of the whole run. The GPU detector itself was 39 ms of the 201 ms a frame took; the CPU tracking stage was 121 ms.
+
+Two changes. (1) `_residuals` is vectorized: the observations become arrays once per fit (`_prepared`, cached in the
+fit's own copy of the observations), the projections go through `_project_rows` (a stacked `np.matmul`, which numpy
+computes with the same arithmetic as the per-point `H @ [x, y, 1]`; a `(n, 3) @ H.T` goes through BLAS and differs in
+the last bit), and the norms through `_hypot`, a numpy port of CPython's accurately rounded `math.hypot` (numpy's
+`hypot` differs from it by one ulp in a sixth of all cases, and that alone moved a fit's stopping point and flipped an
+edge "outside the field" decision in 12 of 1200 frames of the first attempt). Checked: 800 of 800 synthetic cases and
+19,354 real evaluations identical to the old function (largest difference 0.0), fits identical including the
+Jacobian, the hypot port with 0 mismatches in 2.5 million pairs plus the special values; 4.8x faster per call on the
+real inputs. (2) `pipeline.Prefetch`: a worker thread with its own detector instance decodes and runs the whole-frame
+detection and the ball tile scans one frame ahead (queue depth 2) while the tracker works on the current frame; the
+passes that depend on the tracker (far tiles, lost-track crops, the ball search crop) stay on the main thread after the
+previous frame's tracking, so the frame order and every detection call are the ones the serial loop made.
+`summary.timing`'s detect and ballTiles are now the worker's seconds and overlap the tracking; `elapsedSeconds` is
+the wall clock.
+
+Verification: the broadcast 10-50 s and Veo 0-20 s windows run with `tools/run_segment.py` on the committed code and
+on each change, compared frame by frame (people: track, identity, label, team, role, state, box; pitch positions; ball;
+mapping; match, roster, tracks, teams, labels, events): zero differences for both changes on both windows, and again on
+the 10-30 s timing window. 258 tests pass. Timing could only be measured while a game held the GPU at 75-97% and
+shared the CPU: on the 10-30 s broadcast window the committed code took 348 s and 351 s, the new code 246 s and 250 s
+(1.4x); the residual's share is cleaner in-process (0.98 -> 0.20 ms per evaluation, about 160 evaluations a frame).
+Measure again on an idle machine. Still on the table, all of which change numerics and so need a decision: the OSNet
+embedder on the GPU (it runs on the CPU through ONNX Runtime, ~25 crops a frame; the torch thread count made no
+difference), all six ball tiles in one FP16 call, TensorRT, a single detection pass, camera flow at half resolution,
+refining the pitch less often.
