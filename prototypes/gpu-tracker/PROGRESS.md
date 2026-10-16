@@ -951,3 +951,19 @@ One commit per change on the branch; each message says what was and was not meas
 `tools/run_segment.py`, new `tools/check_ball_decode.py`, `tools/ball_clips.py`, `tools/verify_speed_pass_3.py`
 and `.cmd`, new tests `tests/test_prefetch.py`, `tests/test_resources.py`, `tests/test_ball_path_speed.py`
 with the helpers `tests/ball_synth.py` and `tests/ball_path_reference.py`; README and this file.
+
+### Speed pass 3 verified on the GPU and merged (2026-10-16, later)
+
+The protocol (`tools/verify_speed_pass_3.cmd`) ran on the RTX 5080 against the committed code. Identities and
+positions: roster, tracks, labels and events identical on the broadcast 10-50 s and 0-60 s windows, identified
+share and id switches unchanged; with `detectBatch` 1 the people records are bit for bit the committed ones,
+with 4 boxes moved by at most 3.6 px in 8 of 30,000 observations and pitch positions by at most 2 mm; on the
+Veo window one internal track number shifts by one, every box and label agrees (compare.py 1.0). The ball:
+the scan-on-demand policy changes the decoder's candidates, tracked share 0.569 -> 0.576 (0-60 s) and 0.673 ->
+0.677 (10-50 s), unchanged on Veo; the three clips (penalty spot, ball boy, B-07 behind A-03) pass before and
+after with no flagged frame. The vectorized decode is identical node for node on 1,200 and 1,800 real frames
+and 6x faster (the offline ball pass 24 s -> 6 s per minute). Kept models: two consecutive runs identical to two
+fresh ones. Timing was noisy (other processes on the CPU and GPU); alternating 60 s runs under the same
+conditions: committed 282 / 299 s, this code 249 / 262 s (about 12%), the 10-50 s window 146 -> 133 s. Batch
+sizes 1, 2 and 4 were indistinguishable within the noise, so the default is 1 (detections bit for bit as
+before; the setting stays for other GPUs). Merged into gpu-tracking-new.

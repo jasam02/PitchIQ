@@ -31,7 +31,9 @@ from vision import Appearance
 
 settings.update({'sync': False})
 ROLL_SECONDS = 15.0   # a calibration keyframe this close before the start (or after the end) is carried into the segment by camera motion
-DETECT_BATCH = 4      # consecutive frames per whole-frame detector call on the prefetch worker (config detectBatch)
+DETECT_BATCH = 1      # consecutive frames per whole-frame detector call on the prefetch worker (config detectBatch). One keeps the
+                      # detections bit for bit those of a serial call; on the RTX 5080 larger batches bought no measurable time
+                      # because the main thread is the bottleneck. Worth trying again on a different GPU.
 BALL_SCAN_S = 1.0     # seconds between the safeguard ball tile scans while the ball tracker is LOCKED (config ballScanEvery);
                       # while it is not (searching, recovering, occluded) the tiles run every other frame
 # BGR; the same colours as the review page.

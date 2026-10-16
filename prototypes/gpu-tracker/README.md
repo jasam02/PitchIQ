@@ -53,8 +53,9 @@ Accepted re-identifications, role changes, crossing corrections and sanity
 warnings are also printed in the console.
 
 Frames are decoded and detected ahead on a worker thread while the tracker works
-on the current frame: the whole-frame detector takes four consecutive frames per
-call (`detectBatch`), the ball tile scans go to the detector in one call and run
+on the current frame: the whole-frame detector can take several consecutive
+frames per call (`detectBatch`, 1 by default: it bought nothing measurable on the
+RTX 5080), the ball tile scans go to the detector in one call and run
 only while the ball tracker is not following the ball (plus one safeguard scan a
 second while it is, `ballScanEvery`), and the pitch fit is vectorized with the
 same arithmetic as before (including its finite-difference Jacobian). The

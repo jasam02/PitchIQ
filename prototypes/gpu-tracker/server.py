@@ -89,7 +89,7 @@ def validate(payload, meta):
                 'debug': bool(payload.get('debug', True))}
     if 'detectBatch' in payload:
         # Frames per whole-frame detector call on the prefetch worker; the page does not set it (pipeline.DETECT_BATCH applies).
-        settings['detectBatch'] = int(_number(payload, 'detectBatch', 4, 1, 16, 'Detector batch must be between 1 and 16 frames.'))
+        settings['detectBatch'] = int(_number(payload, 'detectBatch', 1, 1, 16, 'Detector batch must be between 1 and 16 frames.'))
     if 'ballScanEvery' in payload:
         # Seconds between the safeguard ball tile scans while the ball is locked; the page does not set it (pipeline.BALL_SCAN_S applies).
         settings['ballScanEvery'] = _number(payload, 'ballScanEvery', 1.0, .04, 30, 'The ball scan interval must be between 0.04 and 30 seconds.')
