@@ -1,11 +1,21 @@
 """Corrections made in the review page (corrections.py): relabelling a result, the saved identities a
-continued run starts from, what later runs remember, undo, and the files on disk."""
+continued run starts from, what later runs remember, undo, the files on disk, and the 2D replay's stabilized block of a
+corrected result (soccer/stabilized.py; no torch needed). The block's helpers below are shared with test_pipeline_run."""
+import contextlib
 import copy
+import importlib
+import inspect
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import numpy as np
 
 import scene  # noqa: F401  (adds the prototype directory to sys.path)
 import corrections as C
@@ -253,6 +263,218 @@ class LeftTheMatchTests(unittest.TestCase):
         saved = C.apply_snapshot(snapshot, [c])
         self.assertEqual(saved['registry']['identities'][0]['status'], 'substituted')
         self.assertEqual(C.describe('left'), 'left the match (substituted or sent off)')
+
+
+# ---------- the 2D replay's stabilized block (soccer/stabilized.py) ----------
+SHIFT = .5   # m: how far the stub stabilizer moves every observation along the pitch, so stabilized and raw can be told apart
+
+
+def stabilizer_result(frames_n=40, step=.2):
+    """A finished result as pipeline.run has it before the stabilized block: A-01..A-03 and B-01..B-03 running
+    across the pitch, A-03 hidden from frame 15 on, an unidentified '?' of team B (track 90) on frames 5-24, frame 7
+    without a registration (its people keep a pitch position, which nothing may draw); roster, timeline and visibility
+    derived as the pipeline derives them."""
+    from soccer import imputation, roster, visibility
+    from test_labels import entry as roster_entry
+    spec = [(f'{team}-0{k}', 10*(team == 'B')+k, team) for team in 'AB' for k in (1, 2, 3)]
+    frames = []
+    for i in range(frames_n):
+        t = round(10+i*step, 3)
+        people = []
+        for pid, track, team in spec:
+            if pid == 'A-03' and i >= 15:
+                continue
+            people.append({'time': t, 'track': track, 'box': [.1+.02*track, .4, .02, .1], 'cls': 'player', 'zone': 'inside', 'evidence': 'observed',
+                           'id': pid, 'display': pid, 'team': team, 'role': 'PLAYER', 'label': f'PLAYER_TEAM_{team}', 'state': 'confirmed',
+                           'identityConfidence': .9, 'roleConfidence': .8, 'score': .8, 'pitch': [round(.2+.04*track+.002*i, 6), round(.3+.02*track, 6)],
+                           'pitchConfidence': .8, 'pitchSigma': [1.0, .5]})
+        if 5 <= i < 25:
+            people.append({'time': t, 'track': 90, 'box': [.8, .4, .02, .1], 'cls': 'player', 'zone': 'inside', 'evidence': 'observed', 'id': None,
+                           'display': 'B-?', 'team': 'B', 'role': 'PLAYER', 'label': 'PLAYER_TEAM_B', 'state': 'uncertain', 'identityConfidence': .3,
+                           'roleConfidence': .5, 'score': .7, 'pitch': [.85, .4], 'pitchConfidence': .7, 'pitchSigma': [1.0, .5]})
+        frames.append({'time': t, 'frame': 300+i, 'people': people, 'ball': {'state': 'UNKNOWN'}, 'rejected': [], 'pitch': {'reliable': True},
+                       'calibrated': i != 7})
+    match = {'players': [roster_entry(pid, team, first=10.0, last=frames[-1]['time']) for pid, _, team in spec], 'goalkeepers': [], 'referees': [],
+             'retired': [], 'excluded': [], 'withdrawn': []}
+    summary = {'globalIdentities': {'teamA': 3, 'teamB': 3, 'goalkeepers': 0, 'referees': 0, 'merged': 0}, 'roles': {'mergedIdentities': 0},
+               'goalkeeperSlots': {'A': None, 'B': None}}
+    result = {'version': 3, 'video': {'width': 1920, 'height': 1080, 'fps': 30.0}, 'config': {'maxPerTeam': 11}, 'frames': frames, 'match': match,
+              'events': [], 'summary': summary, 'teams': {'learned': True}, 'tactical': {'pitchSize': {'length': 105.0, 'width': 68.0, 'source': 'standard'}},
+              'labels': {e['id']: e['longId'] for e in match['players']}}
+    result['roster'] = roster.build(result)
+    result['timeline'] = imputation.estimate(result, 105.0, 68.0)
+    summary['visibility'] = visibility.annotate(result)
+    return result
+
+
+def stub_stabilize(calls=None, fitted=False):
+    """A stabilizer that keeps the contract of soccer/trajectory.py without smoothing anything: every observation moved
+    SHIFT metres along the pitch, A-01's frame 10 rejected and bridged (kind I, weight 0, a flag), numpy numbers and a
+    NaN in its own blocks (the block must still serialize with allow_nan=False), a runtime in its summary. fitted: like
+    the real one, a noise model fitted per run on the observations it is handed (unless it is given one with noise=),
+    which moves every observation by its scale: a correction that changes the observations refits it."""
+    def stabilize(result, width, height, size=None, noise=None):
+        if calls is not None:
+            calls.append((width, height, size, noise))
+        frames = result['frames']
+        T = len(frames)
+        L, W = size.length, size.width
+        empty = lambda: {k: [None]*T for k in ('x', 'y', 'vx', 'vy', 'sx', 'sy', 'kind', 'w')}
+        ids, anonymous, flags = {}, {}, []
+        seen = [(t, p) for t, f in enumerate(frames) for p in f['people'] if isinstance(p.get('pitch'), list) and f.get('calibrated')
+                and (p.get('id') or (p.get('state') == 'uncertain' and p.get('team') in ('A', 'B')))]
+        if noise is None:
+            noise = {'sigmaPx': np.float64(.4), 'unfitted': float('nan')}
+            if fitted:
+                noise['scale'] = .0005*len(seen)   # about .1 m here
+        shift = SHIFT+(noise.get('scale') or 0.0)
+        for t, p in seen:
+            cols = ids.setdefault(p['id'], empty()) if p.get('id') else anonymous.setdefault(str(p['track']), empty())
+            cols['x'][t], cols['y'][t] = np.float64(p['pitch'][0]*L+shift), p['pitch'][1]*W
+            cols['vx'][t], cols['vy'][t], cols['sx'][t], cols['sy'][t] = 1.004, 0.0, .44, .21
+            cols['kind'][t], cols['w'][t] = 'O', 1.0
+        if 'A-01' in ids and T > 10 and ids['A-01']['kind'][10] == 'O':
+            ids['A-01']['kind'][10], ids['A-01']['w'][10] = 'I', 0.0
+            p = next(p for p in frames[10]['people'] if p['id'] == 'A-01')
+            flags.append({'id': 'A-01', 'track': p['track'], 'frame': 10, 'time': np.float64(frames[10]['time']+1e-5), 'reason': 'extent',
+                          'raw': np.array([p['pitch'][0]*L+4.123, p['pitch'][1]*W]), 'used': None})
+        return {'frameTimes': [f['time'] for f in frames], 'ids': ids, 'anonymous': anonymous, 'flags': flags, 'noise': noise,
+                'summary': {'observations': np.int64(5), 'rejected': [np.int64(1)], 'runtimeSeconds': .123}, 'constants': {'BRIDGE_GAP': .5},
+                'method': 'stub'}
+    return stabilize
+
+
+def without_noise(stabilize):
+    """The same stabilizer without a noise parameter: it always fits its own model."""
+    return lambda result, width, height, size=None: stabilize(result, width, height, size)
+
+
+@contextlib.contextmanager
+def stabilizer_module(stabilize):
+    """soccer.trajectory replaced by a module holding this stabilize (None: a module without one), for the callers that
+    import it themselves (soccer/stabilized.py, through pipeline.run and corrections.apply_result)."""
+    import soccer
+    module = types.ModuleType('soccer.trajectory')
+    if stabilize is not None:
+        module.stabilize = stabilize
+    with mock.patch.dict(sys.modules, {'soccer.trajectory': module}), mock.patch.object(soccer, 'trajectory', module, create=True):
+        yield module
+
+
+def failing(*args, **kwargs):
+    raise RuntimeError('stabilizer exploded')
+
+
+COLUMNS = ('x', 'y', 'kind', 'sigma', 'w')
+
+
+class CorrectedBlockTests(unittest.TestCase):
+    def test_corrections_regenerate_the_block(self):
+        from soccer import stabilized
+        from test_labels import exclude
+        result = stabilizer_result()
+        calls = []
+        with stabilizer_module(stub_stabilize(calls)):
+            stabilized.attach(result, 1920, 1080)
+            self.assertIn('B-03', result['stabilized']['ids'])
+            C.apply_result(result, [exclude(result, 'B-03')])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][:2], (1920, 1080))
+        self.assertNotIn('B-03', result['timeline']['ids'])
+        self.assertEqual(set(result['stabilized']['ids']), set(result['timeline']['ids']))
+        self.assertEqual(result['summary']['stabilizer']['status'], 'ok')
+        # The files a correction writes (corrections.rebuild: allow_nan=False, no numpy default) carry the new block.
+        with tempfile.TemporaryDirectory() as folder, stabilizer_module(stub_stabilize(calls)):
+            run = Path(folder)/'run-1'
+            run.mkdir()
+            original = stabilizer_result()
+            stabilized.attach(original, 1920, 1080)
+            (run/'result.json').write_text(json.dumps(original, separators=(',', ':'), allow_nan=False), encoding='utf-8')
+            C.rebuild(run, [exclude(original, 'B-01')])
+            written = json.loads((run/'result.json').read_text(encoding='utf-8'))
+            self.assertEqual(set(written['stabilized']['ids']), set(written['timeline']['ids']))
+            self.assertNotIn('B-01', written['stabilized']['ids'])
+            self.assertIn('B-01', json.loads((run/'result.raw.json').read_text(encoding='utf-8'))['stabilized']['ids'])
+            # Undoing the last correction gives the original back, byte for byte.
+            C.rebuild(run, [])
+            self.assertEqual((run/'result.json').read_bytes(), (run/'result.raw.json').read_bytes())
+            # A result only looked at (corrections.add makes the new correction against one) gets no block.
+            n = len(calls)
+            looked = C.apply_result(copy.deepcopy(original), [exclude(original, 'B-01')], block=False)
+            self.assertEqual(len(calls), n)
+            self.assertNotIn('stabilized', looked)
+            self.assertNotIn('stabilizer', looked['summary'])
+        # A correction with a failing stabilizer still applies; the block made before it is gone.
+        with stabilizer_module(failing), mock.patch('traceback.print_exc'), mock.patch('builtins.print'):
+            C.apply_result(result, [exclude(result, 'B-02')])
+        self.assertNotIn('B-02', result['timeline']['ids'])
+        self.assertNotIn('stabilized', result)
+        self.assertEqual(set(result['summary']['stabilizer']), {'status', 'error', 'seconds'})
+        self.assertEqual(result['summary']['stabilizer']['status'], 'failed')
+
+    def test_a_correction_moves_only_what_it_corrects(self):
+        # The stabilizer fits its noise model per run on the observations it is handed: excluding B-03 changes them, and
+        # a refit would move everyone else. The corrected result's block is built with the original's model instead.
+        from soccer import stabilized
+        from test_labels import exclude
+        original = stabilizer_result()
+        calls = []
+        with stabilizer_module(stub_stabilize(calls, fitted=True)):
+            stabilized.attach(original, 1920, 1080)
+            fixed = C.apply_result(copy.deepcopy(original), [exclude(original, 'B-03')])
+        self.assertIsNone(calls[0][3])
+        self.assertEqual(calls[1][3], original['stabilized']['noise'])      # the original's model, handed on
+        self.assertEqual(fixed['summary']['stabilizer']['noise'], 'kept')
+        self.assertEqual(fixed['stabilized']['noise'], original['stabilized']['noise'])
+        self.assertEqual(set(fixed['stabilized']['ids']), set(original['stabilized']['ids'])-{'B-03'})
+        for pid, cols in fixed['stabilized']['ids'].items():
+            for key in COLUMNS:
+                self.assertEqual(cols[key], original['stabilized']['ids'][pid][key], (pid, key))
+        self.assertEqual(fixed['stabilized']['anonymous'], original['stabilized']['anonymous'])
+        # A stabilizer that takes no model fits it again: the summary says so, and the others move.
+        with stabilizer_module(without_noise(stub_stabilize(fitted=True))):
+            refit = C.apply_result(copy.deepcopy(original), [exclude(original, 'B-03')])
+        self.assertEqual(refit['summary']['stabilizer']['noise'], 'refitted')
+        self.assertNotEqual(refit['stabilized']['ids']['A-01']['x'], original['stabilized']['ids']['A-01']['x'])
+
+    def test_a_run_without_a_block_is_corrected_without_one(self):
+        # A run analysed before the stabilizer (or whose stabilizer failed): a correction does not add a block, so the 2D
+        # view keeps drawing it the old way instead of switching every player to stabilized positions.
+        from test_labels import exclude
+        calls = []
+        result = stabilizer_result()
+        with stabilizer_module(stub_stabilize(calls)):
+            C.apply_result(result, [exclude(result, 'B-03')])
+        self.assertEqual(calls, [])
+        self.assertNotIn('stabilized', result)
+        self.assertNotIn('stabilizer', result['summary'])
+        failed = stabilizer_result()
+        failed['summary']['stabilizer'] = {'status': 'failed', 'error': 'RuntimeError: x', 'seconds': {'total': 0.0}}
+        with stabilizer_module(stub_stabilize(calls)):
+            C.apply_result(failed, [exclude(failed, 'B-03')])
+        self.assertEqual(calls, [])
+        self.assertNotIn('stabilized', failed)
+        self.assertEqual(failed['summary']['stabilizer']['status'], 'failed')   # still says why the run has none
+
+    def test_corrections_and_the_block_never_import_the_detector_stack(self):
+        code = ('import sys; sys.path.insert(0, sys.argv[1]); import corrections; from soccer import stabilized; '
+                'print(sorted(m for m in ("torch", "torchvision", "ultralytics", "pipeline", "soccer.trajectory") if m in sys.modules))')
+        out = subprocess.run([sys.executable, '-c', code, str(Path(C.__file__).parent)], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.strip(), '[]')
+
+    def test_with_the_real_stabilizer_a_correction_moves_only_what_it_corrects(self):
+        trajectory = importlib.import_module('soccer.trajectory')
+        if 'noise' not in inspect.signature(trajectory.stabilize).parameters:
+            self.skipTest('soccer/trajectory.py stabilize() takes no noise model yet')
+        from soccer import stabilized
+        from test_labels import exclude
+        original = stabilizer_result()
+        self.assertEqual(stabilized.attach(original, 1920, 1080)['status'], 'ok')
+        fixed = C.apply_result(copy.deepcopy(original), [exclude(original, 'B-03')])
+        self.assertEqual(fixed['summary']['stabilizer']['noise'], 'kept')
+        for pid, cols in fixed['stabilized']['ids'].items():
+            for key in COLUMNS:
+                self.assertEqual(cols[key], original['stabilized']['ids'][pid][key], (pid, key))
 
 
 if __name__ == '__main__':

@@ -1,6 +1,8 @@
 """The evaluation harness (tools/): the hold-out test rebuilds a keyframe from the other anchors only,
-and the comparison of a run with itself is perfect agreement; tools/diagnose.py's exports; and the review page's
-'Registered pitch (final)' overlay geometry, run in node against soccer/field.py (skipped without node)."""
+and the comparison of a run with itself is perfect agreement; tools/diagnose.py's exports; the review page's
+'Registered pitch (final)' overlay geometry, run in node against soccer/field.py (skipped without node); and the
+2D view's measurement tools: tools/jitter.py (against the page in node), tools/trajectory_bench.py and
+tools/check_foot_truth.py."""
 import contextlib
 import importlib.util
 import io
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import unittest
+import zlib
 
 import numpy as np
 
@@ -458,6 +461,861 @@ process.stdout.write(JSON.stringify(result.frames.map((f,i)=>{strokes.length=0;c
             self.assertEqual(out[k]['verifiedStrokes'], 0)
         self.assertIn('not checked (the last paint tick is 0.5 s old)', out[4]['sides'])
         self.assertEqual(out[4]['verifiedStrokes'], 0)
+
+
+
+# ---------- tools/jitter.py, tools/trajectory_bench.py and tools/check_foot_truth.py: the 2D view's jitter and accuracy ----------
+jitter = load_tool('jitter')
+trajectory_bench = load_tool('trajectory_bench')
+check_foot_truth = load_tool('check_foot_truth')
+GIT = shutil.which('git')
+BEFORE_STABILIZER = '88be58f'   # the commit whose tactical.js jitter.py's RAW stream reproduces
+JITTER_IDS = ('A-01', 'A-02', 'A-03', 'B-01', 'B-02', 'B-03')
+
+
+def jitter_result(n=90, fps=30.0, alternate=.3, noise=0.0, step_at=None, seed=0, estimates=False):
+    """Six identities and one '?' person on a 30 fps grid: A-01 runs along the length at 3 m/s, the others stand. The raw
+    positions (the frames' and the timeline's O samples) are the truth moved across by +-alternate metres on
+    alternate frames, plus Gaussian noise; the stabilized block is the truth itself, with one rejected observation.
+    step_at: from this frame on every raw position is 0.5 m further along the length (a registration step at an anchor
+    that the summary lists). estimates: the timeline and the block carry estimates and holes too: A-02 is predicted
+    (frozen at its last observation, sigma 1 m) on frames 30-74 in the timeline and unknown there in the block; A-03 is
+    predicted with a sigma of 9 m (hidden) on frames 40-49 and interpolated on 50-54 in both; B-01 is unknown on frame 20
+    in the block (a straight line across a missing frame); the '?' block bridges frames 10-14 (kept by the page: its
+    observations 0.2 s apart) and 40-60 (0.73 s: left out)."""
+    rng = np.random.default_rng(seed)
+    times = np.arange(n)/fps
+    truth = {pid: np.stack([np.full(n, 30.0+8*k), np.full(n, 10.0+9*k)], 1) for k, pid in enumerate(JITTER_IDS)}
+    truth['A-01'][:, 0] = 20+3*times
+    anon_truth = np.stack([np.full(n, 50.0), np.full(n, 30.0)], 1)
+    sign = np.where(np.arange(n) % 2, -1.0, 1.0)
+
+    def raw(path):
+        out = path+np.stack([np.zeros(n), alternate*sign], 1)+rng.normal(0, noise, (n, 2))
+        if step_at is not None:
+            out[step_at:, 0] += .5
+        return out
+    raws = {pid: raw(p) for pid, p in truth.items()}
+    anon_raw = raw(anon_truth)
+    frames = []
+    for i, t in enumerate(times):
+        people = [{'track': k+1, 'id': pid, 'team': pid[0], 'state': 'confirmed', 'pitch': [raws[pid][i, 0]/105, raws[pid][i, 1]/68]}
+                  for k, pid in enumerate(JITTER_IDS)]
+        people.append({'track': 99, 'id': None, 'team': 'B', 'state': 'uncertain', 'pitch': [anon_raw[i, 0]/105, anon_raw[i, 1]/68]})
+        anchor = step_at is not None and i == step_at
+        frames.append({'time': float(t), 'frame': i, 'calibrated': True, 'people': people,
+                       'calibration': {'source': 'landmarks' if anchor else 'carried', 'direction': None if anchor else 'forward', 'anchor': 0,
+                                       'anchorAge': 0.0 if anchor else round(float(t), 3), 'confidence': .8}})
+    column = lambda path, scale: [float(v)/scale for v in path]
+    timeline = {'frameTimes': [round(float(t), 3) for t in times],
+                'ids': {pid: {'team': pid[0], 'x': column(raws[pid][:, 0], 105), 'y': column(raws[pid][:, 1], 68), 'kind': ['O']*n, 'sigma': [[.4, .4]]*n}
+                        for pid in JITTER_IDS}}
+    weights = {pid: [1.0]*n for pid in JITTER_IDS}
+    weights['A-02'][10] = 0.0
+    stabilized = {'version': 1, 'method': 'test', 'frameTimes': list(timeline['frameTimes']),
+                  'ids': {pid: {'team': pid[0], 'x': column(truth[pid][:, 0], 105), 'y': column(truth[pid][:, 1], 68), 'kind': ['O']*n,
+                                'sigma': [[.1, .1]]*n, 'v': [[0.0, 0.0]]*n, 'w': weights[pid]} for pid in JITTER_IDS},
+                  'anonymous': {'99': {'team': 'B', 'x': column(anon_truth[:, 0], 105), 'y': column(anon_truth[:, 1], 68), 'kind': ['O']*n, 'sigma': [[.1, .1]]*n}},
+                  'flags': [{'id': 'A-02', 'track': 2, 'frame': 10, 'time': float(times[10]), 'reason': 'rejected: far off the trajectory', 'raw': [0, 0], 'used': None}],
+                  'summary': {}, 'noise': {}}
+    if estimates:
+        tl, st = timeline['ids'], stabilized['ids']
+        for i in range(30, 75):
+            tl['A-02']['x'][i], tl['A-02']['y'][i], tl['A-02']['kind'][i], tl['A-02']['sigma'][i] = tl['A-02']['x'][29], tl['A-02']['y'][29], 'P', [1.0, 1.0]
+            st['A-02']['x'][i], st['A-02']['y'][i], st['A-02']['kind'][i] = None, None, 'U'
+        for block in (tl, st):
+            for i in range(40, 55):
+                block['A-03']['kind'][i] = 'P' if i < 50 else 'I'
+                if i < 50:
+                    block['A-03']['sigma'][i] = [9.0, 9.0]
+        st['B-01']['x'][20], st['B-01']['y'][20], st['B-01']['kind'][20] = None, None, 'U'
+        for i in list(range(10, 15))+list(range(40, 61)):
+            stabilized['anonymous']['99']['kind'][i] = 'I'
+    summary = {'pitch': {'registration': {'anchors': [{'frame': step_at, 'time': round(float(times[step_at]), 3), 'source': 'landmarks'}] if step_at is not None else []}}}
+    return {'video': {'width': 1920, 'height': 1080, 'fps': fps}, 'frames': frames, 'timeline': timeline, 'stabilized': stabilized, 'summary': summary,
+            'match': {'players': [{'id': pid, 'team': pid[0]} for pid in JITTER_IDS], 'goalkeepers': []}}
+
+
+def weaving_result(delay=0, average=0, n=420, fps=30.0, noise=.05, seed=3):
+    """One player (A-01) zigzagging at 4 m/s (a 90 degree turn every 2 s) for 11 s and then standing: the raw
+    observations the path plus Gaussian noise, the stabilized block the path itself, delayed by delay frames or averaged
+    over a centred window of average frames."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)/fps
+    moving = t < 11
+    vx = np.where(moving, 4/math.sqrt(2), 0.0)
+    vy = np.where(moving, np.where((t//2) % 2 == 0, 1.0, -1.0)*4/math.sqrt(2), 0.0)
+    path = np.stack([20+np.cumsum(vx)/fps, 34+np.cumsum(vy)/fps], 1)
+    raw = path+rng.normal(0, noise, path.shape)
+    stab = path.copy()
+    if delay:
+        stab[delay:], stab[:delay] = path[:-delay], path[0]
+    if average:
+        stab = np.array([path[max(0, i-average//2):i+average//2+1].mean(0) for i in range(n)])
+    column = lambda a, scale: [float(v)/scale for v in a]
+    frames = [{'time': float(ti), 'frame': i, 'calibrated': True,
+               'people': [{'track': 1, 'id': 'A-01', 'team': 'A', 'state': 'confirmed', 'pitch': [raw[i, 0]/105, raw[i, 1]/68]}]} for i, ti in enumerate(t)]
+    timeline = {'frameTimes': [float(v) for v in t], 'ids': {'A-01': {'team': 'A', 'x': column(raw[:, 0], 105), 'y': column(raw[:, 1], 68), 'kind': ['O']*n,
+                                                                       'sigma': [[.1, .1]]*n}}}
+    stabilized = {'version': 1, 'method': 'test', 'frameTimes': list(timeline['frameTimes']), 'anonymous': {}, 'flags': [], 'summary': {}, 'noise': {},
+                  'ids': {'A-01': {'team': 'A', 'x': column(stab[:, 0], 105), 'y': column(stab[:, 1], 68), 'kind': ['O']*n, 'sigma': [[.05, .05]]*n, 'w': [1.0]*n}}}
+    return {'video': {'width': 1920, 'height': 1080, 'fps': fps}, 'frames': frames, 'timeline': timeline, 'stabilized': stabilized, 'summary': {},
+            'match': {'players': [{'id': 'A-01', 'team': 'A'}], 'goalkeepers': []}}
+
+
+class JitterTests(unittest.TestCase):
+    """tools/jitter.py: the port of the committed tactical.js and of the stabilized drawing, the two streams' metrics
+    (observations and estimates apart), the responsiveness rows, the correction and coverage, the calibration-instability
+    diagnostic and the rebuilt registration, on synthetic results."""
+
+    def test_the_raw_port_smooths_observed_samples_and_snaps_like_the_page(self):
+        dt = 1/30
+        track = jitter.Track([0, dt, 2*dt, 3*dt, 4*dt], [0.0, 1.0, 2.0, 3.0, 10.0], [0.0]*5, [0, 0, 0, 1, 0], [None, None, None, 2.0, None])
+        track.smooth_observed(.14)
+        # +-0.07 s holds two neighbours a side at 30 fps; the I sample stops the window and is left as it is.
+        self.assertEqual(track.x.tolist(), [1.0, 1.0, 1.0, 3.0, 10.0])
+        x, _, drawn, observed = track.sample([2*dt+.2*dt, 2.5*dt, 4*dt+.5, 4*dt+.7], dt, .6, 1.0)
+        self.assertEqual(x[0], 1.0)                      # within a quarter frame: the sample itself
+        self.assertAlmostEqual(x[1], 2.0)                # halfway to the I sample: a straight line
+        self.assertEqual(x[2], 10.0)                     # held 0.5 s after the last sample
+        self.assertEqual(drawn.tolist(), [True, True, True, False])
+        self.assertEqual(observed.tolist(), [True, False, False, False])   # the observation; a line to an estimate and a hold are not
+        x, _, _, _ = track.sample([2*dt+.2*dt], dt, .6, 1.0, same=0.0)
+        self.assertAlmostEqual(x[0], 1.4)                # no snap
+        hidden = jitter.Track([0, dt], [0.0, 0.0], [0.0, 0.0], [2, 2], [9.0, 9.0])
+        self.assertFalse(hidden.sample([0.0], dt, .6, 1.0)[2][0])   # a prediction less certain than uncertainSigma is not drawn
+
+    def test_the_stabilized_sampler_is_sample_stable(self):
+        dt = 1/30
+        track = jitter.Track([0, dt, 2*dt, 5*dt, 6*dt], [0.0, 1.0, 2.0, 5.0, 6.0], [0.0]*5, [0, 0, 1, 0, 2], [np.nan, np.nan, np.nan, .5, 9.0], [0, 1, 2, 5, 6])
+        x, _, drawn, observed = track.sample_stable([-.3*dt, -.2*dt, .5*dt, 1.5*dt, 3.5*dt, 5.5*dt], dt, .6, 1.0)
+        self.assertEqual(drawn.tolist(), [False, True, True, True, True, True])   # the first sample a quarter frame early, not more
+        self.assertTrue(np.allclose(x[1:], [0.0, .5, 1.5, 3.5, 5.5]))            # straight lines at every time, no snap
+        # Observed between two observations of consecutive frames only: not towards the I sample, not across frames 2-5.
+        self.assertEqual(observed.tolist(), [False, True, True, False, False, False])
+        # Between an O (sigma 0.5 m) and a P (9 m) the sigma is the straight line (4.75 m: drawn); sampleAt's larger one hides it.
+        self.assertFalse(track.sample([5.5*dt], dt, .6, 1.0, same=0.0)[2][0])
+        # After a gap longer than the gap limit the next sample shows up a quarter frame early, and the hold ends at hold.
+        far = jitter.Track([0.0, 2.0], [0.0, 1.0], [0.0, 0.0], [0, 0], f=[0, 60])
+        x, _, drawn, _ = far.sample_stable([.5, 2.0-.2*dt, 2.0-.3*dt], dt, .6, 1.0)
+        self.assertEqual(drawn.tolist(), [True, True, False])
+        self.assertEqual(x[:2].tolist(), [0.0, 1.0])
+        # Without frame indices two samples are of consecutive frames when at most 1.5 frame steps apart.
+        loose = jitter.Track([0, dt, 3*dt], [0.0, 1.0, 3.0], [0.0]*3, [0, 0, 0])
+        self.assertEqual(loose.sample_stable([.5*dt, 2*dt], dt, .6, 1.0)[3].tolist(), [True, False])
+
+    def test_stable_tracks_keep_what_the_page_keeps(self):
+        r = jitter_result(estimates=True)
+        times = np.array([f['time'] for f in r['frames']])
+        ident, anon = jitter._stable_tracks(r['stabilized'], times, jitter.final_roster(r))
+        self.assertEqual(len(ident['A-02'].t), 45)                     # its U frames are holes
+        self.assertEqual(anon['99'].f.tolist(), [i for i in range(90) if not 40 <= i <= 60])   # the 0.73 s bridge is left out, the 0.2 s one kept
+        r['stabilized']['anonymous']['99']['team'] = None
+        self.assertEqual(jitter._stable_tracks(r['stabilized'], times, jitter.final_roster(r))[1], {})   # a '?' needs a team
+
+    def test_streams_correction_and_coverage(self):
+        report = jitter.evaluate(jitter_result(), compute=False)
+        self.assertEqual(report['stabilized']['source'], 'result')
+        raw, stab = report['streams']['raw'], report['streams']['stabilized']
+        self.assertEqual((raw['players']['markers'], raw['anonymous']['markers'], stab['anonymous']['markers']), (6, 1, 1))
+        self.assertEqual((raw['players']['estimatedShare'], stab['players']['estimatedShare']), (0.0, 0.0))
+        # The stabilized block is a straight run and still players, drawn by straight lines: no residual, no reversal.
+        self.assertLess(stab['players']['display']['observed']['residualRms_cm'], .01)
+        self.assertEqual(stab['players']['display']['observed']['reversals10PerMin'], 0.0)
+        self.assertEqual(stab['players']['frames']['observed']['stationaryStep_cm']['p50'], 0.0)
+        # The raw stream alternates +-0.3 m across: the page's 5-tap mean leaves +-6 cm on the frames, reversing every frame.
+        self.assertGreater(raw['players']['display']['observed']['residualRms_cm'], 3.0)
+        self.assertGreater(raw['players']['display']['observed']['reversals10PerMin'], 100)
+        self.assertGreater(raw['anonymous']['display']['observed']['residualRms_cm'], 3.0)
+        self.assertLess(stab['anonymous']['display']['observed']['residualRms_cm'], .01)
+        self.assertEqual(raw['players']['display']['all'], raw['players']['display']['observed'])   # nothing estimated
+        for kind in ('players', 'anonymous'):
+            self.assertAlmostEqual(report['correction']['stabilized'][kind]['median_m'], .3, places=3)
+            self.assertAlmostEqual(report['correction']['stabilized'][kind]['max_m'], .3, places=3)
+        cov = report['coverage']['stabilized']
+        self.assertEqual(cov['rawObservations'], 6*90)
+        self.assertEqual(cov['stabilizedKindAtRawObservations'], {'O': 1.0})
+        self.assertEqual(cov['weights'], {'n': 540, 'rejectedShare': round(1/540, 4), 'downWeightedShare': 0.0})
+        self.assertEqual(cov['flags'], {'rejected: far off the trajectory': 1})
+        text = jitter.table(report)
+        self.assertIn('| residual RMS (cm) |', text)
+        self.assertIn('| correction median/p90 m (n) | - | 0.3/0.3 (540) |', text)
+
+    def test_estimates_are_measured_apart_from_observations(self):
+        report = jitter.evaluate(jitter_result(estimates=True), compute=False)
+        raw, stab = report['streams']['raw']['players'], report['streams']['stabilized']['players']
+        self.assertGreater(raw['estimatedShare'], .05)
+        self.assertGreater(stab['estimatedShare'], 0.0)
+        for s in (raw, stab):
+            d = s['display']
+            self.assertAlmostEqual(d['observed']['minutes']+d['estimated']['minutes'], d['all']['minutes'], places=2)
+        # A-02's frozen prediction stands perfectly still: pooled with the observations it would hide their vibration.
+        self.assertEqual(raw['frames']['estimated']['stationaryStep_cm']['p50'], 0.0)
+        self.assertGreater(raw['frames']['observed']['stationaryStep_cm']['p50'], 5.0)
+        self.assertIn("### players, estimates (held, across a missing frame or gap, imputed); estimates' share of the drawn samples: RAW", jitter.table(report))
+
+    def test_responsiveness_finds_a_late_or_a_sluggish_stream(self):
+        resp = lambda r: jitter.evaluate(r, compute=False)['responsiveness']
+        exact = resp(weaving_result())
+        self.assertLess(abs(exact['stabilized']['lag_ms']), 10)
+        self.assertLess(abs(exact['raw']['lag_ms']), 10)                   # the page's centred mean has no lag either
+        self.assertEqual((exact['stabilized']['turns']['n'], exact['stabilized']['stops']['n']), (5, 1))
+        self.assertLess(exact['stabilized']['turns']['median_m'], .1)
+        late = resp(weaving_result(delay=3))['stabilized']
+        self.assertAlmostEqual(late['lag_ms'], 100.0, delta=10.0)
+        self.assertGreater(late['turns']['median_m'], 3*exact['stabilized']['turns']['median_m'])
+        # A centred 1 s average has no lag but cuts the corners and slows down early: the jitter rows reward it, these do not.
+        sluggish = jitter.evaluate(weaving_result(average=31), compute=False)
+        self.assertLess(sluggish['streams']['stabilized']['players']['display']['observed']['residualRms_cm'],
+                        jitter.evaluate(weaving_result(), compute=False)['streams']['raw']['players']['display']['observed']['residualRms_cm'])
+        slow = sluggish['responsiveness']['stabilized']
+        self.assertGreater(slow['turns']['median_m'], 4*exact['stabilized']['turns']['median_m'])
+        self.assertGreater(slow['stops']['median_m'], 2*exact['stabilized']['stops']['median_m'])
+        self.assertLess(slow['velocityCorrelation'], exact['stabilized']['velocityCorrelation'])
+        self.assertIn('| turn rounding median/p90 m (n) |', jitter.table(sluggish))
+        # A box-geometry flag of the block near a turn takes it out of the 'no box event' rows, for RAW too; a flag of the
+        # trajectory fit does not (a sluggish smoother would hide its own rounding so).
+        r = weaving_result()
+        r['stabilized']['flags'] = [{'id': 'A-01', 'frame': 60, 'reason': 'box lost the legs: foot repaired from the top and the running height'},
+                                    {'id': 'A-01', 'frame': 120, 'reason': 'down-weighted: off the trajectory'}]
+        flagged = resp(r)
+        for stream in ('raw', 'stabilized'):
+            self.assertEqual((flagged[stream]['turns']['n'], flagged[stream]['turnsNoBoxEvent']['n'], flagged[stream]['stopsNoBoxEvent']['n']), (5, 4, 1))
+        self.assertEqual(resp(weaving_result())['stabilized']['turnsNoBoxEvent']['n'], 5)
+        r = weaving_result()
+        del r['stabilized']
+        self.assertEqual(resp(r)['raw']['turnsNoBoxEvent']['n'], 0)       # no block, no box events known: not given
+
+    def test_a_registration_step_is_listed_at_its_anchor(self):
+        report = jitter.evaluate(jitter_result(alternate=0.0, noise=.02, step_at=45), compute=False)
+        cm = report['commonMode']['raw']
+        self.assertEqual(cm['together']['pairs'], 1)
+        self.assertEqual(cm['together']['atAnchors'], 1)
+        self.assertLess(cm['together']['independentExpectation'], .05)
+        top = cm['listed'][0]
+        self.assertEqual((top['time'], top['players'], top['jumping']), (1.5, 6, 6))
+        self.assertGreater(top['jumpMedian_m'], .4)
+        self.assertGreater(top['commonStep_m'], .4)
+        self.assertEqual(top['anchor'], {'time': 1.5, 'source': 'landmarks', 'frame': 'second'})
+        self.assertEqual((top['before']['source'], top['after']['source'], top['after']['anchorAge']), ('carried', 'landmarks', 0.0))
+        self.assertGreater(cm['commonShare'], cm['independentExpectation'])
+        self.assertEqual(report['commonMode']['stabilized']['together']['pairs'], 0)   # the stabilized block has no step
+        self.assertEqual(report['warnings'], [])
+        clean = jitter.evaluate(jitter_result(alternate=0.0, noise=.02), compute=False)['commonMode']['raw']
+        self.assertEqual(clean['together']['pairs'], 0)
+
+    def test_a_stabilized_stream_that_still_steps_at_anchors_is_flagged(self):
+        r = jitter_result(alternate=0.0, noise=.02, step_at=45)
+        for pid in JITTER_IDS:      # the block built on homographies that snap: the step is in it too
+            r['stabilized']['ids'][pid]['x'] = list(r['timeline']['ids'][pid]['x'])
+            r['stabilized']['ids'][pid]['y'] = list(r['timeline']['ids'][pid]['y'])
+        report = jitter.evaluate(r, compute=False)
+        self.assertEqual(report['commonMode']['stabilized']['together']['atAnchors'], 1)
+        self.assertIn('WARNING: STABILIZED still jumps together at 1 listed anchors', jitter.table(report))
+        self.assertIn('--rebuild', report['warnings'][0])
+
+    def test_missing_or_mismatched_blocks_measure_raw_only(self):
+        r = jitter_result()
+        del r['stabilized']
+        report = jitter.evaluate(r, compute=False)
+        self.assertEqual(list(report['streams']), ['raw'])
+        self.assertEqual(report['stabilized']['missing'], 'no stabilized block in the result')
+        r = jitter_result()
+        r['stabilized']['frameTimes'] = r['stabilized']['frameTimes'][:-1]
+        self.assertEqual(jitter.evaluate(r, compute=False)['stabilized']['missing'], 'the stabilized block does not match the frames')
+
+    def test_window_ids_and_main(self):
+        import tempfile
+        report = jitter.evaluate(jitter_result(), window=(0.0, 1.5), ids=['A-01'], compute=False)
+        self.assertEqual(report['streams']['raw']['players']['markers'], 1)
+        self.assertNotIn('anonymous', report['streams']['raw'])
+        self.assertLessEqual(report['streams']['raw']['players']['display']['all']['minutes'], 1.6/60)
+        self.assertEqual(report['coverage']['stabilized']['rawObservations'], 46)
+        # '?' alone: the markers only; no identity is measured, covered or corrected.
+        anon = jitter.evaluate(jitter_result(), ids=['?'], compute=False)
+        self.assertEqual(list(anon['streams']['raw']), ['anonymous'])
+        self.assertEqual((anon['coverage'], anon['responsiveness'], anon['correction']['stabilized']['players']), ({}, {}, None))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'result.json')
+            with open(path, 'w', encoding='utf-8') as handle:
+                json.dump(jitter_result(), handle)
+            out = os.path.join(tmp, 'jitter.json')
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(jitter.main([tmp, '--json', out, '--no-compute', '--rebuild']), 0)
+            self.assertIn('stabilized: result', printed.getvalue())
+            self.assertIn('WARNING: --rebuild: no registration.json', printed.getvalue())
+            with open(out, encoding='utf-8') as handle:
+                self.assertEqual(json.load(handle)['frames'], 90)
+            self.assertEqual(sorted(os.listdir(tmp)), ['jitter.json', 'result.json'])
+
+    def test_the_labels_follow_the_constants(self):
+        saved = jitter.ACC_LEVELS
+        try:
+            jitter.ACC_LEVELS = (8.0, 20.0)
+            report = jitter.evaluate(jitter_result(), compute=False)
+            self.assertIn('accLagOver8Share', report['streams']['raw']['players']['display']['all'])
+            self.assertIn('| accLag share > 8 m/s^2 |', jitter.table(report))
+        finally:
+            jitter.ACC_LEVELS = saved
+
+    def test_rebuild_remaps_the_run_on_its_registration(self):
+        """The registration rebuilt from a run's registration.json (two landmark anchors on a still camera): the people's
+        stored positions, made on an older registration 1 m off, come back where their boxes' feet are, the timeline
+        with them; the stored result is not touched and nothing is written."""
+        import tempfile
+        P = field.orient(broadcast.camera(), W, H)
+        worlds = {'A-01': (40.0, 30.0), 'B-01': (60.0, 20.0)}
+        frames = []
+        for i in range(30):
+            people = []
+            for k, (pid, (x, y)) in enumerate(worlds.items()):
+                u, v = field.project(P, [(x+.1*i, y)])[0]
+                box = [(u-10)/W, (v-60)/H, 20/W, 60/H]
+                people.append({'track': k+1, 'id': pid, 'team': pid[0], 'state': 'confirmed', 'box': box, 'score': .9,
+                               'pitch': [(x+.1*i+1.0)/SIZE.length, y/SIZE.width], 'pitchConfidence': .8})
+            frames.append({'time': i/25, 'frame': i, 'people': people, 'calibrated': True, 'calibration': {'H': P.ravel().tolist(), 'source': 'carried'}})
+        result = {'video': {'width': W, 'height': H, 'fps': 25}, 'frames': frames, 'tactical': {'pitchSize': SIZE.to_json()},
+                  'match': {'players': [{'id': pid, 'team': pid[0]} for pid in worlds], 'goalkeepers': []},
+                  'roster': {'slots': [{'id': pid, 'team': pid[0], 'role': 'PLAYER', 'confirmed': True} for pid in worlds]}, 'summary': {}}
+        stored = json.dumps(result, sort_keys=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(jitter.rebuild(tmp, result), (None, f'no registration.json in {tmp}'))
+            with open(os.path.join(tmp, 'registration.json'), 'w', encoding='utf-8') as handle:
+                json.dump(record(), handle)
+            rebuilt, _ = jitter.rebuild(tmp, result)
+            self.assertEqual(sorted(os.listdir(tmp)), ['registration.json'])
+        self.assertEqual(json.dumps(result, sort_keys=True), stored)
+        for i, f in enumerate(rebuilt['frames']):
+            for p in f['people']:
+                x, y = worlds[p['id']]
+                self.assertLess(abs(p['pitch'][0]*SIZE.length-(x+.1*i)), .02)
+                self.assertLess(abs(p['pitch'][1]*SIZE.width-y), .02)
+        self.assertEqual(len(rebuilt['timeline']['frameTimes']), 30)
+        self.assertLess(abs(rebuilt['timeline']['ids']['A-01']['x'][10]*SIZE.length-41.0), .02)
+        report = jitter.evaluate(result, compute=False, rebuilt=rebuilt)
+        self.assertIn('registration', report['streams'])
+        self.assertTrue(report['rebuilt'])
+
+
+# The page's own drawing in node: every track of buildTimeline (tl.tracks with sampleAt, or tl.stable with sampleStable)
+# at the given times, with the board's visible() rule (full lineup off); null where nothing is drawn.
+PAGE_DRAW = r"""
+const fs = require('fs'), vm = require('vm');
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const sandbox = {window: {}, console};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(input.tactical, 'utf8'), sandbox, {filename: 'tactical.js'});
+const T = sandbox.window.Tactical, R = T.RULES;
+const tl = T.buildTimeline(input.result, {video: {fps: input.fps}});
+const stable = input.mode === 'stable';
+const tracks = stable ? tl.stable : tl.tracks, sampler = stable ? T.sampleStable : T.sampleAt;
+const out = {};
+if (tracks) for (const [key, track] of tracks) {
+  const anonymous = !!track.info.anonymous;
+  out[key] = input.times.map((t) => {
+    const s = sampler(track, t, tl.frameStep, anonymous ? R.anonymousHold : R.holdAfter, anonymous ? R.anonymousGap : R.interpolateGap);
+    return s && (s.kind !== 'P' || (Number.isFinite(s.sigma) ? s.sigma <= R.uncertainSigma : true)) ? [s.x, s.y] : null;
+  });
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@unittest.skipUnless(NODE, 'needs node to run the page')
+class JitterAgainstThePageTests(unittest.TestCase):
+    """tools/jitter.py draws what the page draws: RAW as the committed tactical.js before the stabilizer (read from git,
+    skipped without it), STABILIZED as the working tree's sampleStable, sample for sample at display and frame times off
+    the default phase, on a result with estimates, holes, hidden predictions and a '?' bridge."""
+
+    def drawn(self, tactical, result, T, mode):
+        return run_node(PAGE_DRAW, {'tactical': tactical, 'result': result, 'times': [float(t) for t in T], 'fps': result['video']['fps'], 'mode': mode})
+
+    def mismatches(self, ident, anon, page, T, frame_step, stable):
+        mine = {**ident, **{f'anon:{k}': v for k, v in anon.items()}}
+        self.assertEqual(sorted(mine), sorted(page))
+        bad = 0
+        for key, track in mine.items():
+            hold, gap = (jitter.RULES['anonymousHold'], jitter.RULES['anonymousGap']) if key.startswith('anon:') else (jitter.RULES['holdAfter'], jitter.RULES['interpolateGap'])
+            x, y, drawn, _ = jitter._draw(track, T, frame_step, hold, gap, stable)
+            shown = np.array([p is not None for p in page[key]])
+            px = np.array([p[0] if p else np.nan for p in page[key]])
+            py = np.array([p[1] if p else np.nan for p in page[key]])
+            bad += int((shown != drawn).sum()+(shown & drawn & ((np.abs(px-x) > 1e-12) | (np.abs(py-y) > 1e-12))).sum())
+        return bad
+
+    def grid(self, result):
+        times = np.array([f['time'] for f in result['frames']])
+        step = 1/result['video']['fps']
+        display, _ = jitter.display_times(times[0], times[-1])
+        return times, step, np.concatenate([times, times-.24*step, times+.24*step, times-.26*step, display, times[0]+.37/144+np.arange(430)/144])
+
+    def test_raw_is_the_page_before_the_stabilizer(self):
+        import tempfile
+        if not GIT:
+            self.skipTest('needs git')
+        done = subprocess.run([GIT, 'show', f'{BEFORE_STABILIZER}:prototypes/gpu-tracker/tactical.js'], capture_output=True, text=True,
+                              cwd=os.path.dirname(TACTICAL))
+        if done.returncode:
+            self.skipTest(f'{BEFORE_STABILIZER} is not in this checkout')
+        result = jitter_result(noise=.05, estimates=True)
+        times, step, T = self.grid(result)
+        with tempfile.TemporaryDirectory() as tmp:
+            page = os.path.join(tmp, 'tactical.js')
+            with open(page, 'w', encoding='utf-8') as handle:
+                handle.write(done.stdout)
+            drawn = self.drawn(page, result, T, 'raw')
+        roster = jitter.final_roster(result)
+        ident, anon = jitter.raw_stream(result, times, roster, jitter.people_samples(result, roster))
+        self.assertEqual(self.mismatches(ident, anon, drawn, T, step, False), 0)
+
+    def test_stabilized_is_the_pages_sample_stable(self):
+        result = jitter_result(noise=.05, estimates=True)
+        times, step, T = self.grid(result)
+        ident, anon = jitter._stable_tracks(result['stabilized'], times, jitter.final_roster(result))
+        self.assertEqual(self.mismatches(ident, anon, self.drawn(TACTICAL, result, T, 'stable'), T, step, True), 0)
+
+
+def metrica_csv(path, team, times, positions, ball):
+    """A tracking file in the Metrica sample layout (three header rows; period, frame, time, x/y per player normalized,
+    the ball): synthetic data, for the bench's loader."""
+    P = positions.shape[1]
+    pairs = lambda cell: [c for k in range(P) for c in (cell(k), '')]
+    with open(path, 'w', encoding='utf-8', newline='') as handle:
+        for row in (['']*3+pairs(lambda k: team)+['']*2, ['']*3+pairs(lambda k: str(k+1))+['']*2,
+                    ['Period', 'Frame', 'Time [s]']+pairs(lambda k: f'Player{k+1}')+['Ball', '']):
+            handle.write(','.join(row)+'\n')
+        for i, t in enumerate(times):
+            cells = [str(1 if t < times[-1]/2 else 2), str(i+1), f'{t:.2f}']
+            for p in range(P):
+                cells += [f'{positions[i, p, 0]/105:.5f}', f'{positions[i, p, 1]/68:.5f}']
+            cells += [f'{ball[i, 0]/105:.5f}', f'{ball[i, 1]/68:.5f}']
+            handle.write(','.join(cells)+'\n')
+
+
+def metrica_files(tmp, game=9, teleport=False):
+    """Two synthetic teams of six for 60 s at 25 Hz in the Metrica layout under tmp (slow weaving players); teleport: the
+    first home player jumps 3 m between two frames at 15 s and back at 15.4 s (a truth glitch)."""
+    times = np.arange(0, 60, .04)
+    rng = np.random.default_rng(4)
+    P = 6
+    start = np.c_[rng.uniform(20, 85, P), rng.uniform(8, 60, P)]
+    phase = rng.uniform(0, 2*np.pi, P)
+    teams = []
+    for side in range(2):
+        teams.append(start[None]+np.stack([6*np.sin(.3*times[:, None]+phase+side), 4*np.cos(.2*times[:, None]+phase)], -1))
+    if teleport:
+        teams[0][375:385, 0, 0] += 3.0
+    ball = np.c_[52.5+20*np.sin(.1*times), np.full(len(times), 34.0)]
+    for (side, team), pos in zip((('Home', 'Home'), ('Away', 'Away')), teams):
+        metrica_csv(os.path.join(tmp, f'Sample_Game_{game}_RawTrackingData_{side}_Team.csv'), team, times, pos, ball)
+    return times, teams
+
+
+class TrajectoryBenchTests(unittest.TestCase):
+    """tools/trajectory_bench.py on synthetic trajectories: the simulated cameras, the noise model and its scenarios, the
+    methods and the metrics, the truth's glitches, the seeding, and whole runs on synthetic files in the Metrica layout."""
+    dt = 1/30
+
+    def test_the_cameras_are_plausible_views_that_round_trip(self):
+        expected = {'pole': (.25, .4), 'broadcast': (.08, .14)}           # m per vertical pixel at the centre spot
+        for name in trajectory_bench.CAMERAS:
+            H_, R, C, K = trajectory_bench.camera_views(name, np.array([52.5]), self.dt)
+            self.assertIsNone(field.sanity(H_[0], SIZE, 1920, 1080), name)   # not mirrored, the far side at the top
+            ground = np.array([[[52.5, 34.0, 0.0], [10.0, 5.0, 0.0], [95.0, 60.0, 0.0], [30.0, 50.0, 0.0]]])
+            px, depth = trajectory_bench.project(R, C, K, ground)
+            self.assertTrue((depth > 0).all())
+            back, J = trajectory_bench.back_project(H_, px)
+            self.assertLess(np.abs(back-ground[..., :2]).max(), 1e-6)
+            vertical = np.linalg.norm(J[0, 0, :, 1])
+            self.assertTrue(expected[name][0] < vertical < expected[name][1], (name, vertical))
+            self.assertGreater(vertical/np.linalg.norm(J[0, 0, :, 0]), 2.5)   # the depth direction's pixel is worth more
+
+    def standing(self, seconds=120.0):
+        T = int(seconds/self.dt)
+        grid = np.array([(x, y) for x in np.linspace(15, 90, 6) for y in np.linspace(8, 60, 4)])[:22]
+        truth = np.repeat(grid[None], T, axis=0)
+        return truth, np.array(['A', 'B']*11), np.full(T, 52.5)
+
+    def generators(self, camera, window=0):
+        key = [0, 1, trajectory_bench.camera_key(camera), window]
+        return np.random.default_rng(key), lambda kind: np.random.default_rng(key+[zlib.crc32(kind.encode('utf-8'))])
+
+    def test_simulated_noise_follows_the_diagnosis(self):
+        truth, teams, ball_x = self.standing()
+        sim = trajectory_bench.simulate(truth, teams, ball_x, self.dt, 'pole', np.random.default_rng(1))
+        r = sim['realism']
+        self.assertTrue(.01 < r['eventShare'] < .07, r)
+        self.assertGreater(r['eventGivenLowScore'], 4*r['eventGivenHighScore'])
+        own = sim['who'] == np.arange(truth.shape[1])
+        camera = np.array(trajectory_bench.CAMERAS['pole']['position'][:2])
+        farther = np.linalg.norm(sim['obs']-camera, axis=-1)-np.linalg.norm(truth-camera, axis=-1)
+        events = sim['observed'] & sim['event'] & own
+        clean = sim['observed'] & ~sim['event'] & own
+        self.assertGreater(np.median(farther[events]), 1.0)              # an event throws the player away from the camera
+        self.assertLess(abs(np.median(farther[clean])), .05)
+        # The core noise lies along the line of sight.
+        ray = (truth-camera)/np.linalg.norm(truth-camera, axis=-1, keepdims=True)
+        err = (sim['obs']-truth)[clean]
+        along = (err*ray[clean]).sum(-1)
+        across = err[:, 0]*ray[clean][:, 1]-err[:, 1]*ray[clean][:, 0]
+        self.assertGreater(np.std(along), 5*np.std(across))
+        boxes = sim['boxes'][sim['observed']]
+        self.assertTrue((boxes[:, 2] > 0).all() and (boxes[:, 3] > 0).all())
+
+    def test_the_scenarios_add_their_events_on_the_same_base_draws(self):
+        truth, teams, ball_x = self.standing(60.0)
+        rng, extra = self.generators('pole')
+        base = trajectory_bench.simulate(truth, teams, ball_x, self.dt, 'pole', rng)
+        rng, extra = self.generators('pole')
+        top = trajectory_bench.simulate(truth, teams, ball_x, self.dt, 'pole', rng, ('top',), extra)
+        # A top edge that moves leaves the foot point alone: the same observations, taller boxes in the events.
+        np.testing.assert_array_equal(base['observed'], top['observed'])
+        np.testing.assert_array_equal(np.nan_to_num(base['obs']), np.nan_to_num(top['obs']))
+        self.assertTrue(.01 < top['realism']['extraShare']['top'] < .08, top['realism'])
+        grown = top['observed'] & top['extra']
+        self.assertTrue((top['boxes'][..., 3][grown] > base['boxes'][..., 3][grown]).all())
+        self.assertFalse(base['extra'].any())
+        # The other kinds move the foot point; a reach brings the player nearer the camera.
+        camera = np.array(trajectory_bench.CAMERAS['pole']['position'][:2])
+        for kind, sign in (('reach', -1), ('torso', 1)):
+            rng, extra = self.generators('pole')
+            sim = trajectory_bench.simulate(truth, teams, ball_x, self.dt, 'pole', rng, (kind,), extra)
+            moved = sim['observed'] & sim['extra'] & ~sim['event'] & (sim['who'] == np.arange(22))
+            farther = np.linalg.norm(sim['obs']-camera, axis=-1)-np.linalg.norm(truth-camera, axis=-1)
+            self.assertGreater(sign*np.median(farther[moved]), .5, kind)
+
+    def test_the_calibration_error_and_the_true_camera_motion(self):
+        truth, teams, _ = self.standing(20.0)
+        ball_x = 30+3*np.arange(len(truth))*self.dt                       # the camera pans after the ball
+        rng, extra = self.generators('pole')
+        base = trajectory_bench.simulate(truth, teams, ball_x, self.dt, 'pole', rng)
+        # The motion row carries the previous frame's pixels to this frame's (the tracker's convention). An affine fit of
+        # a panning wide lens: within a pixel in the middle of the view, where the stabilizer measures registration steps.
+        H_, R, C, K = trajectory_bench.camera_views('pole', ball_x, self.dt)
+        ground = np.concatenate([truth, np.zeros(truth.shape[:2]+(1,))], -1)
+        px, _ = trajectory_bench.project(R, C, K, ground)
+        M = base['motion']
+        carried = np.einsum('tij,tpj->tpi', M[1:], np.concatenate([px[:-1], np.ones(px.shape[:2]+(1,))[:-1]], -1))
+        error, moved = np.linalg.norm(carried-px[1:], axis=-1), np.linalg.norm(px[1:]-px[:-1], axis=-1)
+        middle = (px[1:, :, 0] > .25*1920) & (px[1:, :, 0] < .75*1920) & (px[1:, :, 1] > .3*1080) & (px[1:, :, 1] < .95*1080)
+        self.assertGreater(np.median(moved[middle]), 1.0)                  # the camera pans
+        self.assertLess(error[middle].max(), 1.0)
+        self.assertTrue(np.isnan(M[0]).all())
+        together = {}
+        for kind in ('steps', 'drift'):
+            rng, extra = self.generators('pole')
+            sim = trajectory_bench.simulate(truth, teams, ball_x, self.dt, 'pole', rng, (kind,), extra)
+            self.assertGreater(sim['realism']['calibrationError_m']['rms'], .1, kind)
+            np.testing.assert_array_equal(sim['motion'], base['motion'])   # the camera moved as before: only its registration is off
+            # How far the error moves the players together from one frame to the next (the median over the players).
+            together[kind] = np.nanmax(np.nanmedian(np.linalg.norm(np.diff(sim['obs']-base['obs'], axis=0), axis=-1), axis=1))
+        self.assertGreater(together['steps'], .3)                          # the anchors' errors held: everybody steps at an anchor
+        self.assertLess(together['drift'], together['steps']/3)            # joined by straight lines: a slow drift
+        result = trajectory_bench.as_result(base, [f'A-{k:02d}' for k in range(22)], ['A']*22, np.arange(len(truth))*self.dt, 30.0)
+        self.assertIsNone(result['frames'][0]['motion'])
+        self.assertEqual(len(result['frames'][1]['motion']), 6)
+
+    def test_glitches_leave_the_truth_unknown_around_a_teleport(self):
+        times = np.arange(0, 10, .04)
+        truth = np.zeros((len(times), 2, 2))
+        truth[:, :, 0], truth[:, :, 1] = 30+2*times[:, None], 20.0
+        truth[125:, 0, 0] += 3.0                       # 3 m between frames 124 and 125: 75 m/s
+        bad = trajectory_bench.glitches(times, truth)
+        self.assertFalse(bad[:, 1].any())
+        hit = np.flatnonzero(bad[:, 0])
+        # Every frame within GLITCH_HALF of the step, and only those.
+        self.assertTrue(times[hit[0]] >= times[124]-trajectory_bench.GLITCH_HALF > times[hit[0]-1])
+        self.assertTrue(times[hit[-1]] <= times[125]+trajectory_bench.GLITCH_HALF < times[hit[-1]+1])
+        self.assertEqual(len(hit), hit[-1]-hit[0]+1)
+        fast = truth.copy()
+        fast[:, 1, 0] = 30+11*times                     # 11 m/s is a sprint, not a glitch
+        self.assertFalse(trajectory_bench.glitches(times, fast)[:, 1].any())
+
+    def straight_run(self):
+        """One player at 5 m/s along the length for 10 s, observed with 0.3 m white noise across, a 0.5 s and a 2 s gap."""
+        T = int(10/self.dt)
+        t = np.arange(T)*self.dt
+        truth = np.stack([10+5*t, np.full(T, 30.0)], 1)[:, None]
+        observed = np.ones((T, 1), bool)
+        observed[60:75] = False
+        observed[150:210] = False
+        obs = np.where(observed[..., None], truth+np.random.default_rng(2).normal(0, .3, truth.shape)*[0, 1], np.nan)
+        return t, truth, obs, observed, np.tile(np.eye(2)*.09, (T, 1, 1, 1))
+
+    def test_methods_reduce_white_noise_and_bridge_short_gaps_only(self):
+        t, truth, obs, observed, R = self.straight_run()
+        error = lambda est: float(np.sqrt(np.nanmean(np.sum((est-truth)**2, -1)[observed])))
+        raw = error(obs)
+        for est in (trajectory_bench.renderer(obs, observed, self.dt), trajectory_bench.savgol(obs, observed, self.dt, .3),
+                    trajectory_bench.savgol(obs, observed, self.dt, .5), trajectory_bench.rts(obs, R, observed, self.dt, 1.0)):
+            self.assertLess(error(est), .8*raw)
+            self.assertTrue(np.isfinite(est[60:75, 0, 0]).all())         # 0.5 s gap: bridged
+            self.assertTrue(np.isnan(est[150:210, 0, 0]).all())          # 2 s gap: a new segment
+        self.assertLess(error(trajectory_bench.rts(obs, R, observed, self.dt, 1.0)), .4*raw)
+
+    def test_the_renderer_method_is_the_pages_smoothing(self):
+        """The bench's 'renderer' against tools/jitter.py's port of tactical.js before the stabilizer on the same samples
+        (the timeline's I samples in the gaps: straight between the raw observations)."""
+        t, truth, obs, observed, _ = self.straight_run()
+        est = trajectory_bench.renderer(obs, observed, self.dt)[:, 0]
+        bridged = trajectory_bench.bridgeable(observed, self.dt)[:, 0]
+        keep = observed[:, 0] | bridged
+        lines = trajectory_bench.bridge(obs, obs, observed, self.dt)[:, 0]
+        track = jitter.Track(t[keep], lines[keep, 0], lines[keep, 1], np.where(observed[keep, 0], 0, 1)).smooth_observed(.14)
+        self.assertTrue(np.allclose(track.x, est[keep, 0], atol=1e-9) and np.allclose(track.y, est[keep, 1], atol=1e-9))
+
+    def test_lag_glide_and_stationary_vibration(self):
+        T = int(8/self.dt)
+        t = np.arange(T)*self.dt
+        # 4 m/s along the length for 3 s, then standing.
+        x = np.where(t < 3, 10+4*t, 22.0)
+        truth = np.stack([x, np.full(T, 30.0)], 1)[:, None]
+        speed = np.linalg.norm(trajectory_bench.central_velocity(truth, 3, self.dt), axis=-1)
+        stops = trajectory_bench.stops(truth, speed, self.dt)
+        self.assertEqual(len(stops), 1)
+        self.assertTrue(np.allclose(stops[0][2], [1, 0]))
+        overshoot = truth.copy()
+        overshoot[stops[0][0]:, 0, 0] += np.minimum(.5, 4*(t[stops[0][0]:]-t[stops[0][0]]))   # glides on 0.5 m
+        observed = np.ones((T, 1), bool)
+        w = {'dt': self.dt, 'm': 3, 'ma': 8, 'speed': speed, 'velocity': trajectory_bench.central_velocity(truth, 3, self.dt),
+             'turn': np.zeros((T, 1), bool), 'stops': stops, 'own': observed}
+        score = trajectory_bench.Score(list(range(-15, 16)))
+        score.add(overshoot, truth, observed, ~observed, w)
+        s = score.summary(self.dt)
+        self.assertAlmostEqual(s['stopGlide']['p50'], .5, places=2)
+        self.assertEqual(s['stationaryStep_cm']['p50'], 0.0)
+        self.assertEqual(s['coverage'], {'observed': 1.0, 'gaps': 0.0})
+        # A copy three frames late on a weaving path: the velocity correlation peaks at +100 ms.
+        y = 30+3*np.sin(2*np.pi*t/2.3)
+        weave = np.stack([10+3*t, y], 1)[:, None]
+        late = np.full_like(weave, np.nan)
+        late[3:] = weave[:-3]
+        speed = np.linalg.norm(trajectory_bench.central_velocity(weave, 3, self.dt), axis=-1)
+        w.update(speed=speed, velocity=trajectory_bench.central_velocity(weave, 3, self.dt), stops=[])
+        score = trajectory_bench.Score(list(range(-15, 16)))
+        score.add(late, weave, observed, ~observed, w)
+        self.assertAlmostEqual(score.summary(self.dt)['lag_ms'], 100.0, delta=5.0)
+
+    def test_a_run_on_files_in_the_metrica_layout(self):
+        import tempfile
+        methods = ['raw', 'renderer', 'sg0.3', 'rts']
+        try:
+            from soccer import trajectory  # noqa: F401
+            methods += ['smooth_tracks', 'stabilizer']
+        except ImportError:
+            pass
+        with tempfile.TemporaryDirectory() as tmp:
+            metrica_files(tmp)
+            report = trajectory_bench.run(tmp, [9], ['pole', 'broadcast'], methods, n_windows=2, length=10.0, progress=lambda s: None,
+                                          scenarios=['base', 'all'])
+        game = report['games'][9]
+        self.assertEqual(len(game['windows']), 2)
+        self.assertTrue(game['windows'][0][1] <= 30.0 <= game['windows'][1][0])   # one window per period, none across half time
+        self.assertEqual(list(game['scenarios']), ['base', 'all'])
+        for camera, (raw_max, smooth_max) in (('pole', (1.0, .4)), ('broadcast', (.3, .15))):   # measured .44/.19-.07, .14/.10-.04
+            out = game['scenarios']['base']['cameras'][camera]
+            self.assertEqual(list(out['methods']), methods)
+            self.assertEqual(out['missing'], {})
+            for m, s in out['methods'].items():
+                self.assertGreater(s['coverage']['observed'], .9, (camera, m))
+                self.assertLess(s['rmse'], raw_max, (camera, m))
+                if m != 'raw':
+                    self.assertLess(s['rmse'], out['methods']['raw']['rmse'], (camera, m))
+            for m in ('rts', 'stabilizer'):
+                if m in out['methods']:
+                    self.assertLess(out['methods'][m]['rmse'], smooth_max, (camera, m))
+            self.assertEqual(out['realism']['truthGlitchShare'], 0.0)
+            harsh = game['scenarios']['all']['cameras'][camera]['realism']
+            self.assertTrue(set(harsh['extraShare']) == set(trajectory_bench.EXTRA_EVENTS) and harsh['calibrationError_m']['rms'] > 0)
+            if 'stabilizer' in methods:
+                self.assertIn('stabilizerRegistrationSteps', out['realism'])
+        text = trajectory_bench.table(report)
+        self.assertIn('### game 9, base scenario, pole camera', text)
+        self.assertIn('### game 9, all scenario, broadcast camera', text)
+
+    def test_glitches_are_left_out_and_the_seed_follows_the_camera_name(self):
+        import tempfile
+        kw = dict(n_windows=1, length=20.0, progress=lambda s: None, scenarios=['base'])
+        with tempfile.TemporaryDirectory() as tmp:
+            metrica_files(tmp, teleport=True)
+            kept = trajectory_bench.run(tmp, [9], ['broadcast'], ['raw', 'rts'], clean=False, **kw)
+            clean = trajectory_bench.run(tmp, [9], ['broadcast'], ['raw', 'rts'], **kw)
+            both = trajectory_bench.run(tmp, [9], ['pole', 'broadcast'], ['raw', 'rts'], **kw)
+            seeds = trajectory_bench.run(tmp, [9], ['broadcast'], ['raw', 'rts'], seeds=2, **kw)
+        cams = lambda r: r['games'][9]['scenarios']['base']['cameras']
+        # The teleport's 3 m in one frame is a 'sprint' of the truth when scored; left out, nothing sprints.
+        self.assertIsNotNone(cams(kept)['broadcast']['methods']['raw']['byTrueSpeed']['sprinting'])
+        self.assertIsNone(cams(clean)['broadcast']['methods']['raw']['byTrueSpeed']['sprinting'])
+        self.assertGreater(cams(clean)['broadcast']['realism']['truthGlitchShare'], 0.0)
+        self.assertEqual(cams(kept)['broadcast']['realism']['truthGlitchShare'], 0.0)
+        # A camera's numbers do not depend on the cameras run with it.
+        strip = lambda out: {m: {k: v for k, v in s.items() if k != 'seconds'} for m, s in out['methods'].items()}
+        self.assertEqual(strip(cams(clean)['broadcast']), strip(cams(both)['broadcast']))
+        spread = cams(seeds)['broadcast']['spread']['rts']
+        self.assertEqual(spread['rmse']['n'], 2)
+        self.assertLessEqual(spread['rmse']['min'], spread['rmse']['mean'])
+        self.assertIn('spread over 2 seeds, rts:', trajectory_bench.table(seeds))
+
+
+# ---------- tools/check_foot_truth.py ----------
+class FootTruthRun:
+    """A run directory (runs/<key>/<run> layout) with a result.json on the broadcast test camera, and a marks file for it
+    in a temporary directory: check_foot_truth.score(run, annotations=marks) reads only these."""
+
+    def __init__(self, people_by_frame, marks, stabilized=None):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.tmp.name
+        self.marks = os.path.join(root, 'foot_positions.json')
+        with open(self.marks, 'w', encoding='utf-8') as handle:
+            json.dump({'note': 'test', 'clipkey': marks}, handle)
+        self.run = os.path.join(root, 'runs', 'clipkey', 'run1')
+        os.makedirs(self.run)
+        frames = [{'time': round(i/25, 6), 'frame': 100+i, 'calibrated': True, 'calibration': {'H': FOOT_P.ravel().tolist(), 'source': 'landmarks'},
+                   'people': people} for i, people in enumerate(people_by_frame)]
+        result = {'video': {'width': W, 'height': H, 'fps': 25.0}, 'frames': frames, 'tactical': {'pitchSize': SIZE.to_json()}}
+        if stabilized is not None:
+            result['stabilized'] = stabilized
+        with open(os.path.join(self.run, 'result.json'), 'w', encoding='utf-8') as handle:
+            json.dump(result, handle)
+
+    def score(self, computed=False):
+        return check_foot_truth.score(self.run, computed, self.marks)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.tmp.cleanup()
+
+
+FOOT_P = field.orient(broadcast.camera(), W, H)        # world metres -> pixels
+
+
+def foot_box(world, height_px=60.0, legs_lost=0.0, past_feet=0.0):
+    """A normalized [x, y, w, h] box whose bottom-centre is the world point's pixel (moved up by legs_lost or down by
+    past_feet, in full box heights), its top a person's height above the feet."""
+    u, v = field.project(FOOT_P, [world])[0]
+    top = v-height_px
+    bottom = v-legs_lost*height_px+past_feet*height_px
+    w = .4*height_px
+    return [(u-w/2)/W, top/H, w/W, (bottom-top)/H]
+
+
+def foot_pitch(box):
+    fx, fy = box[0]+box[2]/2, box[1]+box[3]
+    p = field.unproject(FOOT_P, [(fx*W, fy*H)])[0]
+    return [float(p[0]/SIZE.length), float(p[1]/SIZE.width)]
+
+
+def foot_mark(world, frame, pid, box, sigma=2.0):
+    u, v = field.project(FOOT_P, [world])[0]
+    return {'time': (frame-100)/25, 'frame': frame, 'id': pid, 'display': pid, 'track': 1, 'box': box, 'foot': [float(u), float(v)], 'sigma_px': sigma,
+            'window': 'w', 'note': ''}
+
+
+class CheckFootTruthTests(unittest.TestCase):
+    """tools/check_foot_truth.py on a synthetic run with a known camera: the reference projection through the frame's
+    homography, the person found by the marked box (also on a rerun whose ids were handed out anew), the event classes
+    against the track's reference height, and the readers of the stored block."""
+    world = (60.0, 40.0)
+
+    def person(self, box, pid='A-01', track=1, **extra):
+        return {'id': pid, 'track': track, 'box': box, 'pitch': foot_pitch(box), **extra}
+
+    def test_the_reference_is_the_marked_pixel_through_the_frames_homography(self):
+        b = foot_box(self.world)
+        with FootTruthRun([[self.person(b)]], [foot_mark(self.world, 100, 'A-01', b)]) as run:
+            rec = run.score()[0][0]
+        self.assertEqual((rec['state'], rec['match'], rec['class']), ('ok', 'id', 'normal'))
+        self.assertAlmostEqual(rec['iou'], 1.0, places=9)
+        self.assertLess(np.hypot(*(rec['ref']-self.world)), 1e-6)
+        self.assertLess(check_foot_truth.error(rec, rec['raw'])[0], 1e-6)
+        # 'away' points away from the camera: the pixel above the mark is farther.
+        up = field.unproject(FOOT_P, [(rec['mark']['foot'][0], rec['mark']['foot'][1]-10)])[0]
+        self.assertGreater(float((up-rec['ref']) @ rec['away']), 0)
+
+    def test_events_against_the_tracks_reference_height(self):
+        full = foot_box(self.world)
+        # Ten frames of the track at full height around the marked one: h_ref is 60 px, the threshold 9 px.
+        for lost, sigma, expected in ((.30, 2.0, 'event'), (.14, 2.0, 'ambiguous'), (.14, .5, 'normal'), (.10, 2.0, 'normal')):
+            short = foot_box(self.world, legs_lost=lost)
+            frames = [[self.person(full)] for _ in range(5)]+[[self.person(short)]]+[[self.person(full)] for _ in range(5)]
+            with FootTruthRun(frames, [foot_mark(self.world, 105, 'A-01', short, sigma)]) as run:
+                rec = run.score()[0][0]
+            self.assertAlmostEqual(rec['h_ref'], 60.0, places=6)
+            self.assertAlmostEqual(rec['threshold'], 9.0, places=6)
+            self.assertEqual(rec['class'], expected, (lost, sigma))
+        # The legs lost by 30%: the box ends above the feet and the player is thrown away from the camera.
+        short = foot_box(self.world, legs_lost=.3)
+        with FootTruthRun([[self.person(short)]], [foot_mark(self.world, 100, 'A-01', short)]) as run:
+            rec = run.score()[0][0]
+        self.assertLess(rec['dy'], -10)
+        dist, away = check_foot_truth.error(rec, rec['raw'])
+        self.assertGreater(away, .9*dist)
+        # A box that runs past the feet is an event too, thrown towards the camera.
+        long = foot_box(self.world, past_feet=.3)
+        with FootTruthRun([[self.person(long)]], [foot_mark(self.world, 100, 'A-01', long)]) as run:
+            rec = run.score()[0][0]
+        self.assertTrue(rec['class'] == 'event' and rec['dy'] > 10 and check_foot_truth.error(rec, rec['raw'])[1] < 0)
+
+    def test_the_person_is_found_by_the_marked_box(self):
+        other = (63.0, 41.0)
+        mine, theirs = foot_box(self.world), foot_box(other)
+        # A run without the mark's id: the box.
+        people = [self.person(theirs, 'A-07', 9), self.person(mine, 'A-03', 4)]
+        with FootTruthRun([people], [foot_mark(self.world, 100, 'A-01', mine)]) as run:
+            rec = run.score()[0][0]
+        self.assertEqual(rec['match'], 'box')
+        self.assertAlmostEqual(rec['iou'], 1.0, places=9)
+        self.assertLess(check_foot_truth.error(rec, rec['raw'])[0], 1e-6)
+        # A rerun that gave the mark's id to another player: still the box, never the id.
+        far = foot_box((75.0, 20.0))
+        people = [self.person(far, 'A-01', 9), self.person(mine, 'A-05', 4)]
+        with FootTruthRun([people], [foot_mark(self.world, 100, 'A-01', mine)]) as run:
+            rec = run.score()[0][0]
+        self.assertEqual(rec['match'], 'box')
+        self.assertLess(check_foot_truth.error(rec, rec['raw'])[0], 1e-6)
+        # Two boxes on the marked player (a second track on the same person): the one with the mark's id.
+        twin = list(mine)
+        people = [self.person(twin, 'B-12', 7), self.person(mine, 'A-01', 4)]
+        with FootTruthRun([people], [foot_mark(self.world, 100, 'A-01', mine)]) as run:
+            rec = run.score()[0][0]
+        self.assertEqual(rec['match'], 'id')
+        # Nobody on the marked box: no person, with the best overlap reported.
+        with FootTruthRun([[self.person(far, 'A-01', 9)]], [foot_mark(self.world, 100, 'A-01', mine)]) as run:
+            rec = run.score()[0][0]
+        self.assertEqual(rec['state'], 'no person')
+        self.assertIn('best box overlap 0.00', check_foot_truth.row(rec, []))
+
+    def test_marks_outside_the_run_and_without_registration(self):
+        b = foot_box(self.world)
+        people = [self.person(b)]
+        with FootTruthRun([people, people], [foot_mark(self.world, 100, 'A-01', b), foot_mark(self.world, 250, 'A-01', b)]) as run:
+            path = os.path.join(run.run, 'result.json')
+            with open(path, encoding='utf-8') as handle:
+                r = json.load(handle)
+            r['frames'][0]['calibration'] = {}
+            with open(path, 'w', encoding='utf-8') as handle:
+                json.dump(r, handle)
+            records, _, _ = run.score()
+            lines = check_foot_truth.summary(records, [])
+        self.assertEqual([rec['state'] for rec in records], ['no registration'])   # frame 250 is not in the run
+        self.assertIn('marks scored 0 of 1', lines[-1])
+
+    def test_the_stored_block_is_read_in_metres_and_anonymous_by_track(self):
+        other = (30.0, 20.0)
+        b, c = foot_box(self.world), foot_box(other)
+        people = [self.person(b), {'id': None, 'track': 7, 'state': 'uncertain', 'team': 'B', 'box': c, 'pitch': foot_pitch(c)}]
+        block = {'frameTimes': [0.0], 'ids': {'A-01': {'x': [(self.world[0]+.5)/SIZE.length], 'y': [self.world[1]/SIZE.width], 'kind': ['O']}},
+                 'anonymous': {'7': {'x': [other[0]/SIZE.length], 'y': [(other[1]-.25)/SIZE.width], 'kind': ['O']}}}
+        marks = [foot_mark(self.world, 100, 'A-01', b), dict(foot_mark(other, 100, None, c), id='?')]
+        with FootTruthRun([people], marks, stabilized=block) as run:
+            records, _, sources = run.score()
+        self.assertEqual(sources, ['stored'])
+        self.assertAlmostEqual(check_foot_truth.error(records[0], records[0]['stored'][0])[0], .5, places=6)
+        self.assertEqual(records[1]['match'], 'box')
+        self.assertAlmostEqual(check_foot_truth.error(records[1], records[1]['stored'][0])[0], .25, places=6)
 
 
 if __name__ == '__main__':

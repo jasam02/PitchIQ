@@ -161,5 +161,106 @@ class EstimateTests(unittest.TestCase):
         self.assertGreater(imputation.OBS_MIN_FRAME, registration.MIN_POSITION)    # a floor every positioned frame passes tests nothing
 
 
+def override_result():
+    """60 frames (0.2 s) of four team A players: A-01 observed throughout but under the confidence gate on frames
+    20-22, A-02 hidden on frames 30-44, A-03 on a small-scene frame range with a precise far position, A-04
+    unconfirmed with a gap; frame 12 without a registration."""
+    frames = []
+    for i in range(60):
+        t = round(i*.2, 3)
+        people = [{'id': 'A-01', 'team': 'A', 'pitch': [.4+.002*i, .5], 'pitchConfidence': .1 if 20 <= i < 23 else .8, 'pitchSigma': [1.2, .6]},
+                  {'id': 'A-03', 'team': 'A', 'pitch': [.6, .1+.001*i], 'pitchConfidence': .15, 'pitchSigma': [2.5, 4.0]},
+                  {'id': 'A-05', 'team': 'A', 'pitch': [.2, .2], 'pitchConfidence': .9}]   # not a roster slot
+        if not 30 <= i < 45:
+            people.append({'id': 'A-02', 'team': 'A', 'pitch': [.55, .3-.001*i], 'pitchConfidence': .7})
+        if not 8 <= i < 11:
+            people.append({'id': 'A-04', 'team': 'A', 'pitch': [.7, .7], 'pitchConfidence': .9, 'pitchSigma': [.8, .8]})
+        frames.append({'time': t, 'calibrated': i != 12, 'people': people, 'calibration': {'confidence': .6}, 'profile': {'smallScene': i >= 40}})
+    slots = [{'id': f'A-0{k}', 'team': 'A', 'status': 'ACTIVE'} for k in (1, 2, 3)]+[{'id': 'A-04', 'team': 'A', 'status': 'ACTIVE', 'confirmed': False}]
+    return {'frames': frames, 'roster': {'slots': slots}}
+
+
+def raw_observations(result, length=105.0, width=68.0, min_confidence=.2):
+    """What estimate() reads of the people, as an override: per slot the positions in metres and the pitchSigma."""
+    T = len(result['frames'])
+    obs = {s['id']: ([None]*T, [None]*T, [None]*T) for s in result['roster']['slots']}
+    for t, f in enumerate(result['frames']):
+        for p in f['people']:
+            if p['id'] not in obs or not f['calibrated']:
+                continue
+            if p['pitchConfidence'] < min_confidence and not imputation._precise_on_small_scene(p, f):
+                continue
+            xs, ys, sigmas = obs[p['id']]
+            xs[t], ys[t], sigmas[t] = p['pitch'][0]*length, p['pitch'][1]*width, p.get('pitchSigma')
+    return obs
+
+
+class ObservationOverrideTests(unittest.TestCase):
+    """estimate(observations=...): the 2D replay's stabilized positions in place of the people's (soccer/stabilized.py), and
+    observation(), the rule estimate() reads the people with (soccer/stabilized.py reads the raw observations through it)."""
+
+    def test_without_an_override_the_timeline_is_the_same(self):
+        result = override_result()
+        default = imputation.estimate(result)
+        self.assertEqual(imputation.estimate(result, observations=None), default)
+        self.assertEqual(imputation.estimate(result, observations={}), default)
+        self.assertEqual(imputation.estimate(result, observations={'B-09': ([1.0]*60, [1.0]*60, [None]*60)}), default)   # not a slot: ignored
+        # The override handed exactly what the default path reads gives the same block, number for number.
+        self.assertEqual(imputation.estimate(result, observations=raw_observations(result)), default)
+        self.assertEqual(default['ids']['A-01']['kind'][22], 'I')          # under the gate: interpolated
+        self.assertEqual(default['ids']['A-03']['kind'][45], 'O')          # precise on a small-scene frame
+        self.assertEqual(default['ids']['A-04']['kind'][9], 'U')           # unconfirmed: no estimate in its gap
+
+    def test_an_override_replaces_the_positions_of_its_slots_only(self):
+        result = override_result()
+        default = imputation.estimate(result)
+        obs = raw_observations(result)
+        xs, ys, sigmas = obs['A-01']
+        moved = ([None if x is None else x+2.0 for x in xs], ys, [[.4, .3] if s is not None else None for s in sigmas])
+        for t in range(20, 23):                                             # the caller decides: under the gate, still observed
+            moved[0][t], moved[1][t] = (.4+.002*t)*105.0+2.0, .5*68.0
+        moved[0][12], moved[1][12] = 50.0, 34.0                             # a frame without a registration places nobody
+        moved[0][40], moved[1][40] = None, None                             # not observed here: estimated as usual
+        block = imputation.estimate(result, observations={'A-01': moved})
+        a01 = block['ids']['A-01']
+        self.assertEqual(a01['kind'][5], 'O')
+        self.assertEqual((a01['x'][5], a01['y'][5], a01['sigma'][5]), (round(((.4+.01)*105.0+2.0)/105.0, 4), .5, [.4, .4]))
+        self.assertEqual([a01['kind'][t] for t in range(20, 23)], ['O']*3)
+        self.assertEqual((a01['kind'][12], a01['x'][12]), ('U', None))
+        self.assertEqual(a01['kind'][40], 'I')
+        self.assertEqual(a01['sigma'][41], [.4, .4])
+        # Every other slot's observations are its people's.
+        for pid in ('A-02', 'A-03', 'A-04'):
+            for t in range(60):
+                if default['ids'][pid]['kind'][t] == 'O':
+                    self.assertEqual((block['ids'][pid]['kind'][t], block['ids'][pid]['x'][t], block['ids'][pid]['y'][t]),
+                                     ('O', default['ids'][pid]['x'][t], default['ids'][pid]['y'][t]), (pid, t))
+        # An override without sigmas takes the default observation sigma.
+        bare = imputation.estimate(result, observations={'A-01': (moved[0], moved[1], None)})
+        self.assertEqual(bare['ids']['A-01']['sigma'][5], [imputation.DEFAULT_SIGMA, imputation.DEFAULT_SIGMA])
+
+
+    def test_observation_is_what_the_timeline_observes(self):
+        result = override_result()
+        default = imputation.estimate(result)
+        for t, f in enumerate(result['frames']):
+            for p in f['people']:
+                if p['id'] not in default['ids']:
+                    continue
+                seen = imputation.observation(p, f)
+                kind = default['ids'][p['id']]['kind'][t]
+                if f['calibrated']:
+                    self.assertEqual(seen is not None, kind == 'O', (p['id'], t))
+                if seen is not None and kind == 'O':
+                    self.assertEqual((round(seen[0]/105.0, 4), round(seen[1]/68.0, 4)), (default['ids'][p['id']]['x'][t], default['ids'][p['id']]['y'][t]))
+                    self.assertEqual([round(seen[2], 1)]*2, default['ids'][p['id']]['sigma'][t])
+        a01 = result['frames'][5]['people'][0]
+        self.assertEqual(imputation.observation(a01, result['frames'][5], 100.0, 50.0), (a01['pitch'][0]*100.0, a01['pitch'][1]*50.0, 1.2))
+        self.assertIsNone(imputation.observation(result['frames'][21]['people'][0], result['frames'][21]))          # under the gate
+        self.assertIsNotNone(imputation.observation(result['frames'][45]['people'][1], result['frames'][45]))      # precise, small scene
+        self.assertEqual(imputation.observation({'pitch': [.5, .5], 'pitchConfidence': .9}, {})[2], imputation.DEFAULT_SIGMA)
+        self.assertIsNone(imputation.observation({'pitch': None, 'pitchConfidence': .9}, {}))
+
+
 if __name__ == '__main__':
     unittest.main()

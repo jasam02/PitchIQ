@@ -1725,6 +1725,185 @@ the pitch and the visibility, for analytics that must never mistake an estimate
 for a measurement. Results without a timeline (earlier versions) are drawn from
 their frames as before.
 
+## 2D replay stabilization
+
+**Why the markers bounced.** A player's pitch position is the foot pixel (the
+bottom-centre of the detector box, `soccer/geometry.py` `foot_point`) through
+the frame's homography. The box's bottom edge is about as noisy on every
+camera, but what a pixel is worth on the pitch is not: a low amateur or Veo
+camera sees the ground at a grazing angle, so a vertical pixel is worth several
+times what it is on a broadcast camera, almost entirely along the camera's
+line of sight. The markers therefore bounce towards and away from the camera,
+nearly in one dimension. Most of that comes from short box-extent events: the
+box loses the legs behind a nearer player, ends at an overlapping player's
+head, or splits into an upper body and legs; the bottom edge jumps while the
+top stays, and the player is thrown metres away from the camera for a fraction
+of a second. The renderer's short smoothing window cannot remove either. The
+calibration adds little high-frequency jitter: between anchors the final
+homography follows the camera motion exactly, but at an anchor frame
+(`registration.build_timeline`) it snaps to the anchor, and every player steps
+together (the median player up to 0.7 m on the amateur run, 1.1 and 2.3 m at
+Veo's two keyframes, 0.6 m on the broadcast run). A registration that
+crossfaded between anchors removed the snaps but also changed a tracklet
+decision (the registration feeds the tracking), so the registration is
+unchanged and the snaps are spread in the stabilized stream only
+(**Calibration snaps**, below).
+
+**What the stabilizer does.** `soccer/trajectory.py` `stabilize()` is a pure
+function of the finished result. Per internal identity (never the display
+label), and per anonymous `?` track, it takes the frames the timeline counts as
+observed, fits the run's own pixel noise of the box edges, turns it into a
+measurement uncertainty through the homography's Jacobian (so the depth
+direction keeps its larger error), repairs the foot of a box that lost its legs
+or reaches into a nearer player from the box top and the track's running height
+(flagged), and smooths each identity with a robust constant-velocity Kalman
+filter and Rauch-Tung-Striebel smoother whose process noise rises only for a
+plausible change of motion. Gaps up to the timeline's interpolation limit are
+bridged (kind `I`); a jump no player can run splits the trajectory (flagged)
+instead of being glided across. Identities are never mixed or averaged with
+teammates. See the module docstring for the constants.
+
+**Calibration snaps.** Before smoothing, the stabilizer finds the frames where
+the registration steps against the camera motion (the step of a ground point
+from the previous frame's homography, carried by the frame's motion row, to this
+frame's) by more than 3 cm and three times the steps around it, and spreads each
+step over a ramp instead (`step_events`, `spread_steps`): as long as the median
+person on the frame (everyone within 5 m of the lines, whatever their role: a
+correction never changes a ramp) needs to glide it at 0.2 m/s, 1 to 6 s, cut
+only by a keyframe, a camera cut or a registration start; overlapping ramps add,
+so no frame jumps. Whose anchor it is decides the direction. A user keyframe is
+shown exactly as registered: the step arriving at it is spread over the frames
+before it, the step leaving it (into the blend towards the next anchor) over the
+frames after it. A re-registration matched to a keyframe's view (directly or
+through a relay view: source `reregistered`, its root a keyframe; 10 frames of
+the broadcast run, 6 of Veo's, none of the amateur run's, whose re-registrations
+are rooted at the automatic midfield anchor) is trusted: its steps are spread
+the same way, but other ramps may run across it. Any other automatic anchor
+(paint, auto-midfield, a re-registration rooted at one) is one event with the
+steps within 0.2 s of it, whose net step is spread before it, so an anchor that
+jumps away and back disappears; a trusted anchor that does that (an outlier
+against both neighbours) is treated the same way, and so are the automatic steps
+right after a keyframe or trusted anchor, which go with its leaving step. A ramp
+its room squeezes turns the other way, or is not spread at all (a snap rather
+than a fast glide). The trust is a rule, not a measurement: a trusted frame no
+ramp crosses is shown as registered, good or bad (on the broadcast run, against
+the keyframes' clicked landmarks carried by the camera motion, 24.6 and 34.4 s
+agree with their keyframes to 0.12-0.13 m, 25.6 and 35.4 s are 0.39 and 0.42 m
+off). Over +-3 s around the broadcast run's four keyframes the displayed
+registration is worse than the raw one by more than 5 cm for 1.1 s and better
+for 8.4 s (mean landmark error 0.62 / 0.36 / 0.28 / 1.04 m raw, 0.60 / 0.26 /
+0.22 / 0.93 m displayed); 0.8 s of the 1.1 s lie in the 2 s before the paint
+anchors at 42.8 and 43.2 s, whose net step is spread before them. The ramps are
+display corrections of the 2D replay only: the raw positions and the
+registration are untouched.
+
+**Where it goes.** `soccer/stabilized.py` builds `result.stabilized` on the
+finished report (`pipeline.run`, once the summary lists the registration's
+anchors, whose sources and roots the step spreading reads: the block is the one
+built from the saved `result.json`), and `corrections.apply_result` builds it
+again after a correction (see below). It is a light module (numpy and
+the soccer modules), so the corrections and the tools build the block without
+loading torch; `pipeline.stabilized_block` and `pipeline.attach_stabilized` are
+the same functions under their older names. Per roster slot (the keys of
+`timeline.ids`) and frame: the normalized `x` / `y`, the `kind` (`O` / `I` from
+the stabilizer; `P` / `U`, and imputation's own `I`, from `imputation.estimate`
+run on the stabilized observations, so a prediction starts where the stabilized
+player was), the `sigma` along and across in metres and the observation weight
+`w` (1 normal, under 1 down-weighted, 0 rejected); the anonymous tracks with
+their team, position, kind and sigma; the stabilizer's `flags` (every repaired,
+down-weighted or rejected observation and every split, with the raw and the
+used position in metres), its fitted `noise` model, `summary` and `constants`.
+Imputation gets each stabilized observation with the raw observation's sigma
+at least, so a prediction's sigma grows as the timeline's does and turns `P` or
+`U` on the same frames (before that, 33, 12 and 0 frames of the amateur, Veo
+and broadcast runs of Oct 18 were `P` where the timeline says `U`; now none). On
+an unconfirmed slot (an identity beyond the team's ten outfield slots) the
+stabilizer bridges a gap of at most a second between two observations (`I`)
+where the timeline says `U`: the board's raw drawing joined exactly those gaps
+already (its one-second interpolation; the longest is 0.47 s on the amateur run
+and 0.83 s on the broadcast run), so nothing new is drawn. A frame without a
+trusted registration places nobody, as in the timeline.
+
+**What the block guarantees.** It keeps the timeline's observations: a frame
+the timeline counts as observed (a slot's `O`; an anonymous track's
+observation, by the same rule) that the stabilizer leaves unplaced (no
+position, not finite, or beyond the drawable pitch) is drawn as the raw
+observation and counted in `summary.stabilizer.rawFrames` (`rawSlots` names a
+slot the stabilizer did not return at all); there are none on the three Oct 18
+runs. More than 1 % of the observations drawn raw, or stabilized observations a
+median of more than 2 m from the raw ones (0.17, 0.29 and 0.10 m on the three
+runs), and the stabilizer is taken to have failed. A stabilizer that fails in
+one of these ways or raises, or a block that would not serialize, never fails
+the run or the correction: the block is left out, `summary.stabilizer` is
+`{status: failed, error, seconds}`, the console has the traceback, and the 2D
+view draws the raw positions as before. A result with no registered frame gets
+no block (`status: skipped`, with the reason). The same result gives the same
+block. Otherwise `summary.stabilizer` says where the noise model came from
+(`noise`: `fitted`, `kept`, `refitted`), the kinds over the roster slots, and
+under `slots` the roster slots' weighted observations, their rejected and
+down-weighted (weight under 0.5, as the flags) shares and how far the
+stabilized observations are from the raw ones (median, p90, max); `allTracks`
+is the stabilizer's own count over every track, the anonymous ones included,
+with the flags by reason; then the time and the block's size. In GPU runs of
+the amateur, Veo and broadcast regression windows (Oct 18, nothing else on the
+machine; the stabilizer before its last two fixes, which change the block by
+under 0.05 % in size), the block adds 7.8 %, 9.0 % and 3.9 % to
+`result.json` (2.3, 1.1 and 1.4 MB: the slots' columns most of it, then the
+anonymous tracks and the flags) and takes 3.4, 1.1 and 3.9 s of the runs' 303,
+121 and 232 s (the stabilizer itself 1.7, 0.7 and 1.6 s), with at most about
+90 MB of allocations while it runs; the raw output is identical to the
+committed code's, timings aside. The velocity is not stored (nothing drew it):
+leaving it out and writing whole weights as integers made the block 19 %, 12 %
+and 29 % smaller.
+
+**Corrections.** A correction rebuilds the block only for a run that has one, so
+it never switches the 2D view between raw and stabilized: a run analysed before
+the stabilizer (the three Oct 18 regression runs among them) has no block and is
+drawn the old way, corrected or not, until it is analysed again. The stabilizer
+fits its noise per run, so a correction that changes the observations (excluding
+the unconfirmed A-11 of the amateur run removes 232 of them) would fit it again
+and move people the correction did not touch (535 samples of the others by up to
+0.017 m there). The rebuild therefore hands the stabilizer the original block's
+model (`noise`): the pixel noise, both passes of the geometric height's fit
+(`geometric.firstPass`) and the footage's edge-fit level (`footage`), and the
+registration's snaps are measured at every person on the frame, whatever their
+role; with them the other identities' stabilized observations stay exactly where
+they were (eleven exclusions on the three regression runs of Oct 18, and twenty
+corrections of every kind in the verification: none moved), and only
+imputation's predictions for the corrected player's team change, as they do in
+the timeline. Each of the three was found missing on these runs: without the
+replayed passes handing a run its own model back moved 1072 Veo samples by up to
+0.25 m, without the level excluding B-08 moved 36 amateur samples by up to 0.08
+m, and with the snaps measured at the observations only excluding B-03 moved
+8048 by up to 0.23 m. `summary.stabilizer.noise` says `kept`, or `refitted` for
+a stabilizer without a `noise` parameter, which fits the model again (and moves
+the others as above).
+
+**Raw and stabilized stay apart.** `frames[].people[].pitch`, `pitchSigma` and
+`result.timeline` are untouched and stay what everything else reads: the player
+analytics, team shape, visibility, the tracklet passes, the server endpoints,
+the tools, the video overlay and the **Timeline CSV**. Only the 2D match view
+draws `result.stabilized`, when its `frameTimes` match the frames, joined by
+straight lines between frames with no further smoothing; a result without the
+block (earlier runs) is drawn the old way.
+
+**Comparing.** With **Debug positions** on, **Positions** chooses what the board
+draws: **Raw** (the drawing before stabilization), **Stabilized** (the
+default), or **Both** (the raw positions as small outlined markers, each tied by
+a thin line to the stabilized marker of the same person). `tools/jitter.py
+RESULT_JSON` measures the markers' jitter from a saved result, raw against
+stabilized, as the renderer draws them (steps, high-frequency residual,
+acceleration, reversals, jumps; identified players and `?` markers apart); it
+builds the block (`soccer/stabilized.py`) when the result has none.
+`tools/trajectory_bench.py` measures the smoothers' accuracy against the
+Metrica sample games seen through a simulated pole or broadcast camera with the
+measured pixel noise and box-extent events (downloaded data: run it with
+`python -I`). `tools/check_foot_truth.py RUN_DIR [--stabilized]` scores the
+raw box's foot pixel, the stored pitch position and the stabilized position of
+the marked players against hand-marked ground contacts
+(`tools/annotations/foot_positions.json`, on the three regression runs),
+separately for normal boxes and box-extent events.
+
 ## Correcting who someone is
 
 Click a person's box (or their label) on the video to change who they are: **Team A
@@ -1844,6 +2023,14 @@ ones) and the latest `preview.jpg`. The viewer downloads `result.json`:
   `sigma` (`[along, across]` metres or null); `method`, `constants`, `kinds`
   (shares). This is the analytics export: every coordinate says whether it was
   observed, interpolated or predicted.
+- `stabilized` (when the stabilizer ran; see "2D replay stabilization"): what
+  the 2D match view draws. `version`, `method`, `frameTimes[]` (the timeline's)
+  and, per roster slot, the timeline's columns plus `w` (the observation's
+  weight, null where the stabilizer placed nothing); `anonymous` (per local
+  track: `team`, `x`, `y`, `kind`, `sigma`), `flags[]`, `noise`, `summary`,
+  `constants`. `summary.stabilizer` says what it did, or why it is missing
+  (`failed` with the error, `skipped` with the reason). Not an analytics input:
+  the analyses read `timeline` and the frames.
 - `corrections`: the corrections applied to this result (who, to what, whether it
   is remembered). Corrected people carry `manual: true` and `correction` on every
   frame, and `summary.remembered` lists the identities a run started with from your

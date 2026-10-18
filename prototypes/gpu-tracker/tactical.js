@@ -6,14 +6,23 @@
    from the user's landmark calibration and carried through pans and zooms by the camera-motion estimate.
    The ball carries `pitch` the same way. Nothing here is derived from screen coordinates: without a
    calibration there are no positions, and none are invented.
+   When the result has a `stabilized` block (soccer/trajectory.py: per identity the foot-point noise of the
+   detector boxes filtered out of the observations, imputation's estimates made on the filtered ones), the
+   players are drawn from it, as given: those positions are smoothed once, there, and here they are only
+   joined by straight lines between frames. The raw positions stay for the developer comparison (Debug
+   positions: raw, stabilized or both).
 
    Structure, so that analytics overlays (trails, heat maps, formations, lanes) can be added later:
      Timeline  built once per result from the finalized frames and the final registry (teams and roles
                as the identity manager settled them, retroactive relabelling included): per identity,
-               time-sorted samples with a centred smoothing window; the ball likewise.
+               time-sorted samples with a centred smoothing window; the ball likewise; the stabilized
+               tracks, when the result has them, unsmoothed (built on first use: the analytics views load a
+               timeline for the pitch only).
      Sampler   positions at any video time: the observation of that frame, a linear interpolation across
-               a short gap, or the last position held briefly (fading) before the marker hides.
-     Renderer  canvas layers in order: pitch (cached), overlays (hooks), players, labels, ball, debug.
+               a short gap, or the last position held briefly (fading) before the marker hides (sampleAt);
+               a stabilized track by the straight line between its samples at every time (sampleStable).
+     Renderer  canvas layers in order: pitch (cached), overlays (hooks), players, labels, ball, debug
+               (the comparison 'both': the raw positions as crosses over the players).
    The <video> element is the only clock: the page calls view.render(video.currentTime) on every animation
    frame, and the view redraws only when the time or a setting changed. */
 (function (global) {
@@ -24,7 +33,7 @@ const PITCH = {length: 105, width: 68, penaltyDepth: 16.5, penaltyHalf: 20.16, g
 const RULES = {
   interpolateGap: 1.0,     // s: an identity observed on both sides of a gap this long is interpolated across it
   holdAfter: 0.6,          // s: after its last observation a marker stays (fading) this long, then hides
-  anonymousGap: 0.3,       // s: an unidentified person's observations are joined only across this much
+  anonymousGap: 0.3,       // s: an unidentified person's observations are joined only across this much (a stabilizer's bridge too)
   anonymousHold: 0.3,      // s: ... and held this long
   ballHold: 0.2,           // s: the ball tracker already predicts while hidden; hold only a little longer
   ballInterpolateGap: 0.15, // s: a lost ball is never bridged by a straight line; only a dropped frame or two is
@@ -36,6 +45,9 @@ const RULES = {
 };
 const DEFAULT_COLOURS = {A: '#b98cff', B: '#f6b564'};
 const NEUTRAL = '#8d99a6';   // a goalkeeper whose team is not known yet
+const POSITION_MODES = ['raw', 'stabilized', 'both'];   // the developer comparison of the drawn positions (Debug positions)
+const POSITIONS_KEY = 'pitchiq.tactical.positions';      // ... remembered per viewer, not per video
+const SOURCE = {O: 'OBSERVED', I: 'INTERPOLATED', P: 'PREDICTED'};
 
 // ---------- timeline ----------
 class Track {
@@ -80,9 +92,11 @@ class Track {
   }
 }
 
+function validXY(x, y) {
+  return Number.isFinite(x) && Number.isFinite(y) && x >= -RULES.outside && x <= 1 + RULES.outside && y >= -RULES.outside && y <= 1 + RULES.outside;
+}
 function validPosition(p) {
-  return Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) &&
-    p[0] >= -RULES.outside && p[0] <= 1 + RULES.outside && p[1] >= -RULES.outside && p[1] <= 1 + RULES.outside;
+  return Array.isArray(p) && p.length === 2 && validXY(p[0], p[1]);
 }
 
 /* The final registry decides who is drawn: team players and goalkeepers. Referees, merged (retired) and
@@ -144,12 +158,69 @@ function buildTimeline(result, info) {
   });
   for (const track of tracks.values()) if (block && !track.info.anonymous) track.smoothObserved(RULES.smoothWindow); else track.smooth(RULES.smoothWindow);
   ball.smooth(RULES.ballSmoothWindow);
+  // The stabilized positions, when the result has them for these frames (stableTracks), built on first use: the
+  // analytics and team-shape views load a timeline only for the pitch and its goal ends, and never draw a player.
+  // The tracks above stay as they are: they are the raw comparison.
+  const stableBlock = result.stabilized && result.stabilized.ids && Array.isArray(result.stabilized.frameTimes) &&
+    result.stabilized.frameTimes.length === frames.length ? result.stabilized : null;
+  let stable;
+  const stabilized = () => stable !== undefined ? stable : (stable = stableBlock ? stableTracks(stableBlock, frameTimes, roster) : null);
   let step = info && info.video && info.video.fps > 0 ? 1 / info.video.fps : 0;
   if (!step && frames.length > 1) step = (frames[frames.length - 1].time - frames[0].time) / (frames.length - 1);
   const calibratedFrames = calibrated.reduce((a, v) => a + v, 0);
   return {tracks, ball, frameTimes, calibrated, frameStep: step || .04, observed, estimated, anonymous, ballFrames, calibratedFrames, frames: frames.length,
           identities: [...tracks.values()].filter(t => !t.info.anonymous).length, hasTimeline: !!block, frames_: frames,
-          goalEnds: (result.tactical && result.tactical.goalEnds) || {}};
+          goalEnds: (result.tactical && result.tactical.goalEnds) || {},
+          get stable() { const s = stabilized(); return s ? s.tracks : null; },
+          get stableCounts() { return stabilized(); },   // what the stabilized tracks hold, counted as the raw timeline's counts are
+          get stableMethod() { return stabilized() ? String(stableBlock.method || '') : null; }};
+}
+
+/* The stabilized tracks: per roster identity the stabilizer's observations and bridges with imputation's estimates on
+   them, and the anonymous '?' tracks, kept exactly as given (they were smoothed once, by the stabilizer). A '?' is
+   joined across a hole only as far as RULES.anonymousGap allows, the stabilizer's bridge included: a bridged stretch
+   between two observations further apart is left out, so the marker is held briefly and hides, as without the block
+   (a '?' carries no kind on the board, and a bridge drawn would look observed). Returns the tracks and their counts
+   (identities, observed and estimated samples, '?' observations), or null when no track has a position. The frames
+   are given by their times (frameTimes: the same numbers, and much faster to read than the frames' own field). */
+function stableTracks(block, times, roster) {
+  const tracks = new Map(), counts = {identities: 0, observed: 0, estimated: 0, anonymous: 0, hasTimeline: true};
+  const add = (key, trackInfo, cols) => {
+    const kinds = cols.kind || [], xs = cols.x || [], ys = cols.y || [], sigmas = cols.sigma || [], weights = cols.w || [];
+    let shown = [];   // the frames with a position
+    for (let i = 0; i < times.length; i++) if (kinds[i] && kinds[i] !== 'U' && validXY(xs[i], ys[i])) shown.push(i);
+    if (trackInfo.anonymous) {
+      const kept = [];
+      for (let j = 0, last = -1; j < shown.length;) {   // last: the frame of the latest observation
+        if (kinds[shown[j]] === 'O') { last = shown[j]; kept.push(shown[j++]); continue; }
+        let next = j;
+        while (next < shown.length && kinds[shown[next]] !== 'O') next++;
+        if (last >= 0 && next < shown.length && times[shown[next]] - times[last] <= RULES.anonymousGap) kept.push(...shown.slice(j, next));
+        j = next;
+      }
+      shown = kept;
+    }
+    const track = new Track(trackInfo);
+    track.f = [];   // the frame of each sample: two samples of consecutive frames have nothing unknown between them
+    track.w = [];   // the stabilizer's weight of the observation (1 normal, below 1 down-weighted, 0 rejected; null: none)
+    for (const i of shown) {
+      const kind = kinds[i], s = sigmas[i], sigma = Array.isArray(s) ? Math.max(s[0], s[1]) : null, w = weights[i], n = track.t.length;
+      track.push(times[i], xs[i], ys[i], trackInfo.anonymous ? .3 : kind === 'O' ? 1 : .5, kind === 'P', kind === 'O' ? 1 : Math.max(.3, 1 - (sigma || 0) / 20), kind, sigma);
+      if (track.t.length > n) { track.f.push(i); track.w.push(Number.isFinite(w) ? w : null); }
+    }
+    if (!track.t.length) return;
+    tracks.set(key, track);
+    const observations = track.k.filter(k => k === 'O').length;
+    if (trackInfo.anonymous) counts.anonymous += observations;
+    else { counts.identities++; counts.observed += observations; counts.estimated += track.t.length - observations; }
+  };
+  for (const [id, cols] of Object.entries(block.ids)) if (roster.has(id)) add(id, roster.get(id), cols);
+  for (const [key, cols] of Object.entries(block.anonymous || {})) {
+    if (cols.team !== 'A' && cols.team !== 'B') continue;
+    const local = Number.isFinite(Number(key)) ? Number(key) : key;   // the raw '?' tracks carry the number
+    add('anon:' + local, {id: null, display: '?', team: cols.team, role: 'PLAYER', anonymous: true, track: local}, cols);
+  }
+  return tracks.size ? {tracks, ...counts} : null;
 }
 
 // ---------- sampler ----------
@@ -181,6 +252,54 @@ function sampleAt(track, t, frameStep, hold = RULES.holdAfter, gapLimit = RULES.
   }
   if (dt <= hold) return {x: track.x[k], y: track.y[k], confidence: track.c[k] * (1 - dt / hold), source: 'HELD', kind: kindOf(k), sigma: sigmaOf(k), alpha: 1 - .7 * dt / hold, quality: quality(k)};
   return null;
+}
+
+/* Position of one stabilized track at time t. Its samples are already smoothed, so they are drawn as given: at a
+   sample's time that sample, between two samples at most gapLimit apart the straight line between them at the
+   actual frame times, at every t (no snapping to the nearer frame as sampleAt does: that was a quarter-frame
+   stutter), and after the last sample of a run sampleAt's fading hold. Between two samples the kind is the pair's:
+   observations of consecutive frames draw as observed (no interpolated ring between frames), a prediction on either
+   side as predicted, anything else (a bridged sample, or frames without a position between the two) as
+   interpolated. Only the first sample of a run may show up to a quarter frame early: the video clock and the frame
+   times are rounded differently, and there is no earlier position to jump from. */
+function sampleStable(track, t, frameStep, hold = RULES.holdAfter, gapLimit = RULES.interpolateGap) {
+  const n = track.t.length, early = frameStep * .25;
+  if (!n || t < track.t[0] - early) return null;
+  const weightOf = (i) => track.w && Number.isFinite(track.w[i]) ? track.w[i] : null;
+  const sample = (i) => ({x: track.x[i], y: track.y[i], confidence: track.c[i], source: SOURCE[track.k[i]], kind: track.k[i], sigma: track.s[i],
+                          alpha: 1, quality: track.q[i], weight: weightOf(i)});
+  if (t <= track.t[0]) return sample(0);
+  let lo = 0, hi = n - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (track.t[mid] <= t) lo = mid; else hi = mid - 1; }
+  const k = lo, t0 = track.t[k], dt = t - t0;
+  if (dt === 0) return sample(k);
+  if (k + 1 < n) {
+    const t1 = track.t[k + 1], gap = t1 - t0;
+    if (gap <= gapLimit) {
+      const u = dt / gap, mix = (a, b) => a + (b - a) * u, k0 = track.k[k], k1 = track.k[k + 1];
+      const consecutive = track.f ? track.f[k + 1] === track.f[k] + 1 : gap <= 1.5 * frameStep;
+      const kind = k0 === 'P' || k1 === 'P' ? 'P' : k0 === 'O' && k1 === 'O' && consecutive ? 'O' : 'I';
+      const s0 = track.s[k], s1 = track.s[k + 1], w0 = weightOf(k), w1 = weightOf(k + 1);
+      return {x: mix(track.x[k], track.x[k + 1]), y: mix(track.y[k], track.y[k + 1]), confidence: mix(track.c[k], track.c[k + 1]), source: SOURCE[kind], kind,
+              sigma: s0 !== null && s1 !== null ? mix(s0, s1) : s0 !== null ? s0 : s1, alpha: 1, quality: mix(track.q[k], track.q[k + 1]),
+              weight: w0 !== null && w1 !== null ? Math.min(w0, w1) : w0 !== null ? w0 : w1};
+    }
+    if (t1 - t <= early) return sample(k + 1);
+  }
+  if (dt <= hold) return {...sample(k), confidence: track.c[k] * (1 - dt / hold), source: 'HELD', alpha: 1 - .7 * dt / hold};
+  return null;
+}
+
+// Every track's position at time t through the sampler, far players first so near ones draw on top.
+function place(tracks, t, frameStep, sampler) {
+  const players = [];
+  for (const track of tracks.values()) {
+    const anonymous = !!track.info.anonymous;
+    const s = sampler(track, t, frameStep, anonymous ? RULES.anonymousHold : RULES.holdAfter, anonymous ? RULES.anonymousGap : RULES.interpolateGap);
+    if (s) players.push({...track.info, ...s});
+  }
+  players.sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : 1));
+  return players;
 }
 
 function frameAt(timeline, t) {
@@ -219,6 +338,21 @@ class TacticalView {
       input.addEventListener('input', () => { this.colours[key === 'colourA' ? 'A' : 'B'] = input.value; this.persist(); redraw(); });
     }
     for (const key of ['labels', 'debug', 'lineup', 'footprint']) if (this.controls[key]) this.controls[key].addEventListener('change', () => { this.persist(); redraw(); });
+    // The developer comparison of the drawn positions: offered with Debug positions when the result has stabilized ones.
+    const positions = this.controls.positions;
+    if (positions) {
+      try {
+        const saved = localStorage.getItem(POSITIONS_KEY);
+        if (POSITION_MODES.includes(saved)) positions.value = saved;
+      } catch (e) { /* storage unavailable: the default */ }
+      positions.addEventListener('change', () => {
+        try { localStorage.setItem(POSITIONS_KEY, positions.value); } catch (e) { /* storage unavailable: the choice lasts for the page */ }
+        this.updateStatus();
+        redraw();
+      });
+    }
+    if (this.controls.debug) this.controls.debug.addEventListener('change', () => { this.syncPositionControl(); this.updateStatus(); });
+    this.syncPositionControl();
     if (typeof ResizeObserver === 'function') new ResizeObserver(() => this.resize()).observe(this.canvas);
     this.resize();
   }
@@ -246,20 +380,38 @@ class TacticalView {
   showDebug() { return this.controls.debug ? this.controls.debug.checked : false; }
   showLineup() { return this.controls.lineup ? this.controls.lineup.checked : false; }
   showFootprint() { return this.controls.footprint ? this.controls.footprint.checked : true; }
+  // Which positions are drawn: the stabilized ones when the result has them; with Debug positions on, the comparison
+  // may ask for the raw ones (the drawing before stabilization) or both.
+  positionSource() {
+    if (!this.timeline || !this.timeline.stable) return 'raw';
+    const choice = this.showDebug() && this.controls.positions ? this.controls.positions.value : 'stabilized';
+    return POSITION_MODES.includes(choice) ? choice : 'stabilized';
+  }
+  syncPositionControl() {
+    if (this.controls.positionsWrap) this.controls.positionsWrap.hidden = !(this.showDebug() && this.timeline && this.timeline.stable);
+  }
+  // The counts of the positions drawn (the status line, the debug summary): the stabilized tracks' unless the
+  // comparison asks for the raw ones.
+  drawnCounts() {
+    return this.positionSource() === 'raw' ? this.timeline : this.timeline.stableCounts;
+  }
 
   load(result, info) {
     this.timeline = result && result.frames ? buildTimeline(result, info) : null;
     if (info && info.videoKey) this.restore('pitchiq.tactical.' + info.videoKey);
+    this.syncPositionControl();
     this.pitchLayer = null;   // the board names the goal ends once the result says who defends them
     this.lastKey = null;
-    if (this.status) {
-      const tl = this.timeline;
-      this.status.textContent = !tl ? '' : !tl.calibratedFrames ? 'No pitch coordinates in this result.' :
-        `Pitch calibrated on ${Math.round(100 * tl.calibratedFrames / Math.max(1, tl.frames))}% of frames · ${tl.identities} players with positions` +
-        (tl.hasTimeline ? ` · ${tl.observed} observed and ${tl.estimated} estimated samples` : '') +
-        (tl.anonymous ? ` · ${tl.anonymous} observations of unidentified people shown as ?` : '') +
-        ` · ball placed on ${Math.round(100 * tl.ballFrames / Math.max(1, tl.frames))}% of frames`;
-    }
+    this.updateStatus();
+  }
+  updateStatus() {
+    if (!this.status) return;
+    const tl = this.timeline, c = tl && tl.calibratedFrames ? this.drawnCounts() : null;
+    this.status.textContent = !tl ? '' : !tl.calibratedFrames ? 'No pitch coordinates in this result.' :
+      `Pitch calibrated on ${Math.round(100 * tl.calibratedFrames / Math.max(1, tl.frames))}% of frames · ${c.identities} players with positions` +
+      (c.hasTimeline ? ` · ${c.observed} observed and ${c.estimated} estimated samples` : '') +
+      (c.anonymous ? ` · ${c.anonymous} observations of unidentified people shown as ?` : '') +
+      ` · ball placed on ${Math.round(100 * tl.ballFrames / Math.max(1, tl.frames))}% of frames`;
   }
 
   resize() {
@@ -322,24 +474,26 @@ class TacticalView {
     return layer;
   }
 
-  // Positions of everyone at time t, from the timeline (nothing is drawn without a pitch position).
+  // Positions of everyone at time t, from the timeline (nothing is drawn without a pitch position). With stabilized
+  // positions in the result the state says which were drawn, and the comparison 'both' adds the raw ones (state.raw).
   positions(t) {
-    const tl = this.timeline, players = [];
-    if (!tl) return {time: t, frame: -1, calibrated: false, players, ball: null};
-    for (const track of tl.tracks.values()) {
-      const anonymous = !!track.info.anonymous;
-      const s = sampleAt(track, t, tl.frameStep, anonymous ? RULES.anonymousHold : RULES.holdAfter, anonymous ? RULES.anonymousGap : RULES.interpolateGap);
-      if (s) players.push({...track.info, ...s});
-    }
-    players.sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : 1));   // far players first, so near ones draw on top
+    const tl = this.timeline;
+    if (!tl) return {time: t, frame: -1, calibrated: false, players: [], ball: null};
+    const mode = this.positionSource();
+    const players = mode === 'raw' ? place(tl.tracks, t, tl.frameStep, sampleAt) : place(tl.stable, t, tl.frameStep, sampleStable);
     const ball = sampleAt(tl.ball, t, tl.frameStep, RULES.ballHold, RULES.ballInterpolateGap);
     const frame = frameAt(tl, t);
-    return {time: t, frame, calibrated: frame >= 0 && !!tl.calibrated[frame], players, ball};
+    const state = {time: t, frame, calibrated: frame >= 0 && !!tl.calibrated[frame], players, ball};
+    if (tl.stable) {
+      state.positions = mode;
+      if (mode === 'both') state.raw = place(tl.tracks, t, tl.frameStep, sampleAt);
+    }
+    return state;
   }
 
   render(t, options = {}) {
     const selected = options.selected || null;
-    const key = `${t.toFixed(4)}|${this.colours.A}|${this.colours.B}|${this.showLabels()}|${this.showDebug()}|${this.showLineup()}|${this.showFootprint()}|${selected}|${this.timeline ? 1 : 0}|${this.canvas.width}`;
+    const key = `${t.toFixed(4)}|${this.colours.A}|${this.colours.B}|${this.showLabels()}|${this.showDebug()}|${this.showLineup()}|${this.showFootprint()}|${selected}|${this.timeline ? 1 : 0}|${this.canvas.width}|${this.positionSource()}`;
     if (key === this.lastKey) return this.last;
     this.lastKey = key;
     const g = this.geometry(), ctx = this.ctx;
@@ -350,6 +504,7 @@ class TacticalView {
     if (this.showFootprint()) this.drawFootprint(ctx, g, state);   // layer 2b: what the camera sees of the pitch
     for (const overlay of this.overlays) overlay(ctx, g, state);   // layer 3: future analytics
     this.drawPlayers(ctx, g, state, selected);                     // layers 4 and 5
+    if (state.raw) this.drawRaw(ctx, g, state, selected);          // the comparison 'both': raw positions on top
     this.drawBall(ctx, g, state);                                  // layer 6
     if (this.showDebug()) this.drawDebug(ctx, g, state);
     this.updateNotice(state);
@@ -423,6 +578,26 @@ class TacticalView {
     ctx.globalAlpha = 1;
   }
 
+  // The comparison 'both': the raw positions (the drawing before stabilization) as small crosses, each tied by a thin
+  // line to the stabilized marker of the same person. A cross, not a ring: on top of its own marker a ring would read
+  // as the interpolated marker's inner ring.
+  drawRaw(ctx, g, state, selected) {
+    const d = g.playerRadius * .32, width = Math.max(1, g.playerRadius * .18), key = (p) => p.anonymous ? 'anon:' + p.track : p.id, drawn = new Map();
+    for (const p of state.players) if (this.visible(p)) drawn.set(key(p), p);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const p of state.raw) {
+      if (!this.visible(p)) continue;
+      const [x, y] = g.toPx(p.x, p.y), s = drawn.get(key(p));
+      ctx.globalAlpha = p.alpha * (selected && selected !== p.id ? .35 : 1);
+      if (s) { const [sx, sy] = g.toPx(s.x, s.y); ctx.lineWidth = 1; ctx.strokeStyle = '#ffffffb3'; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(sx, sy); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(x - d, y - d); ctx.lineTo(x + d, y + d); ctx.moveTo(x - d, y + d); ctx.lineTo(x + d, y - d);
+      ctx.lineWidth = width + 2; ctx.strokeStyle = '#07131bcc'; ctx.stroke();   // a dark edge: visible on its own team's marker too
+      ctx.lineWidth = width; ctx.strokeStyle = p.team ? this.colours[p.team] : NEUTRAL; ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   drawBall(ctx, g, state) {
     const b = state.ball;
     if (!b) return;
@@ -446,20 +621,27 @@ class TacticalView {
       ctx.fillStyle = '#07131bd0'; ctx.fillRect(x, y, w, h);
       ctx.fillStyle = '#dbe6ef'; lines.forEach((l, i) => ctx.fillText(l, x + 4, y + 3 + i * (size + 2)));
     };
-    for (const p of state.players) {
+    // A stabilized sigma below 0.05 m (stored rounded, it may read 0) is small, not zero. (The raw ones print as before.)
+    const metres = (s) => state.positions === 'stabilized' && s < .05 ? '<0.05' : s.toFixed(1);
+    // The comparison 'both' is about the markers: per-player boxes would cover them.
+    for (const p of state.positions === 'both' ? [] : state.players) {
       const [x, y] = g.toPx(p.x, p.y);
       if (!this.visible(p)) continue;
-      block(x + g.playerRadius + 3, y - size, [p.anonymous ? `? track ${p.track}` : p.display, `x ${p.x.toFixed(3)} y ${p.y.toFixed(3)}`, p.source + (Number.isFinite(p.sigma) ? ` ± ${p.sigma.toFixed(1)} m` : ''),
+      block(x + g.playerRadius + 3, y - size, [p.anonymous ? `? track ${p.track}` : p.display, `x ${p.x.toFixed(3)} y ${p.y.toFixed(3)}`,
+            p.source + (Number.isFinite(p.sigma) ? ` ± ${metres(p.sigma)} m` : '') + (Number.isFinite(p.weight) ? ` · weight ${p.weight.toFixed(2)}` : ''),
             p.anonymous ? `no identity · position ${(Number.isFinite(p.quality) ? p.quality : 1).toFixed(2)}` : `identity ${p.confidence.toFixed(2)} · position ${(Number.isFinite(p.quality) ? p.quality : 1).toFixed(2)}`]);
     }
     if (state.ball) {
       const [x, y] = g.toPx(state.ball.x, state.ball.y);
       block(x + g.playerRadius, y + g.playerRadius * .5, ['BALL', `x ${state.ball.x.toFixed(3)} y ${state.ball.y.toFixed(3)}`, state.ball.source, `conf ${state.ball.confidence.toFixed(2)} · position ${(Number.isFinite(state.ball.quality) ? state.ball.quality : 1).toFixed(2)}`]);
     }
-    const tl = this.timeline;
+    const tl = this.timeline, c = tl ? this.drawnCounts() : null;
     const anonymous = state.players.filter(p => p.anonymous).length;
-    block(6, 6, [`video ${state.time.toFixed(2)} s · frame ${state.frame >= 0 ? state.frame : '-'} · ${state.calibrated ? 'calibrated' : 'no calibration here'}`,
-                 `${state.players.length - anonymous} players placed, ${anonymous} unidentified · ball ${state.ball ? state.ball.source : 'hidden'}${tl ? ` · timeline ${tl.identities} identities, ${tl.observed} observations` : ''}`]);
+    const summary = [`video ${state.time.toFixed(2)} s · frame ${state.frame >= 0 ? state.frame : '-'} · ${state.calibrated ? 'calibrated' : 'no calibration here'}`,
+                     `${state.players.length - anonymous} players placed, ${anonymous} unidentified · ball ${state.ball ? state.ball.source : 'hidden'}${tl ? ` · timeline ${c.identities} identities, ${c.observed} observations` : ''}`];
+    if (state.positions) summary.push(`positions ${state.positions}${state.positions === 'both' ? ' (×: raw, tied to the stabilized marker)' : ''}` +
+                                      (tl.stableMethod ? ` · ${tl.stableMethod.split(':')[0]}` : ''));   // the method's name, not its description
+    block(6, 6, summary);
   }
 
   updateNotice(state) {
@@ -474,5 +656,5 @@ class TacticalView {
   state() { return this.last; }
 }
 
-global.Tactical = {PITCH, RULES, buildTimeline, sampleAt, finalRoster, create: (options) => new TacticalView(options)};
+global.Tactical = {PITCH, RULES, buildTimeline, sampleAt, sampleStable, finalRoster, create: (options) => new TacticalView(options)};
 })(window);

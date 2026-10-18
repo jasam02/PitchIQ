@@ -1150,3 +1150,192 @@ low resolution).
 window (13 identities: three tracks changed kit within the first 8 s and each left a 2-6 s team B identity, B-? on
 screen; the identities they turned into were on other tracks meanwhile, so which labels were wrong is not known); the ball on the A_wrong recording (6% tracked, 93% UNKNOWN, unchanged); `tactical.js`
 uncertainty styling. Tests: 543 pass (1 skipped). Nothing committed.
+
+## Bouncy 2D markers: a stabilized replay stream (2026-10-18)
+
+**The complaint.** In the 2D Match view the player markers of the amateur runs bounced, reversed and jumped. The user's
+recordings were `bouncy.mp4` (the Veo 1-31 s run, source 2.29-15.01 s), `bouncy_2.mp4` (the amateur 3 118.2-182 s run,
+121.43-139.64 s) and `bouncy_p.mp4` (broadcast 0-60 s, 32.09-50.26 s, the good reference). The runs are
+`20261018-024007-2d6370`, `20261018-023229-8d0948` and `20261018-024712-3485a2`. All the measurements below are on GPU
+runs of the same three windows in a scratch directory: the committed code (control) and the final code.
+
+**Diagnosis** (five parallel measurements on the three runs and the recordings):
+
+1. The recordings show the data faithfully: markers detected in every recorded frame match a port of tactical.js run on
+   the result at the same time to 3 cm (median), and the renderer adds no timing jitter (refresh rate, phase, speed:
+   < 5%).
+2. The bounce is per-player foot-point noise: the box's bottom-centre through the frame's homography explains 99% of
+   the high-frequency pitch variance on the amateur and Veo runs (93-96% broadcast). The detector's pixel noise is
+   about the same on every camera (bottom edge ~ sqrt(0.4^2 + (0.011 h)^2) px), but the low cameras see the ground at
+   about 7 and 5 degrees (broadcast 19), so a vertical pixel is worth 0.32 / 0.29 m against 0.11 m, along the camera's
+   line of sight (8-12x the lateral metres per pixel): the markers bounce towards and away from the camera.
+3. Most of it is box-extent events: the bottom edge jumps by more than 15% of the box height while the top stays (the
+   box lost the legs, ends at a nearer player's head, splits into upper body and legs). They are 1.7-3.7% of the
+   samples and 47-73% of the high-frequency variance, last 0.1-0.7 s and throw the player 4-10 m away from the camera.
+   Occlusion and low scores multiply them; the amateur boxes overlap another person 4-5x as often as broadcast.
+4. The calibration contributes 6-10% of the wobble and about 1% of the high-frequency jitter (smoothing the homography
+   over 1 s changes nothing): between anchors the final H follows the camera motion exactly; at anchor frames it snaps
+   (the forward/backward blend is ~50/50 everywhere but the anchor frame takes 100% of the anchor), and every player
+   steps together (the median player up to 0.7 m on the amateur run, 1.1 and 2.3 m at Veo's two keyframes, 0.6 m on
+   broadcast; jitter.py counts 11, 10 and 10 frames where most players jump together).
+5. The renderer's 0.14 s centred average passes 89% of the 1-2 Hz bounce. It stops at every non-observed neighbour, so
+   the timeline's interpolated samples are anchored on raw edge observations. The quarter-frame snap adds a sub-pixel
+   30 Hz stutter, and the 'interpolated' ring flickered on every other display frame. The stored pitchSigma is not a
+   calibrated uncertainty (it assumes 3 px; rank correlation with the real error 0.16-0.33).
+6. Why broadcast is stable: a 19-degree view (a third of the metres per pixel), 4-5x fewer occlusions, 10-19x fewer box
+   events.
+
+**What was built** (README "2D replay stabilization" has the rules, `soccer/trajectory.py`'s docstring the constants):
+
+- `soccer/trajectory.py` `stabilize()`, a pure function of the finished result, per internal identity and per
+  anonymous `?` track. It takes:
+  - the timeline's observations;
+  - a pixel noise model fitted per run, carried to the pitch through the homography's Jacobian (the depth direction
+    keeps its larger error);
+  - box-event repair from the box top and a running or geometric height (flagged).
+
+  It then runs a robust (iteratively reweighted), adaptive constant-velocity Kalman filter with a Rauch-Tung-Striebel
+  smoother, using the future frames. The process noise rises only for a plausible change of motion. Gaps of up to 1 s
+  are bridged (kind I), and an impossible jump (an identity switch) splits the trajectory instead of being glided
+  across.
+- `soccer/stabilized.py` builds `result.stabilized` per roster slot, with imputation run on the stabilized
+  observations for P/U. It is failure-isolated: the block is left out, and the view draws raw, if more than 1% of the
+  observations would be drawn raw or the median correction exceeds 2 m.
+- Where it plugs in:
+  - `pipeline.run` attaches the block;
+  - `corrections.apply_result` rebuilds it, keeping the original noise model;
+  - `tactical.js` draws it with no further smoothing, plus the **Debug positions -> Positions** chip (Raw /
+    Stabilized / Both);
+  - `imputation.estimate` gained an observations override.
+- New tools:
+  - `tools/jitter.py`: RAW vs STABILIZED jitter, responsiveness against raw, and common-mode jumps;
+  - `tools/trajectory_bench.py`: the Metrica truth seen through simulated pole and broadcast cameras;
+  - `tools/check_foot_truth.py`, with `tools/annotations/foot_positions.json`: 99 hand-marked ground contacts on the
+    three runs.
+- The raw positions, `result.timeline` and every analytic are untouched, and so is the ball.
+
+**The calibration snaps.** A registration that crossfaded between anchors removed the snaps at the source, but on Veo
+it flipped one tracklet decision (552 frames) and so changed raw positions and analytics. It was reverted (the
+registration and tracking are the committed code's). The snaps are spread in the stabilized stream instead: each step
+standing out of the steps around it gets a ramp sized to glide the median player at 0.2 m/s (1-6 s), additive where
+ramps overlap.
+
+Five rounds of implement / verify / review on the three runs and synthetic probes settled whose anchor decides the
+direction. The measure was the keyframes' clicked landmarks carried by the camera motion.
+
+- **User keyframes** are shown exactly as registered: arriving steps are spread before them, leaving steps after.
+- **Automatic anchors** (paint, auto-midfield, re-registrations rooted at them) are grouped with their neighbouring
+  steps, and the net step is spread before them. An outlier anchor composes to nothing and disappears. Spread after,
+  they held a worse anchor for seconds: BC 43.2 s took A-02's hand mark from 0.22 to 0.65 m.
+- **Re-registrations rooted at a user keyframe** (BC 24.6 and 34.4 s agree with their keyframes to 0.12-0.13 m, the
+  blend after them is 0.41-0.46 m off) are trusted. They are spread like keyframes, but they are no bound for other
+  ramps (bounding Veo's 18.8 s keyframe ramp would snap every player 2.3 m).
+- A trusted anchor that disagrees with both neighbours is treated as an outlier.
+- Automatic steps right after a keyframe or a trusted anchor go with its leaving step.
+- A squeezed ramp turns the other way or snaps.
+
+Synthetic probes that still overshoot are listed as known limits in the docstring; none occurs on the three runs.
+
+**Four integration bugs found on the final GPU runs and in their review, fixed:**
+
+1. `pipeline.build_report` attached the block before `run()` wrote `summary.pitch.registration`. In production the
+   stabilizer therefore saw only the frames' own anchors: 11 of BC's 23, 3 of its 4 keyframes and none of the trusted
+   ones. The stored block differed from one rebuilt from the saved result in 9228 BC samples (up to 0.89 m), and BC's
+   turn rounding against raw was 0.17 instead of 0.14 m.
+
+   The block is now attached in `run()` after that line, and it equals the block rebuilt from `result.json` on all
+   three runs (0 samples differ). `test_pipeline_run` asserts the summary lists the registration when the stabilizer
+   is called.
+2. Handing a run its own noise model back (what a correction does) moved 1072 Veo samples by up to 0.25 m. The
+   geometric-height fit has two passes and a given model was used in both; the model now carries `firstPass`, and
+   both passes are replayed.
+3. A ramp's step was measured at the stabilizer's observations, so excluding someone changed the median: excluding
+   B-03 on the amateur run changed 7 ramps and moved 8048 samples of the others by up to 0.23 m. It is now measured
+   at every person on the frame within 5 m of the lines, whatever their role. That also makes the largest step (the
+   cancel test) include bystanders, which is stricter; no decision changed on the three runs.
+4. The box-edge fits scale their biweight by the footage's noise level, a median over every observation, which a
+   correction re-measured: excluding B-08 on the amateur run moved 36 samples of two others by up to 0.08 m. The model
+   now carries it (`footage`: the level, the fits' span and the frame step).
+
+The fitted path is bit-identical through 2-4 (the new keys aside). With them, eleven exclusions on the three runs
+move no observed sample of any other identity, and the kept model reproduces the fitted block exactly. A refit instead
+of the kept model would move 535 samples by at most 0.017 m (A-11 on the amateur run). The final blocks are the
+final code's rebuilt from the final GPU runs' results. The stored block equals the rebuilt one; fixes 2-4 change the
+stabilizer only, by at most 0.10 / 0.36 / 0.10 m. On BC the landmark sweep moves from 1.13 s worse / 8.40 s better
+to 1.13 / 8.37 s.
+
+**Results** (final code, from the final GPU runs. RAW is the drawing before the stabilizer (`tools/jitter.py`'s port
+of tactical.js at 88be58f); STABILIZED is the block as tactical.js now draws it. Players, observed samples, 60 Hz
+display. Each cell is RAW -> STABILIZED):
+
+| window | residual RMS cm | standing residual cm | reversals >= 25 cm /min | jumps > 1 m /min | > 10 m/s events /min | frames where most players jump together |
+|---|---|---|---|---|---|---|
+| bouncy.mp4 (Veo 2.29-15.01 s) | 44.8 -> 2.4 | 21.6 -> 2.6 | 58.5 -> 0.5 | 10.1 -> 0 | 45.4 -> 0 | 7 -> 0 |
+| bouncy_2.mp4 (amateur 121.4-139.6 s) | 26.8 -> 3.5 | 17.6 -> 3.1 | 55.6 -> 0 | 0 -> 0 | 22.9 -> 0 | 0 -> 0 |
+| bouncy_p.mp4 (broadcast 32.1-50.3 s) | 10.1 -> 2.4 | 7.2 -> 1.9 | 1.7 -> 0.3 | 0 -> 0 | 0.3 -> 0 | 6 -> 0 |
+| amateur 118.2-182 s | 27.4 -> 3.9 | 16.1 -> 2.7 | 53.4 -> 0.06 | 0.9 -> 0 | 24.1 -> 0.06 | 11 -> 0 |
+| Veo 1-31 s | 43.2 -> 3.4 | 20.4 -> 2.3 | 74.1 -> 0.3 | 7.9 -> 0 | 52.0 -> 0 | 10 -> 0 |
+| broadcast 0-60 s | 9.6 -> 2.7 | 6.6 -> 1.8 | 2.8 -> 0.13 | 0 -> 0 | 0.4 -> 0 | 10 -> 0 |
+
+Against the hand-marked feet. "Raw" is the stored position; each cell is median / p90 / max in metres. Normal boxes
+are measured against a reference through the frame's own homography, which the snap spreading moves away from by
+design.
+
+| run | class | raw | stabilized |
+|---|---|---|---|
+| amateur | all 45 | .52 / 3.61 / 4.71 | .39 / .77 / 1.07 |
+| | normal 26 | .35 / .57 / .77 | .39 / .69 / 1.07 |
+| | box events 13 | 3.09 / 4.60 / 4.71 | .37 / .81 / 1.05 |
+| Veo | all 36 | 3.82 / 9.37 / 12.13 | .42 / 1.33 / 1.67 |
+| | normal 17 | .34 / .57 / .72 | .38 / .95 / 1.67 |
+| | box events 18 | 7.96 / 10.58 / 12.13 | .47 / 1.22 / 1.41 |
+| broadcast | all 18 | .19 / .74 / 1.41 | .22 / .41 / .63 |
+| | normal 15 | .17 / .34 / .38 | .20 / .33 / .63 |
+| | box events 2 | 1.38 / 1.41 / 1.41 | .20 / .25 / .26 |
+
+The Metrica bench (truth known, game 2 held out, 3 seeds, 4 windows of 300 s, truth glitches excluded). RMSE in
+metres for raw / the old renderer / Savitzky-Golay 0.5 s / RTS with fixed noise / the stabilizer; the bench has no
+anchors, so the trusted-anchor rules are not exercised:
+
+| scenario | camera | RMSE: raw / renderer / SG 0.5 / RTS / stabilizer | sprinting | turn RMSE | standing step p50 cm |
+|---|---|---|---|---|---|
+| base | pole | .83 / .70 / .69 / .43 / .13 | 1.02 -> .16 | 1.10 -> .33 | 23.3 -> .54 |
+| base | broadcast | .20 / .17 / .17 / .15 / .06 | .24 -> .10 | .26 -> .19 | 7.7 -> .50 |
+| calibration steps | pole | 1.02 / .91 / .91 / .70 / .42 | 1.45 -> .60 | 1.32 -> .61 | 23.5 -> .76 |
+| calibration steps | broadcast | .26 / .24 / .23 / .22 / .14 | .34 -> .22 | .32 -> .24 | 7.8 -> .57 |
+| every event kind + drift | pole | 1.27 / 1.15 / 1.15 / .85 / .57 | 1.64 -> .69 | 1.90 -> .84 | 23.6 -> .85 |
+| every event kind + drift | broadcast | .31 / .28 / .28 / .26 / .17 | .37 -> .19 | .42 -> .29 | 7.8 -> .58 |
+
+The lag stays within a few ms on every camera.
+
+**What it costs on the broadcast run.** The tool measures turns and stops against the raw observations, and on the
+amateur runs the raw observations' local noise (0.18-0.33 m) dominates those numbers. On broadcast:
+
+- turns are rounded by 0.14 m median (0.06 m where no box event is near; raw 0.04);
+- stops by 0.05 m (raw 0.02);
+- normal-box foot marks are 0.03 m worse in median.
+
+That is the price of the 2D view holding still and never snapping.
+
+**Identity and tracking preserved.** The final code's GPU runs of the three windows are identical to the control's
+apart from timing fields: 2.06M / 0.82M / 2.59M result values, plus `identities.json`, `registration.json` and the
+event log byte-identical. The stabilizer never mixes identities.
+
+**Overhead** (the final GPU runs; nothing else on the machine):
+
+| run | block total | of which the stabilizer | share of the run | result.json growth | peak allocations |
+|---|---|---|---|---|---|
+| amateur | 3.4 s | 1.7 s | 1.1% | +2.3 MB (7.8%) | ~86 MB |
+| Veo | 1.1 s | 0.7 s | 0.9% | +1.1 MB (9.0%) | ~75 MB |
+| broadcast | 3.9 s | 1.6 s | 1.7% | +1.4 MB (3.9%) | ~89 MB |
+
+**Not done or not solved.**
+
+- Analytics stay on the raw positions; the spec's first stage only asked for the replay.
+- The registration's own snaps are not fixed at the source.
+- Veo's A-10 during its 1.5 s hip-cut spell (6.6-8.5 s): the repaired boxes put the player 0.5-1.4 m beyond the
+  mark (raw 7-12 m). The two full boxes inside the spell, right in raw (0.00 and 0.41 m), are outvoted by the repairs
+  and shown 1.4-1.7 m off; they are the stabilized normal-box maximum on Veo.
+- The amateur run's A-03 is split at 160.37 s, where the raw identity jumps 18 m (a tracker identity switch, left to
+  the tracker).
+- Tests: 653 pass (1 skipped). Nothing committed.

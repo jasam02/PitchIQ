@@ -9,7 +9,12 @@ A correction is stored per video in runs/<video>/corrections.json and does three
    from the untouched originals (result.raw.json, identities.raw.json, copied on the first
    correction) with every correction of the run applied in the order they were made, so a correction
    can always be undone exactly. Every frame of the person is relabelled, the roster, counts and
-   labels follow, and a CORRECTED BY YOU event is added.
+   labels follow, and a CORRECTED BY YOU event is added. The 2D replay's stabilized positions are
+   rebuilt for a run that has them (soccer/stabilized.py), with the run's own noise model where the
+   stabilizer takes one, so the people the correction did not touch keep their observed positions
+   exactly (imputation's estimates for the corrected player's team follow, as in the timeline). A run
+   analysed before the stabilizer has none, and a correction does not add them: the 2D view draws
+   that run the old way, corrected or not.
 2. Continuing identities from that run starts from the corrected identities.
 3. Every later run of the video starts with the corrected people as *manual identities*: their
    appearance gallery with the role and team you gave them, locked against automatic role changes and
@@ -28,7 +33,7 @@ import time
 import uuid
 from pathlib import Path
 
-from soccer import imputation, labels, roster, visibility
+from soccer import imputation, labels, roster, stabilized, visibility
 
 ROLES = ('player', 'goalkeeper', 'referee', 'excluded', 'left')   # 'referee' (older pages) means not a player: 'excluded'; 'left': substituted or sent off
 GROUPS = ('players', 'goalkeepers', 'referees')         # 'referees' only in results of earlier versions
@@ -177,8 +182,12 @@ def _targets(p, pid, track):
     return p.get('id') == pid if pid else (p.get('track') == track and not p.get('id'))
 
 
-def apply_result(result, corrections):
-    """Apply corrections (in order) to a result dict in place; returns it."""
+def apply_result(result, corrections, block=True):
+    """Apply corrections (in order) to a result dict in place (the untouched original, as originals() reads it); returns
+    it. The 2D replay's stabilized block is rebuilt on the corrected result when the original has one, with the
+    original's noise model; block=False leaves it out (and drops the original's): for a result that is only looked at,
+    never written or shown."""
+    original_block, noise = isinstance(result.get('stabilized'), dict), stabilized.noise_of(result)
     match = result.setdefault('match', {})
     for key in ALL_GROUPS:
         match.setdefault(key, [])
@@ -210,6 +219,18 @@ def apply_result(result, corrections):
         result['timeline'] = imputation.estimate(result, float(size.get('length', 105.0)), float(size.get('width', 68.0)))
         result['summary']['timeline'] = {'method': result['timeline']['method'], 'kinds': result['timeline']['kinds'], 'slots': len(result['timeline']['ids'])}
         result['summary']['visibility'] = visibility.annotate(result)
+        # The 2D replay's stabilized positions follow the corrected roster; the original run's block (other identities,
+        # other slots) never survives a correction. Only a run that has a block gets one again, so a correction never
+        # switches the 2D view between raw and stabilized; the original's noise model keeps the positions of everyone
+        # the correction did not touch (a refit on the changed observations would move them). A failure leaves the
+        # block out and never fails the correction.
+        if block and original_block:
+            video = result.get('video') or {}
+            result['summary']['stabilizer'] = stabilized.attach(result, video.get('width'), video.get('height'), noise=noise)
+        else:
+            result.pop('stabilized', None)
+            if not block:
+                result['summary'].pop('stabilizer', None)
     return result
 
 
@@ -617,7 +638,7 @@ def add(video_dir, run_dir, request):
     run = Path(run_dir).name
     mine = [c for c in items if c['run'] == run]
     result, snapshot = originals(run_dir)
-    apply_result(result, mine)
+    apply_result(result, mine, block=False)   # only to make the new correction against; rebuild() below writes the block
     if snapshot is not None:
         snapshot = apply_snapshot(snapshot, mine)
     c = make(result, snapshot, request, items, run)

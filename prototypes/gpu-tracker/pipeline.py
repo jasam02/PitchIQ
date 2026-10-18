@@ -23,7 +23,7 @@ import torch
 from ultralytics import YOLO, settings
 from torchvision.ops import nms
 from download_model import get_model
-from soccer import ball_path, imputation, labels, lens, pitch_model, registration, roster, tracklets, visibility
+from soccer import ball_path, imputation, labels, lens, pitch_model, registration, roster, stabilized, tracklets, visibility
 from soccer.identity import long_id
 from soccer.local import BotSortTracker
 from soccer.tracker import SoccerTracker, config_from
@@ -704,6 +704,12 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
     report['summary']['profile'] = run_profile(frames, tracker, ahead.near)
     report['summary']['pitch']['registration'] = tracker.registration
     report['summary']['ball']['localSearches'] = ball_searches
+    # The 2D replay's stabilized positions (soccer/stabilized.py), a block of their own on the finished result: the raw
+    # positions and the timeline stay what every analysis reads. Attached here, once the summary lists the registration's
+    # anchors (their sources and roots decide how the stabilizer spreads the registration's snaps: in build_report it
+    # saw only the frames' own anchors, 11 of the broadcast run's 23), on the result's own pitch size, so the block is
+    # what soccer/stabilized.py builds from the saved result.json. A failure never fails the run.
+    report['summary']['stabilizer'] = stabilized.attach(report, meta['width'], meta['height'])
     timing['report'] += clock()-t0
     report['summary']['timing'] = stage_timing(timing, len(frames), time.perf_counter()-started, rolled)
     snapshot = tracker.snapshot() | {'run': output.name, 'start': start, 'end': frames[-1]['time']}
@@ -1019,3 +1025,9 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
     summary['timeline'] = {'method': report['timeline']['method'], 'kinds': report['timeline']['kinds'], 'slots': len(report['timeline']['ids'])}
     summary['visibility'] = visibility.annotate(report)
     return report
+
+
+# The 2D replay's stabilized block is assembled in soccer/stabilized.py, which corrections.py and the tools import without
+# the detector stack; the older names stay for the callers that look for them here (tools/jitter.py).
+stabilized_block = stabilized.block
+attach_stabilized = stabilized.attach

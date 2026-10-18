@@ -170,13 +170,17 @@ def _one_direction(pos, sig, times, offsets, offset_var, centre, centre_var, for
     sigma = np.full((T, P), np.nan)
     age = np.full((T, P), np.nan)
     order = range(T) if forward else range(T-1, -1, -1)
+    # Only the motion estimate reads the velocity: the shipped estimate's methods ('last' and 'shift') skip it. That was
+    # three quarters of estimate()'s time (Oct 18 runs of the amateur and broadcast windows: 7.6 and 7.9 s, now 2.2 and
+    # 1.9 s) and changes no number (the same timeline, compared as JSON, on the amateur, Veo and broadcast runs).
+    moving = method not in ('last', 'shift', 'shiftrole')
     for i in range(P):
         last = None   # (time, position, sigma, velocity)
         last_centre = None   # (centre, centre variance) at the last observation, for the team-shift estimate
         for t in order:
             if np.isfinite(pos[t, i, 0]):
                 s = sig[t, i] if np.isfinite(sig[t, i]) else DEFAULT_SIGMA
-                last = (times[t], pos[t, i].copy(), s, _velocity(pos, sig, times, i, t, forward))
+                last = (times[t], pos[t, i].copy(), s, _velocity(pos, sig, times, i, t, forward) if moving else None)
                 last_centre = (centre[t].copy(), centre_var[t]) if np.isfinite(centre[t, 0]) else None
                 est[t, i], sigma[t, i], age[t, i] = pos[t, i], s, 0.0
                 continue
@@ -308,10 +312,36 @@ def _precise_on_small_scene(person, frame):
             and isinstance(sigma, list) and bool(sigma) and max(sigma) <= OBS_MAX_SIGMA)
 
 
-def estimate(result, size_length=105.0, size_width=68.0, min_confidence=.2):
+def observation(person, frame, size_length=105.0, size_width=68.0, min_confidence=.2):
+    """(x m, y m, sigma m) of a person's pitch position when estimate() takes it as an observation (on a frame with a
+    trusted registration, which the caller checks): a pitch position with pitchConfidence of at least min_confidence, or
+    precise on a small scene; the sigma is pitchSigma's larger value (DEFAULT_SIGMA without one). Else None.
+    soccer/stabilized.py reads the timeline's raw observations through it."""
+    if not isinstance(person.get('pitch'), list):
+        return None
+    if (person.get('pitchConfidence') or 0.0) < min_confidence and not _precise_on_small_scene(person, frame):
+        return None
+    s = person.get('pitchSigma')
+    return person['pitch'][0]*size_length, person['pitch'][1]*size_width, max(s) if isinstance(s, list) and s else DEFAULT_SIGMA
+
+
+def _override_sigma(value):
+    """An override's sigma on one frame: a number or [along, across] in metres (the larger, as for pitchSigma)."""
+    if isinstance(value, (list, tuple)):
+        value = max((v for v in value if v is not None and math.isfinite(v)), default=None)
+    return DEFAULT_SIGMA if value is None or not math.isfinite(value) else float(value)
+
+
+def estimate(result, size_length=105.0, size_width=68.0, min_confidence=.2, observations=None):
     """The `timeline` block of a finished result: per roster slot (team players and goalkeepers), per frame,
     the estimated normalized position, its kind and its sigma (metres), from the observed positions of the
-    segment; None where unknown. Pure: the same result gives the same timeline."""
+    segment; None where unknown. Pure: the same result gives the same timeline.
+
+    observations: optional {slot id: (xs, ys, sigmas)}, per frame in metres (None where not observed), used
+    for those slots instead of their people's pitch positions (soccer/stabilized.py hands in the 2D replay's
+    stabilized positions). The caller has decided what is observed, so the confidence gate is not
+    applied to them; a frame without a trusted registration still places nobody, and everything else is the
+    same. Slots not listed keep their people's positions; without it the timeline is the one above."""
     frames = result.get('frames', [])
     roster = result.get('roster') or {}
     slots = [s for s in roster.get('slots', []) if s.get('status') not in ('RETIRED', 'LEFT') and s.get('team') in ('A', 'B')]
@@ -326,18 +356,28 @@ def estimate(result, size_length=105.0, size_width=68.0, min_confidence=.2):
     pos = np.full((T, len(slots), 2), np.nan)
     sig = np.full((T, len(slots)), np.nan)
     calibrated = np.array([bool(f.get('calibrated')) for f in frames])
+    overridden = {index[pid] for pid in (observations or {}) if pid in index}
     for t, f in enumerate(frames):
         if not calibrated[t]:
             continue
         for p in f.get('people', []):
             k = index.get(p.get('id'))
-            if k is None or not isinstance(p.get('pitch'), list):
+            if k is None or k in overridden:
                 continue
-            if (p.get('pitchConfidence') or 0.0) < min_confidence and not _precise_on_small_scene(p, f):
+            seen = observation(p, f, size_length, size_width, min_confidence)
+            if seen is None:
                 continue
-            pos[t, k] = (p['pitch'][0]*size_length, p['pitch'][1]*size_width)
-            s = p.get('pitchSigma')
-            sig[t, k] = max(s) if isinstance(s, list) and s else DEFAULT_SIGMA
+            pos[t, k] = seen[:2]
+            sig[t, k] = seen[2]
+    for pid, (xs, ys, sigmas) in (observations or {}).items():
+        k = index.get(pid)
+        if k is None:
+            continue
+        for t in np.flatnonzero(calibrated[:min(T, len(xs), len(ys))]):
+            if xs[t] is None or ys[t] is None or not (math.isfinite(xs[t]) and math.isfinite(ys[t])):
+                continue
+            pos[t, k] = (xs[t], ys[t])
+            sig[t, k] = _override_sigma(sigmas[t] if sigmas is not None and t < len(sigmas) else None)
     counts = {k: 0 for k in KIND_NAMES}
     for team in ('A', 'B'):
         members = [k for k, s in enumerate(slots) if s['team'] == team]
