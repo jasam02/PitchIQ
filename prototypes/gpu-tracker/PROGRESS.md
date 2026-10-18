@@ -967,3 +967,186 @@ fresh ones. Timing was noisy (other processes on the CPU and GPU); alternating 6
 conditions: committed 282 / 299 s, this code 249 / 262 s (about 12%), the 10-50 s window 146 -> 133 s. Batch
 sizes 1, 2 and 4 were indistinguishable within the noise, so the default is 1 (detections bit for bit as
 before; the setting stays for other GPUs). Merged into gpu-tracking-new.
+
+## Team shape: width and depth, defensive line height, formation recognition (2026-10-17)
+
+Built on the team shape spec as a second Analytics category (Player / Team shape) with three tabs, from the saved
+result only (`soccer/team_shape.py`, `teamshape.js`, `/api/team-shape*`); nothing in the tracking, ball, re-ID or
+calibration changed. Everything uses the player analytics' validated samples (`analytics.Samples`), so identity
+corrections apply. The README's "Team shape analytics" section has the rules; the decisions the measurements forced:
+
+- **Templates from data, not from the name.** The 4-4-2, 4-2-3-1, 4-3-3, 3-5-2 and 3-4-3 templates are the mean role
+  positions of SoccerCPD's 864 real formation periods (Kim et al., KDD 2022, `role_records.csv`, symmetrized); the
+  others are composed from the same lines. A 4-4-1-1 template was dropped: it was the empirical 4-2-3-1 to within
+  noise. Tests use hand-placed layouts deliberately unlike the templates, so recognising them is not the templates
+  recognising themselves, and no formation accuracy is claimed (Metrica's sample games have no expert labels).
+- **Stabilization tuned on game 1, judged on game 2.** Raw 15 s window labels changed about 250 times an hour on
+  Metrica game 1; a Viterbi change-point search (switch penalty 0.45 of relative fit error, an "unclear" state at
+  0.42) brought that to 3 / 0 (team A) and 3 / 9 (team B) changes per half. On the held-out game 2: team A 4-4-2 for
+  61% / 59% of the halves (5 / 4 changes), team B 4-4-2 for 93% / 66% (0 / 1 change).
+- **Coverage before claims.** With a simulated 60 m side camera on Metrica a whole team was in view only about 0.1% of
+  the time; those complete and reliable widths and depths were within about 2 m (90th percentile 1.3 to 3.5 m), while
+  partial ones were 3.4 to 5.4 m short on average (90th percentile 11 to 16 m), so partial values are labelled, drawn
+  faded and kept out of the averages. Formation windows with 8 of 10 players agreed with the full-coverage label only
+  25 to 56% of the time, so a window may miss at most one player of the lineup.
+- **No silent side changes.** Without the half-time swap set, the second half of game 2 is reported as "direction
+  uncertain" for 99.9% of its time and no defensive line is measured there. The first version still measured 0 to 3%
+  of that half from the wrong goal: windows where the goalkeeper's side and the team ordering disagreed were
+  believed. The goalkeeper now decides when seen (on Metrica the two kinds disagreed in 1 to 3% of the windows, as
+  often under the right direction as under a wrong one), and a window without evidence next to a contradicted one is
+  not believed either. With the swap set nothing changed. Line heights on game 2 (median, from the own goal): team A
+  36.6 / 35.1 m, team B 36.7 / 36.2 m.
+
+An adversarial review workflow (six lenses, each finding verified) confirmed 50 defects in the first version, among
+them a crash when more players were eligible than a template has roles (a lineup of 9 with 10 on the pitch), the
+estimated mode calling samples with unpositioned players reliable, a coach's label on an "unclear" period not deciding
+the defensive unit, the depth fallback mixing both directions at a side swap, one lineup per video, the roster's
+"left" being ignored, races between the samples and the slim result in the server cache, settings writes that could
+wipe the file on Windows, and panel forms losing unsaved choices. The module was rewritten in one pass (v2) and every
+finding has a regression test (26, 23 of them failing on the first version; the other three are controls). A second
+review workflow (four reviewers, each new finding checked by a skeptic told to refute it) found 15 of the 50 fixes only
+partial and 24 new defects; all 12 new ones it verified reproduced, none was refuted. Among them: the defensive-unit vote
+tied for 5 s at every sustained role change and dropped both players; a coach's label on a 30 s period was outvoted by
+the neighbouring periods; a short stored label took over a long period; a split identity's stale prediction let the
+edge check call a width reliable; a flickering duplicate was never removed; a departed player's identity riding on his
+substitute removed the substitute; two estimates of one person counted twice. All 24 were fixed, each with a test that
+fails on the previous version (16 tests), and so were the partial fixes except the three listed below. `tests/test_team_shape.py` now has 90 tests; the full suite 358, 1 skipped.
+
+Real footage: the broadcast 0-60 s gives team A a clear 4-4-2 (width 39 m, depth 19 m, line 31 m from its goal, deepest
+defender 30 m) and team B a clear 3-4-3 (width 57 m, line 50 m, advancing); every metre is marked estimated (the pitch
+size is the standard assumption). The amateur clip (4 to 5 players of a team observed) and the Veo clip (pitch
+confidence under 0.5) report "not enough players observed" rather than a shape. All 20 saved results under `runs/`
+analyse without an error, in under a second each.
+
+Not done: possession phases (the result has no reliable possession record, so every shape is a positional structure
+over both phases, and the page says so); a drag on the chart to set the range; formation accuracy against expert
+labels; more than one lineup change per team (a second dismissal); keyboard navigation between the tabs (they carry
+tab roles, no arrow keys); custom range fields that start at the segment's bounds. A roster "left" mark does not lower the lineup by itself (it may be a substitution): a
+dismissal needs the lineup setting too.
+
+## Amateur footage, round 2: A_wrong.mp4, keyless pitch, small players, the foreground ball (2026-10-17/18)
+
+**The test clip.** `A_wrong.mp4` (Videos) is a 896x506 screen recording of the review page playing the user's run
+`runs/6dfdc88ec6f2d100/20261017-174228-1eaac0` of amateur 3 (118.2-182 s): the clip at t is the source at t + ~121.0 s
+(matched frame by frame: clip 27.0 s = source 148.07 s). All measurements below use the clean 1920x1080 source window
+(118.2-182 s, "awsrc"); the recording (old boxes, labels and ball ring burned in, a yellow colour cast, a quarter of
+the pixels) is a secondary low-resolution test only. The baseline run of the committed code on that window reproduces
+the user's run exactly (label agreement 1.000, identical metrics). Hand-made references (this round, by eye on zoomed
+source frames, +-3-4 px): `tools/annotations/ball_positions.json` (11 ball centres at 146.0-150.0 s, scored by
+`tools/check_ball_truth.py`) and `tools/annotations/pitch_landmarks.json` (halfway line, circle crossings, centre spot,
+far and near touchline points at 127.0 and 148.07 s, scored by `tools/check_pitch_truth.py`).
+
+**Audit before the changes** (five parallel code audits plus GPU probes on the source):
+
+1. Pitch calibration: per evidence tick the PitchDetector finds grass, paint ridges, Hough lines, boundaries and the
+   centre circle; a live model is anchored by the user's keyframes (>= 4 landmarks) and refined by matched paint; camera
+   motion (LK flow + RANSAC, phase-correlation fallback) carries it between ticks; SIFT re-registration returns to
+   keyframe views; offline, forward and backward chains between anchors are blended and every position is remapped.
+2. Semantic centre-circle geometry: the canonical model (field.py) has named landmarks and lines; the circle is found by
+   RANSAC ellipse fitting around the halfway line; the automatic midfield anchor existed but needed a touchline and was
+   refused on every amateur tick ("no touchline": 1255 times on amateur 3). Without user keyframes no frame of the A_wrong
+   window had pitch coordinates (calibrated share 0, the 2D view empty).
+3. Lens distortion: not a factor. The virtual follow camera's output is rectilinear (long halfway and touchline paint is
+   straight; lens.estimate_k finds no estimate); the curved black corners are the edge of the panorama's coverage.
+4. Why the projection failed: no anchor at all. On the recording also the colour cast (the fixed grass rule rejects the
+   yellowed turf on 26 of 30 seconds) and the burned-in boundary line taken as a touchline.
+5. Unresolved players: local tracks fragment (median 0.2 s), kit votes need crops of ~23 px or more, OSNet x0.25 does
+   not separate teammates (within-identity cosine .71-.75 vs best other teammate .77-.80), galleries stay empty under
+   ~35 px, far-tile detections (6x13 px) needed IoU > .5 on three frames to count (87% never did), and a kit-change
+   release kept the track's old birth time, which zeroed every same-team candidate and created wrong-team duplicates.
+6. The foreground ball (A_wrong 26-29 s = 146-150 s): (a) the YOLO ball class gives no candidate for the ~22 px ball at
+   the dribbler's feet from 146.0 to 148.8 s at any input size (640-1536) or crop scale, even at confidence .03;
+   (b) after 1.27 s hidden, the hidden-ball gate (converted to pixels with the scale of the last, near sighting: about
+   21 m at the far depth) accepted a single detection on the painted penalty arc 180 px away; (c) the lock moved to a
+   still 3-4 px speck far up the pitch; (d) that lock counted as mature and flagged the real ball OTHER_OBJECT for 2 s
+   when the detector found it again (149.2-151.2 s, detector up to .95); (e) the offline decoder deferred to the causal
+   lock. Result: 0 of 11 hand-marked ball frames on the ball, the path 500-980 px away from 148 s on.
+7. So the ball was missing from the candidates (146.0-149.2 s) and then rejected afterwards (149.2-151.2 s).
+8. Kept unchanged: the whole broadcast path: detector passes (960 + detail), BoT-SORT parameters, re-ID weights and
+   thresholds, the keyframe calibration and paint refinement, the offline ball decoder's costs, the 2D renderer, analytics.
+9. Modified: midfield.py, pitch.py, field.py, pitch_model.py, registration.py, geometry.py, goals.py; tracker.py,
+   pipeline.py, local.py, relevance.py; ball.py, ball_path.py, new ball_proposals.py; identity.py, tracklets.py, labels.py,
+   roster.py; imputation.py, visibility.py; index.html (debug overlay); tools (diagnose, compare, counts, check_*_truth).
+10. Expected cost: none on broadcast (every amateur behaviour is behind a gate that is closed there); on amateur
+   footage a 640 people pass on small-scene frames, the pinhole solve while there is no model (~30 ms per evidence
+   tick), the classical ball proposer while the ball is unseen (~1-2 ms per frame).
+
+**What was built** (the README's "Amateur footage (small scenes)" section has the rules and constants): the gates
+(`small_scene`, `auto_landmarks`, `pitch_provisional`); a pinhole midfield anchor for runs without keyframes (circle on
+the grass, halfway line, people's heights, paint and touchlines through the solved camera; capped MEDIUM unless
+independent paint confirms it); far-tile rows confirmed by foot point, buffered IoU for tiny boxes, a near pass that
+fills in missed near players; the kit-change re-birth (ungated bug fix), size-aware kit votes, kit-consistent galleries,
+slots by kit establishment, a small-fragment rule, provisional persons, the kit change rejoined offline, an impossible
+side vetoing an offline connection (ungated bug fix); classical near-feet ball proposals, the hidden-ball gate at the
+candidate's depth, a provisional lock, the decoder's still-lock audit and review rules; the stored-H sign fix
+(`registration.homography_json`, ungated: Veo's 272 misoriented frames) and visibility's re-orientation of older
+results; `tools/diagnose.py`, `check_ball_truth.py`, `check_pitch_truth.py` and the "Registered pitch (final)" overlay.
+P7 (temporal accumulation of landmarks before the first anchor) was not done; a Hough-line deduplication was measured
+and gave nothing, so it was not kept; `tactical.js` was not changed.
+
+**A regression the measurements caught, and its fix.** The first GPU batch with every change (identified share on the
+source window .761 -> .70, local tracks 357 -> 524; Veo .406 -> .379 with 30 frames of a 15 m identity jump) was
+traced by ablation on the source window (each small-scene part switched off by monkeypatching in a scratch runner, the
+same seed): the near pass merged into the joint suppression was the cause (off: local tracks 524 -> 336, identified
+.70 -> .741, ID switches 32 -> 28, ball truth 10/11), while switching off the buffered boxes (.673, ID switches 42) or
+the foot-point rules for tiny tile rows (.659, ID switches 49) made things worse. On 38 sampled frames the 640 pass
+replaced the main passes' box on about three people per frame and doubled about two more (24-60 px), and at Veo
+20.7 s it drew one box over two crossing players that a local track then followed. It now only fills in people of 60 px
+or more that no main-pass row covers 30% of (`pipeline._fill_in`): the 148.0 s ball carrier (60 x 102 px, no main-pass
+row) is kept. On amateur 3 0-60 s (gate closed) B-10 jumped 14.5 m in 1 s: the kit-change fix rightly merged the
+duplicate B-11 into B-10, which exposed an older weakness of the offline connector (a fragment scored by the better of
+its two sides: "before 0.09, after 0.92" was connected at 0.94). An identity whose sighting on either side is beyond
+12 m/s of the gap is now not that fragment (`tracklets.SIDE_MAX_SPEED`, ungated: broadcast identical). A step that
+would retire the short identity a track had before a kit change into the later one when the crops look alike was built
+and tested, but its guards rightly refused all three cases on the source window (the later identity was on another
+track meanwhile, or the earlier one was), so it was removed.
+
+**Results** (final code; base = committed code; `after1` = the first batch with every change; scratch runs):
+
+| window | metric | base | after1 | final |
+|---|---|---|---|---|
+| amateur 3 118-182 s (keyless) | calibrated frames | 0% | 100% | 100% (all MEDIUM: one automatic anchor at 118.2 s, 63 re-registrations, 1 paint anchor) |
+| | identified share / drawn identified per frame | .761 / 0 | .70 / 14.9 | .804 / 16.2 |
+| | identified 0-30 / 30-40 / 40-60 / 60-90 px | .81 / .83 / .88 / .91 | .79 / .82 / .84 / .85 | .86 / .86 / .93 / .86 |
+| | local tracks / unresolved fragments / ID switches | 357 / 72 / 33 | 524 / 123 / 32 | 344 / 69 / 29 |
+| | identities A / B (cap 11) | 13 / 11 | 11 / 13 | 11 / 13 |
+| | ball truth (11 marks 146-150 s) | 0 hit | 9 hit | 10 hit (the miss is the hidden ball at 146.4 s, 102 px) |
+| | pitch truth (marks at 127 and 148.07 s) | none (no calibration) | median 3.0 px / 0.76 m | median 2.4 px / 0.69 m, max 5.6 m |
+| amateur 3 0-60 s (keyframes) | identified / new identities / B identities | .684 / 23 / 12 | .688 / 21 / 10 | .687 / 21 / 10 |
+| | identity jumps > 12 m/s (frames) | 36 | 48 | 36 |
+| Veo 1-31 s (keyframes; small scene from 12.8 s) | identified / local tracks / ID switches | .406 / 272 / 14 | .379 / 325 / 19 | .419 / 270 / 15 |
+| | identified 60-90 px / jumps > 12 m/s | .418 / 1 | .399 / 30 | .495 / 1 |
+| broadcast 0-60 s (keyframes) | `tools/exact_diff.py` vs base | | | identical people, identities, labels, pitch positions, ball, calibration, roster, tracks; one extra PITCH MIDFIELD log line |
+| broadcast 0-60 s, no keyframes | calibrated frames | 0% | 100% | 100% (all MEDIUM) |
+| | vs the keyframe run, per frame (median / p90) | | 0.51 / 1.03 m | 0.51 / 1.03 m |
+| | at the user's 4 keyframes' clicks (median, max) | | | 0.24-0.71 m, 1.0-2.9 m |
+| A_wrong recording 0-30 s | calibrated / identified / local tracks | 0% / .612 / 159 | 100% / .778 / 169 | 100% / .833 / 121 |
+| | ball tracked | 6.1% | 6.1% | 6.1% |
+
+The broadcast log line: the HEAD code run twice in two processes differs from itself the same way (108 frames of the
+internal circle debug values, one more PITCH MIDFIELD line, every output identical), as do two runs of this code; the
+detector's stored outputs and the camera motion are identical, so the variation sits below the stored precision
+(sub-pixel detector differences feeding the camera-motion masks, the tracked paint and the circle's pixel set). It is
+the shipped pipeline's run-to-run noise, not a change.
+
+On the source window the pitch is MEDIUM everywhere: the far touchline passes 1.0-5.7 px (0.8-5.6 m: about 0.8 m per
+pixel there) from the marks and the halfway line's far end is 4.5-4.7 px (2.5-3.8 m) off, the circle crossings and the
+centre spot are within 2.2 px (0.15-0.6 m), the halfway line within 3 px (0.16 m); the near
+touchline runs parallel to its paint about 1 m inside it (30-140 px that close to the camera): the assumed 68 m width,
+where the anchors measure 69.6-70.6 m. Without keyframes broadcast stays MEDIUM too (the P agent's CPU replay had
+predicted 56% HIGH; the GPU run has none).
+
+**Timing** (RTX 5080; cs2.exe shared the GPU from about 01:30 on 2026-10-18, so the final batch's broadcast, Veo and
+A_wrong jobs ran 2-3x slow and are not used): broadcast with keyframes 191 / 178 / 177 ms per frame online (base,
+after1, a second run of the HEAD code): no cost. Online ms per frame base -> final: broadcast without keyframes 174 ->
+155, amateur 3 0-60 s 166 -> 160, the source window 237 -> 241 (+2%: the near pass +12 ms detection, ball crops
++7 ms, far tiles -12 ms) plus 11 s offline instead of 4 (the pitch chains and the identity pass on a calibrated run);
+Veo 196 -> 215 in after1 (the final code was only measured with the GPU shared); the A_wrong recording 120 -> 285 in
+after1 (now calibrated, its far band runs the far tiles on almost every frame, and the ball tiles are scaled for the
+low resolution).
+
+**Not done or not solved.** P7 (accumulating landmarks over time before the first anchor); a learned field width
+(the measured width is recorded, H keeps 68 m); HIGH confidence on keyless footage; team B over its cap on the source
+window (13 identities: three tracks changed kit within the first 8 s and each left a 2-6 s team B identity, B-? on
+screen; the identities they turned into were on other tracks meanwhile, so which labels were wrong is not known); the ball on the A_wrong recording (6% tracked, 93% UNKNOWN, unchanged); `tactical.js`
+uncertainty styling. Tests: 543 pass (1 skipped). Nothing committed.

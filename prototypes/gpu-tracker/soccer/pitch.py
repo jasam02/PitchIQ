@@ -29,6 +29,18 @@ LINE_MAX_AGE = 3.0       # seconds a boundary line is carried with a reliable ca
 LINE_MAX_AGE_LOOSE = .8  # ... when the camera estimate is unreliable
 FINE_W = 320             # grass sampling grid width (cells)
 LINE_W = 640             # paint / line analysis width (pixels)
+CIRCLE_EDGE = .02        # frame heights: paint this close to the grass region's top or bottom edge is left out of the on-grass circle search
+CIRCLE_MIN_DENSITY = .6  # inlier pixels per pixel of arc seen (mask resolution) an on-grass circle needs: a long thin scatter is not paint
+LOW_RES_HEIGHT = 720     # source rows below which a frame whose turf the fixed grass rule rejects learns the turf colour instead (ground_colour)
+GROUND_FROM = .45        # frame heights: the turf colour is learned below this row
+GROUND_HUE = (15, 55)    # OpenCV hue (0-180) of plausible turf: yellow-olive to blue-green (A_wrong 21-39, natural grass 35-50)
+GROUND_MIN_SAT = 40      # of 255: grey concrete, sand and snow are not turf
+GROUND_VALUE = (40, 230)
+GROUND_VALUE_RATIO = 2.2 # brightness range around the turf's (shadows, mowing stripes)
+GROUND_HUE_TOL, GROUND_SAT_TOL = 6, 30   # at least this tolerance around the learned hue and saturation
+GROUND_SHARE = .5        # of the lower frame that the learned colour must cover
+CIRCLE_CENTRE_TOLERANCE = .25 # an on-grass circle's centre lies this close to the halfway line in the ellipse's normalized coordinates (true circles: <= .07)
+CIRCLE_MAX_SPAN = .6     # frame widths: a straight marking longer than this is a line, never an arc of the circle (the near arc of amateur 3's circle at 22.3 s spans .47)
 
 
 @dataclass
@@ -102,17 +114,46 @@ def _grass(r, g, b):
     return (g > 30) & (g > r*.95) & (g > b*1.12) & (g-b > 12)
 
 
-def line_masks(frame):
+def ground_colour(frame):
+    """The turf's colour learned from the frame, for footage whose turf the fixed grass rule rejects (a screen
+    recording's colour cast puts red above green: A_wrong's turf is BGR 72/104/115): the median hue,
+    saturation and value of the lower part of the frame (a match view shows turf there) with their spread,
+    or None when that colour is not a plausible turf (hue, saturation, brightness) or covers too little of
+    the lower frame."""
+    h = frame.shape[0]
+    hsv = cv2.cvtColor(frame[int(GROUND_FROM*h):], cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.int16)
+    if not len(hsv):
+        return None
+    centre = np.median(hsv, axis=0)
+    spread = np.median(np.abs(hsv-centre), axis=0)
+    hue, sat, val = centre
+    if not (GROUND_HUE[0] <= hue <= GROUND_HUE[1] and sat >= GROUND_MIN_SAT and GROUND_VALUE[0] <= val <= GROUND_VALUE[1]):
+        return None
+    colour = (float(hue), float(sat), float(val), max(GROUND_HUE_TOL, 3*float(spread[0])), max(GROUND_SAT_TOL, 3*float(spread[1])))
+    if _ground(hsv.reshape(1, -1, 3), colour).mean() < GROUND_SHARE:
+        return None
+    return colour
+
+
+def _ground(hsv, colour):
+    """Pixels (an HSV image, int16) of a learned ground colour."""
+    hue, sat, val, hue_tol, sat_tol = colour
+    return ((np.abs(hsv[..., 0]-hue) <= hue_tol) & (np.abs(hsv[..., 1]-sat) <= sat_tol) &
+            (hsv[..., 2] >= val/GROUND_VALUE_RATIO) & (hsv[..., 2] <= val*GROUND_VALUE_RATIO))
+
+
+def line_masks(frame, ground=None):
     """Grass and white-paint masks at <= 640 px width. Paint is a thin bright ridge: the top-hat of the
     darkest colour channel (white is bright in all three, grass is dark in red and blue), so a 1-2 px
-    far touchline blended with grass still stands out, while wide white advertising boards do not."""
+    far touchline blended with grass still stands out, while wide white advertising boards do not.
+    ground: a learned turf colour (ground_colour) that replaces the fixed grass rule."""
     h, w = frame.shape[:2]
     fw = min(FINE_W, w)
     fh = max(2, min(h, round(fw*h/w)))
     small = cv2.resize(frame, (fw*2, fh*2), interpolation=cv2.INTER_AREA)
     b8, g8_, r8 = cv2.split(small)
     b, g, r = b8.astype(np.int16), g8_.astype(np.int16), r8.astype(np.int16)
-    grass = _grass(r, g, b)
+    grass = _grass(r, g, b) if ground is None else _ground(cv2.cvtColor(small, cv2.COLOR_BGR2HSV).astype(np.int16), ground)
     low = cv2.min(cv2.min(b8, g8_), r8)
     high = cv2.max(cv2.max(b8, g8_), r8)
     spread = high.astype(np.int16)-low
@@ -526,9 +567,17 @@ class PitchDetector:
             self.previous = empty
             return empty
         masks = line_masks(frame)
-        self.masks = masks
         f = sample_frame(frame, masks)
         r = grass_region(f)
+        if r['count'] < r['w']*r['h']*MIN_GRASS and h < LOW_RES_HEIGHT:
+            # A low-resolution frame (a screen recording) whose turf the fixed rule rejects: the turf colour
+            # learned from the frame stands in. Never on footage 720 px tall or more.
+            colour = ground_colour(frame)
+            if colour is not None:
+                masks = line_masks(frame, colour)
+                f = sample_frame(frame, masks)
+                r = grass_region(f)
+        self.masks = masks
         if r['count'] < r['w']*r['h']*MIN_GRASS:
             self.previous = empty
             return empty
@@ -697,13 +746,19 @@ def _off_segments(px, py, segs, w, h, halfway=None, tol=2.5):
     return keep
 
 
-def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=300):
+def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=300, min_density=None, centre_tolerance=None):
     """Centre-circle paint around the halfway line: ridge pixels that one ellipse explains. Candidate
     ellipses come from the connected arcs of the paint that is not on a straight segment (single arcs
     and unions of two or three, since players and the halfway line break the circle) and from random
     five-point samples; the one with most inliers is refit on them. Returns {'points': normalized (x, y)
     inliers, 'ellipse': ((cx, cy), (major, minor), angle) normalized, 'coverage': share of the ellipse's
-    arc seen, 'inliers'} or None. A thin ellipse that only explains a straight line is rejected."""
+    arc seen, 'inliers'} or None. A thin ellipse that only explains a straight line is rejected; with
+    min_density, so is one whose inliers (all the window's, not the max_points subsample's) are spread
+    thinner than that many per pixel of the arc seen, and
+    with centre_tolerance one whose centre lies farther than that from the halfway line in the ellipse's
+    own normalized coordinates (the ellipse a unit circle): the circle's centre is on the line, and its
+    image is off the ellipse's centre only by the perspective shift (renders of broadcast, pole and tripod
+    cameras: at most .07)."""
     if halfway is None:
         return None
     w, h = masks['w'], masks['h']
@@ -724,18 +779,22 @@ def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=3
     if len(px) < 40:
         return None
     rng = np.random.default_rng(seed)
+    window_pts = None
     if len(px) > max_points:
+        if min_density is not None:
+            window_pts = np.c_[px*w, py*h].astype(np.float32)   # the density is counted on every pixel, not on the subsample
         pick = rng.choice(len(px), max_points, replace=False)
         px, py = px[pick], py[pick]
     pts = np.c_[px*w, py*h].astype(np.float32)
     aspect = w/h
 
-    def inliers_of(ellipse, tol=2.5):
+    def inliers_of(ellipse, tol=2.5, points=None):
         (cx, cy), (ma, mi), angle = ellipse
         if not np.isfinite([cx, cy, ma, mi, angle]).all() or min(ma, mi) < 8 or max(ma, mi) > .8*w or min(ma, mi)/max(ma, mi) < .07:
             return None   # a sliver along a painted line is not a circle, however many pixels it touches
+        points = pts if points is None else points
         theta = math.radians(angle)
-        dx, dy = pts[:, 0]-cx, pts[:, 1]-cy
+        dx, dy = points[:, 0]-cx, points[:, 1]-cy
         u = (dx*math.cos(theta)+dy*math.sin(theta))/(ma/2)
         v = (-dx*math.sin(theta)+dy*math.cos(theta))/(mi/2)
         r = np.hypot(u, v)
@@ -803,6 +862,15 @@ def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=3
         # The circle's centre lies on the halfway line (its image is close to the line); the arc must be long.
         if line_distance((cx/w, cy/h), halfway['a'], halfway['b'], aspect) > .12*max(ma, mi)/w*aspect+.01:
             return None
+        if centre_tolerance is not None:
+            t = math.radians(angle)
+            ends = []
+            for px_, py_ in ((halfway['a'][0]*w, halfway['a'][1]*h), (halfway['b'][0]*w, halfway['b'][1]*h)):
+                dx, dy = px_-cx, py_-cy
+                ends.append(((dx*math.cos(t)+dy*math.sin(t))/(ma/2), (-dx*math.sin(t)+dy*math.cos(t))/(mi/2)))
+            (ux, uy), (vx, vy) = ends
+            if abs(ux*vy-uy*vx)/max(math.hypot(vx-ux, vy-uy), 1e-9) > centre_tolerance:
+                return None
         theta = math.radians(angle)
         dx, dy = pts[inl, 0]-cx, pts[inl, 1]-cy
         u = (dx*math.cos(theta)+dy*math.sin(theta))/(ma/2)
@@ -811,6 +879,14 @@ def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=3
         coverage = len(bins)/24
         if coverage < .33:
             return None
+        if min_density is not None:
+            a, b = ma/2, mi/2
+            perimeter = math.pi*(3*(a+b)-math.sqrt((3*a+b)*(a+3*b)))   # Ramanujan
+            # On the window's every pixel: on the subsample the count would shrink with the unrelated paint
+            # around the circle (amateur 3: 10-28 % fewer), and clutter would decide the density.
+            count = int(inl.sum()) if window_pts is None else int(inliers_of(refined, points=window_pts).sum())
+            if count < min_density*coverage*perimeter:
+                return None
         return {'points': [(float(x/w), float(y/h)) for x, y in pts[inl]], 'ellipse': ((cx/w, cy/h), (ma/w, mi/h), float(angle)),
                 'coverage': round(coverage, 3), 'inliers': int(inl.sum())}
     for _, ellipse in candidates[:8]:
@@ -820,12 +896,37 @@ def circle_points(masks, halfway, segs=(), max_points=1500, seed=0, iterations=3
     return None
 
 
-def find_circle(masks, model, tries=3):
+def circle_paint(masks, model, boxes=()):
+    """The masks with the ridge restricted to paint a centre circle can be: on the grass (grass on both
+    sides along one axis), inside the grass region and not at its top or bottom edge (boards, a running
+    track, the next field), and outside people's boxes (white shirts). The straight paint stays: the near
+    and far arcs of a distant circle are straight enough for the line detector, and removing them (as the
+    shipped search does) left only the background to fit (amateur 3, 118-182 s)."""
+    w, h = masks['w'], masks['h']
+    region = np.zeros((h, w), np.uint8)
+    if len(model.grass_polygon) >= 3:
+        cv2.fillPoly(region, [np.int32(np.round(np.asarray(model.grass_polygon, np.float64)*[w, h]))], 1)
+        k = max(1, int(round(CIRCLE_EDGE*h)))
+        region = cv2.erode(region, cv2.getStructuringElement(cv2.MORPH_RECT, (1, 2*k+1)))
+    keep = masks['ridge'] & (masks['h_line'] | masks['v_line']) & region.astype(bool)
+    for x, y, bw, bh in boxes or ():
+        x0, y0 = int(math.floor(x*w))-1, int(math.floor(y*h))-1
+        x1, y1 = int(math.ceil((x+bw)*w))+1, int(math.ceil((y+bh)*h))+1
+        keep[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = False
+    return dict(masks, ridge=keep)
+
+
+def find_circle(masks, model, tries=3, on_grass=False, boxes=()):
     """The centre circle and the halfway line it is centred on: circle_points is tried around the likeliest
     halfway-line candidates (the longest well-supported paint segments not running flat across the frame),
-    the first ellipse that passes its checks wins. Returns (circle, halfway segment) or (None, None)."""
+    the first ellipse that passes its checks wins. Returns (circle, halfway segment) or (None, None).
+
+    on_grass (the keyframe-less midfield anchor only): the search runs on circle_paint (people's boxes
+    masked), keeps the straight paint and needs CIRCLE_MIN_DENSITY and CIRCLE_CENTRE_TOLERANCE."""
     if not masks:
         return None, None
+    if on_grass:
+        masks = circle_paint(masks, model, boxes)
     w, h = masks['w'], masks['h']
     candidates = []
     for seg in model.markings:
@@ -843,8 +944,12 @@ def find_circle(masks, model, tries=3):
     if first is not None and first in candidates:
         candidates.remove(first)
         candidates.insert(0, first)
+    # On the grass, only paint that cannot be the circle is removed: the boundary lines and markings running
+    # across more of the frame than a circle's arc does.
+    lines = [{'a': l['a'], 'b': l['b']} for l in model.lines]+[m for m in model.markings if abs(m['b'][0]-m['a'][0]) > CIRCLE_MAX_SPAN] if on_grass else None
     for seg in candidates[:tries]:
-        circle = circle_points(masks, seg, model.markings)
+        circle = (circle_points(masks, seg, lines, min_density=CIRCLE_MIN_DENSITY, centre_tolerance=CIRCLE_CENTRE_TOLERANCE) if on_grass
+                  else circle_points(masks, seg, model.markings))
         if circle is not None:
             return circle, seg
     return None, None

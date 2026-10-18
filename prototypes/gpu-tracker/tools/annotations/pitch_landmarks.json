@@ -1,0 +1,11 @@
+{
+ "note": "Pitch landmarks marked by hand (Claude, 2026-10-17) on decoded source frames, in source pixels, about +-3 px, on 3x zoomed crops with a pixel grid. 'points' are named landmarks of soccer/field.py; 'lines' are sample points of a painted line (any point on the line, used to measure how far the registered line passes from them). The steep diagonal at the right of the 127 s frame is the near touchline: extended, it meets the far touchline at about (2003, 430), just right of the frame and level with the horizon, as two parallel touchlines must. Frames without user keyframes, so these are the only calibration reference for the automatic landmark registration on the A_wrong window (clip time = source time - ~121.0 s).",
+ "6dfdc88ec6f2d100": [
+  {"time": 127.0,
+   "points": {"halfway-far": [202, 488], "centre-circle-far": [207, 529], "centre-spot": [210, 559], "centre-circle-near": [217, 611]},
+   "lines": {"far touchline": [[100, 488], [560, 474]], "near touchline": [[1910, 561], [1687, 880], [1547, 1073]], "halfway line": [[202, 488], [217, 611]]}},
+  {"time": 148.07,
+   "points": {"halfway-far": [435, 290], "centre-circle-far": [440, 332], "centre-circle-near": [452, 410]},
+   "lines": {"far touchline": [[380, 291], [840, 283]], "halfway line": [[435, 290], [452, 410]]}}
+ ]
+}

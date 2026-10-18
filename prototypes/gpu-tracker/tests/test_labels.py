@@ -230,3 +230,49 @@ class ParticipationTests(unittest.TestCase):
         self.assertEqual(b['B-14'], 'B-11')
         self.assertEqual(b['B-05'], 'B-?')
 
+
+
+class SmallSceneRankingTests(unittest.TestCase):
+    """In a small-scene run (far camera, amateur footage) the slots go first to the identities whose kit history
+    established them as team players: amateur 3 numbered B-11 (7 of 29 clear kit votes, a duplicate made by a kit misread
+    on small crops) over the established B-01 (64 of 75), who showed B-?. Broadcast runs keep the participation ranking."""
+
+    def scene(self, small):
+        result = build(b_players=12)
+        history = {'B-02': (7, 29, False), 'B-05': (5, 7, False)}
+        for e in result['match']['players']:
+            clear, total, ok = history.get(e['id'], (60, 75, True))
+            e['teamHistory'] = {'clearKitVotes': clear, 'kitVotes': total, 'established': ok}
+        for i, f in enumerate(result['frames']):
+            f['profile'] = {'smallScene': small and i % 4 != 0}   # three frames in four
+        return result
+
+    def test_established_identities_take_the_slots_in_a_small_scene_run(self):
+        result = self.scene(small=True)
+        self.assertTrue(labels.small_scene_run(result['frames']))
+        out = labels.assign(result)
+        b = displays(result, 'B')
+        self.assertEqual((b['B-02'], b['B-05']), ('B-?', 'B-?'), b)
+        self.assertEqual(sorted(v for k, v in b.items() if k not in ('B-02', 'B-05')), [f'B-{k:02d}' for k in range(1, 11)])
+        self.assertEqual((b['B-11'], b['B-12']), ('B-09', 'B-10'))
+        self.assertEqual(out['counts']['B']['unconfirmedIds'], ['B-02', 'B-05'])
+        self.assertEqual(out['counts']['B']['ranking'], 'established kit, then participation')
+        text = '\n'.join(labels.describe(out))
+        self.assertIn('B-02 unconfirmed', text)
+        self.assertIn('kit history 7 of 29 clean votes clearly team B (not established; established kit, then participation)', text)
+
+    def test_broadcast_runs_rank_by_participation_only(self):
+        result = self.scene(small=False)
+        self.assertFalse(labels.small_scene_run(result['frames']))
+        out = labels.assign(result)
+        b = displays(result, 'B')
+        self.assertEqual((b['B-11'], b['B-12']), ('B-?', 'B-?'))
+        self.assertEqual((b['B-02'], b['B-05']), ('B-02', 'B-05'))
+        self.assertNotIn('ranking', out['counts']['B'])
+
+    def test_a_run_with_small_scenes_on_fewer_than_half_its_frames_is_not_a_small_scene_run(self):
+        result = self.scene(small=True)
+        for i, f in enumerate(result['frames']):
+            f['profile'] = {'smallScene': i < 4}
+        self.assertFalse(labels.small_scene_run(result['frames']))
+        self.assertFalse(labels.small_scene_run([]))

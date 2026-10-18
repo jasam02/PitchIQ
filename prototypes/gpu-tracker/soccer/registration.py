@@ -201,14 +201,17 @@ def build_timeline(log, anchors, width, height, size=None):
 
 
 def homography_json(H):
-    """The frame's final homography (world metres -> pixels) as nine floats, scaled so that H[2, 2] = 1 when
+    """The frame's final homography (world metres -> pixels) as nine floats, scaled so that |H[2, 2]| = 1 when
     that is numerically safe, or None. Stored per frame so that the camera footprint and the hold-out
-    tests can be computed from a saved result."""
+    tests can be computed from a saved result. The scale is positive: H is oriented (field.orient: the
+    ground in front of the camera at positive depth), and H[2, 2] is the depth of the far-left corner,
+    negative when that corner lies behind the camera; dividing by it flipped the orientation of those
+    frames (Veo 1-31 s: 272 of 900; broadcast 0-60 s: none)."""
     if H is None:
         return None
     H = np.asarray(H, np.float64)
     if abs(H[2, 2]) > 1e-9:
-        H = H/H[2, 2]
+        H = H/abs(H[2, 2])
     return [float(v) for v in H.ravel()]
 
 
@@ -377,17 +380,25 @@ def warnings(frames, min_tracks=6):
     return events
 
 
-def summarize(timeline, anchors, offset=0):
+def summarize(timeline, anchors, offset=0, size=None):
     """timeline: the segment's entries; offset: log frames before the segment (anchors are listed by their
-    frame index within the segment, negative for a pre-roll anchor)."""
+    frame index within the segment, negative for a pre-roll anchor). size: the run's pitch size, exported
+    with each dimension's source (assumed or learned) and the widths automatic anchors measured, for a
+    field-size selector."""
     n = len(timeline)
     known = sum(1 for e in timeline if e['H'] is not None)
     confident = sum(1 for e in timeline if e['H'] is not None and e['confidence'] >= .5)
     sources = {}
     for e in timeline:
         sources[e['source']] = sources.get(e['source'], 0)+1
-    keys = ('landmarks', 'lines', 'circlePoints', 'count', 'spread', 'axes', 'conditioning', 'residual', 'rmsMetres', 'rmsPixels', 'circleCoverage', 'coverage', 'score')
-    return {'frames': n, 'calibratedFrames': known, 'calibratedShare': round(known/n, 3) if n else 0.0,
+    keys = ('landmarks', 'lines', 'circlePoints', 'count', 'spread', 'axes', 'conditioning', 'residual', 'rmsMetres', 'rmsPixels', 'circleCoverage', 'coverage', 'score',
+            'route', 'focalPx', 'cameraHeightMetres', 'sigmaMetres', 'ellipseRatio', 'cap')
+    extra = {}
+    if size is not None:
+        widths = [a.details['size']['width']['measured'] for a in anchors if a.source == 'auto-midfield'
+                  and isinstance(a.details.get('size'), dict) and 'measured' in (a.details['size'].get('width') or {})]
+        extra['fieldSize'] = size.dimensions() | ({'widthMeasured': {'median': round(float(np.median(widths)), 1), 'anchors': len(widths)}} if widths else {})
+    return extra | {'frames': n, 'calibratedFrames': known, 'calibratedShare': round(known/n, 3) if n else 0.0,
             'confidentShare': round(confident/n, 3) if n else 0.0,
             'meanConfidence': round(float(np.mean([e['confidence'] for e in timeline])), 3) if n else 0.0,
             'meanObservability': round(float(np.mean([e['observability'] for e in timeline if e['H'] is not None])), 3) if known else 0.0,

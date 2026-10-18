@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import threading
+import time
 import traceback
 import uuid
 from datetime import datetime
@@ -15,7 +16,7 @@ from waitress import serve
 import corrections
 from download_model import get_model
 from pipeline import RESOURCES, ROOT, gpu_info, metadata, run
-from soccer import analytics, calibration
+from soccer import analytics, calibration, team_shape
 
 
 def _number(payload, key, default, low, high, message):
@@ -243,12 +244,18 @@ def main():
     def analytics_script():
         return send_file(ROOT/'analytics.js', mimetype='application/javascript')
 
+    @app.get('/teamshape.js')
+    def team_shape_script():
+        return send_file(ROOT/'teamshape.js', mimetype='application/javascript')
+
     # The observed samples of the shown result, extracted once per result file (a correction rewrites the file, so its
     # modification time changes and the samples are rebuilt with the corrected roster).
     samples_cache = {}
     samples_lock = threading.Lock()
 
-    def samples_of(video):
+    def samples_entry(video):
+        """(stamp, samples, slim result) of the shown result as one consistent entry: the samples and the slim result
+        always come from the same version of the file."""
         path = video.result_dir/'result.json' if video.result_dir else None
         if path is None or not path.exists():
             abort(404)
@@ -256,11 +263,228 @@ def main():
         with samples_lock:
             cached = samples_cache.get('current')
             if cached is not None and cached[0] == stamp:
-                return cached[1]
-        built = analytics.Samples(json.loads(path.read_text(encoding='utf-8')))
+                return cached
+        result = json.loads(path.read_text(encoding='utf-8'))
+        built = analytics.Samples(result)
+        # What the team shape analysis needs besides the samples, without the frames' people (they are in the samples).
+        slim = {'frames': [{'time': f['time'], 'view': f.get('view')} for f in result.get('frames') or []],
+                'roster': result.get('roster'), 'tactical': result.get('tactical'), 'match': result.get('match'), 'timeline': result.get('timeline')}
+        entry = (stamp, built, slim)
         with samples_lock:
-            samples_cache['current'] = (stamp, built)
+            samples_cache['current'] = entry
+        return entry
+
+    def samples_of(video):
+        return samples_entry(video)[1]
+
+    shape_cache = {}
+    # One writer at a time for the team-shape settings (read, change, write), so two saves never lose each other.
+    settings_lock = threading.Lock()
+
+    def shape_settings_path(video):
+        return video.directory/'team_shape.json'
+
+    def shape_settings(video, strict=False):
+        """The stored settings, cleaned. A file that cannot be parsed counts as no settings. A file that cannot be read
+        (on Windows briefly, while it is being replaced) is retried, and in strict mode (before a write) an unreadable
+        file raises instead of counting as empty, so a save never wipes the stored settings."""
+        path = shape_settings_path(video)
+        for attempt in range(8):
+            try:
+                if not path.exists():
+                    return team_shape.clean_settings({})
+                return team_shape.clean_settings(json.loads(path.read_text(encoding='utf-8')))
+            except (ValueError, TypeError, OverflowError, RecursionError):
+                return team_shape.clean_settings({})
+            except OSError:
+                if attempt == 7:
+                    if strict:
+                        raise
+                    return team_shape.clean_settings({})
+                time.sleep(.05)
+
+    def save_shape_settings(video, settings):
+        clean = team_shape.clean_settings(settings)
+        path = shape_settings_path(video)
+        tmp = path.with_name(f'.team_shape.{uuid.uuid4().hex}.tmp')
+        tmp.write_text(json.dumps(clean, indent=1), encoding='utf-8')
+        for attempt in range(10):
+            try:
+                tmp.replace(path)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file that another request is reading at this moment: try again shortly.
+                if attempt == 9:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                time.sleep(.05)
+        return clean
+
+    def update_shape_settings(video, change):
+        """Read, change and write the settings under the lock. change(current) edits them in place."""
+        with settings_lock:
+            try:
+                current = shape_settings(video, strict=True)
+            except OSError:
+                return jsonify(error='The team-shape settings file could not be read; nothing was changed.'), 503
+            change(current)
+            try:
+                return jsonify(save_shape_settings(video, current))
+            except OSError:
+                return jsonify(error='The team-shape settings could not be saved; try again.'), 503
+
+    def same_period(c, team, t0, t1):
+        """A stored label of `team` for the period [t0, t1]: the same bounds, or one the analysis would attach to that
+        period (soccer/team_shape._overlaps), so saving replaces it and removing removes it, even after the periods
+        moved."""
+        if c['team'] != team:
+            return False
+        return (abs(c['t0']-t0) < .01 and abs(c['t1']-t1) < .01) or team_shape._overlaps(c, {'t0': t0, 't1': t1})
+
+    def shape_of(video, mode):
+        """The team shape of the shown result for a position mode and the video's settings, cached until the result
+        (an identity correction rewrites it) or the settings change."""
+        stamp, samples, slim = samples_entry(video)
+        settings = shape_settings(video)
+        key = (stamp, mode, json.dumps(settings, sort_keys=True))
+        with samples_lock:
+            cached = shape_cache.get(mode)
+            if cached is not None and cached[0] == key:
+                return cached[1]
+        built = team_shape.TeamShape(slim, samples=samples, mode=mode, settings=settings)
+        with samples_lock:
+            shape_cache[mode] = (key, built)
         return built
+
+    def shape_args():
+        team = request.args.get('team', 'A')
+        mode = request.args.get('mode', 'observed')
+        if team not in ('A', 'B'):
+            raise ValueError('team must be A or B')
+        if mode not in ('observed', 'estimated'):
+            raise ValueError('mode must be observed or estimated')
+        out = {'team': team, 'mode': mode}
+        for key in ('t0', 't1', 't'):
+            if key in request.args:
+                value = float(request.args[key])
+                if not math.isfinite(value):
+                    raise ValueError(f'{key} must be seconds')
+                out[key] = value
+        return out
+
+    @app.get('/api/team-shape')
+    def team_shape_report():
+        """Team width and depth, defensive line and formations of one team over a time range, from the saved result."""
+        v = need_video()
+        try:
+            a = shape_args()
+        except (TypeError, ValueError) as error:
+            return jsonify(error=str(error)), 400
+        return jsonify(shape_of(v, a['mode']).report(a['team'], a.get('t0'), a.get('t1')))
+
+    @app.get('/api/team-shape/snapshot')
+    def team_shape_snapshot():
+        """The measured players, width and depth, defensive line and formation roles of one team at one time."""
+        v = need_video()
+        try:
+            a = shape_args()
+            if 't' not in a:
+                raise ValueError('t is required')
+        except (TypeError, ValueError) as error:
+            return jsonify(error=str(error)), 400
+        return jsonify(shape_of(v, a['mode']).snapshot(a['team'], a['t']))
+
+    @app.post('/api/team-shape/settings')
+    def team_shape_settings():
+        """Set which goal team A defends (and when the sides swap) and the outfield lineup per team. Stored apart from the
+        tracking data, in the video's run folder."""
+        v = need_video()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+
+        def seconds(x):
+            return team_shape._number(x) and x >= 0
+
+        def outfield(x):
+            return isinstance(x, int) and not isinstance(x, bool) and 7 <= x <= 10
+        changes = {}
+        if 'direction' in body:
+            d = body['direction']
+            if not isinstance(d, dict) or 'A' not in d:
+                return jsonify(error='direction must be an object {A: left, right or null, switchAt}'), 400
+            side = d.get('A')
+            if side is not None and (not isinstance(side, str) or side not in ('left', 'right')):
+                return jsonify(error='direction.A must be left, right or null'), 400
+            switch = d.get('switchAt')
+            if switch is not None and not seconds(switch):
+                return jsonify(error='direction.switchAt must be seconds or null'), 400
+            changes['direction'] = {'A': side, 'switchAt': switch if side else None}
+        if 'lineup' in body:
+            lu = body['lineup']
+            if not isinstance(lu, dict):
+                return jsonify(error='lineup must be an object {A, B}'), 400
+            for team in ('A', 'B'):
+                if team not in lu:
+                    continue
+                value = lu[team]
+                if isinstance(value, dict):
+                    start = value.get('from')
+                    if not outfield(value.get('outfield')) or (start is not None and not seconds(start)):
+                        return jsonify(error='a lineup change is {outfield: 7 to 10, from: seconds or null}'), 400
+                    value = {'outfield': value['outfield'], 'from': start} if start is not None else value['outfield']
+                elif value is not None and not outfield(value):
+                    return jsonify(error='lineup values must be 7 to 10 outfield players, {outfield, from} or null'), 400
+                changes.setdefault('lineup', {})[team] = value
+
+        def change(current):
+            if 'direction' in changes:
+                current['direction'] = changes['direction']
+            for team, value in changes.get('lineup', {}).items():
+                current['lineup'][team] = value
+        return update_shape_settings(v, change)
+
+    @app.post('/api/team-shape/formation-label')
+    def team_shape_formation_label():
+        """A coach's formation label for a period of one team, kept apart from the tracking data and from the prediction
+        (which stays as it was); a label for the same team and period replaces the earlier one."""
+        v = need_video()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        try:
+            team, t0, t1, formation = body['team'], float(body['t0']), float(body['t1']), body['formation']
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return jsonify(error='Expected team, t0, t1 and formation.'), 400
+        known = isinstance(team, str) and team in ('A', 'B') and isinstance(formation, str) and formation in team_shape.FORMATION_LABELS
+        if not known or not (math.isfinite(t0) and math.isfinite(t1)) or t1 <= t0:
+            return jsonify(error='Unknown team or formation, or an empty period.'), 400
+        predicted = body.get('predicted') if isinstance(body.get('predicted'), str) else None
+
+        def change(current):
+            # A new label replaces every label of the team that would belong to the same period.
+            kept = [c for c in current['formations'] if not same_period(c, team, t0, t1)]
+            kept.append({'team': team, 't0': t0, 't1': t1, 'formation': formation, 'predicted': predicted,
+                         'created': datetime.now().isoformat(timespec='seconds')})
+            current['formations'] = kept
+        return update_shape_settings(v, change)
+
+    @app.post('/api/team-shape/formation-label/remove')
+    def team_shape_formation_label_remove():
+        v = need_video()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        try:
+            team, t0, t1 = body['team'], float(body['t0']), float(body['t1'])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return jsonify(error='Expected team, t0 and t1.'), 400
+        if not isinstance(team, str) or team not in ('A', 'B') or not (math.isfinite(t0) and math.isfinite(t1)):
+            return jsonify(error='Unknown team or period.'), 400
+
+        def change(current):
+            current['formations'] = [c for c in current['formations'] if not same_period(c, team, t0, t1)]
+        return update_shape_settings(v, change)
 
     @app.get('/api/analytics')
     def analytics_report():

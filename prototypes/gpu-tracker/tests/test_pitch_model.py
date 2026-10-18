@@ -99,6 +99,47 @@ class FieldTests(unittest.TestCase):
         self.assertEqual(field.side_status(self.P, SIZE, W, H, matched), {'far': 'line', 'near': 'predicted', 'left': 'off-screen', 'right': 'off-screen'})
 
 
+class FieldGeometryTests(unittest.TestCase):
+    """The canonical field in one place: named markings, goalposts, arcs, the painted spots, and each
+    dimension's source in the run metadata."""
+
+    def test_semantic_names_are_the_established_strings(self):
+        names = {name for name, _, _ in field.lines(field.PitchSize())}
+        for name in (field.HALFWAY_LINE, field.TOUCHLINE_FAR, field.TOUCHLINE_NEAR, field.GOAL_LINE_LEFT, field.GOAL_LINE_RIGHT,
+                     field.PENALTY_AREA_LEFT+' front', field.PENALTY_AREA_RIGHT+' far side', field.GOAL_AREA_LEFT+' near side'):
+            self.assertIn(name, names)
+        self.assertEqual(field.SIDES, {'far': 'far touchline', 'near': 'near touchline', 'left': 'left goal line', 'right': 'right goal line'})
+        marks = field.landmarks(field.PitchSize())
+        for name in (field.CENTRE_SPOT, field.PENALTY_SPOT_LEFT, field.PENALTY_SPOT_RIGHT):
+            self.assertIn(name, marks)
+
+    def test_goalposts_arcs_and_spots_follow_the_pitch_size(self):
+        size = field.PitchSize(100.0, 64.0, 'landmarks')
+        posts = field.goalposts(size)
+        self.assertAlmostEqual(posts[field.GOALPOST_LEFT_NEAR][1]-posts[field.GOALPOST_LEFT_FAR][1], field.GOAL_WIDTH)
+        self.assertAlmostEqual((posts[field.GOALPOST_RIGHT_NEAR][1]+posts[field.GOALPOST_RIGHT_FAR][1])/2, 32.0)
+        self.assertEqual(posts[field.GOALPOST_RIGHT_FAR][0], 100.0)
+        arcs = {name: (centre, radius, a0, a1) for name, centre, radius, a0, a1 in field.arcs(size)}
+        (sx, sy), radius, a0, a1 = arcs[field.PENALTY_ARC_LEFT]
+        for angle in (a0, a1):   # the arc ends on the penalty area's front
+            self.assertAlmostEqual(sx+radius*math.cos(math.radians(angle)), field.PA, places=6)
+        self.assertEqual(arcs[field.CENTER_CIRCLE][0], field.circle_centre(size))
+        self.assertEqual(field.painted_spots(size)[0], (11/100, .5))
+        from soccer.geometry import PAINTED_SPOTS
+        self.assertEqual(PAINTED_SPOTS, ((11/105, .5), (94/105, .5), (.5, .5)))   # the standard pitch, as the ball code used it
+
+    def test_the_run_metadata_says_which_dimensions_are_assumed(self):
+        from soccer import registration
+        self.assertEqual(field.PitchSize().dimensions(), {'length': {'value': 105.0, 'source': 'assumed'}, 'width': {'value': 68.0, 'source': 'assumed'}})
+        self.assertEqual(field.PitchSize(100.0, 64.0, 'landmarks').dimensions()['width']['source'], 'landmarks')
+        timeline = [{'H': None, 'confidence': 0.0, 'observability': 0.0, 'source': 'none'}]
+        self.assertNotIn('fieldSize', registration.summarize(timeline, []))
+        anchor = registration.Anchor(0, 0.0, np.eye(3), .3, 'auto-midfield', {'size': {'width': {'value': 68.0, 'source': 'assumed', 'measured': 70.2}}})
+        size = registration.summarize(timeline, [anchor], 0, field.PitchSize())['fieldSize']
+        self.assertEqual(size['length']['source'], 'assumed')
+        self.assertEqual(size['widthMeasured'], {'median': 70.2, 'anchors': 1})
+
+
 class ConfidenceTests(unittest.TestCase):
     def test_broadcast_frame_with_painted_touchlines_is_high(self):
         model = PitchDetector().analyze(broadcast.render(broadcast.camera()), 0.0)

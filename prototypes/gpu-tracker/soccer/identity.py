@@ -39,12 +39,23 @@ checks in a row, and a referee-like reading of a confirmed player changes nothin
 whose clean crops stop looking like its own first crops (and its identity's gallery) several ticks
 in a row was handed to another person by the local tracker: it is re-born there (evidence
 restarted, compared with the missing players from scratch) and the identity it carried goes
-missing. tracklets.py cuts the tracks at those points and where the crops change, and connects the
-fragments offline.
+missing. A track whose kit votes turn to the other team is re-born the same way at the change (a kit
+change), still a player of the new team; the identity it carried forgets what it learned of the other
+person since the change (position, speed, gallery samples). tracklets.py cuts the tracks at those
+points and where the crops change, and connects the fragments offline.
+
+Small scenes (far camera, amateur footage: the tracker's small_scene, ctx['small_scene']) add three
+rules for small crops, whose colours drift and whose OSNet embeddings do not tell teammates (nor
+always the teams) apart: votes from crops much smaller or poorer than those that established a team
+never release an identity alone (_kit_drift), a crop whose own kit vote names another team never joins
+a player's gallery (_remember), and under a provisional pitch without a usable one a player is compared
+with the missing players at the undoubled count while a new identity still waits for the doubled one.
+There, an identity released by a TRACK SWITCH also forgets the person the track showed after it.
 """
 import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import numpy as np
 
@@ -103,6 +114,20 @@ MAX_SPEED = 9.0          # m/s: a remembered velocity above a sprint is a measur
 SHORT_LOSS = 3.0         # s: an identity lost this recently that a new track strongly resembles (STRONG_LOOK) is never ruled out on the
 STRONG_LOOK = .65        # predicted position alone (that position came from where the occlusion lost them): the track waits for clean
 SHORT_HOLD = 4.0         # frames, IDENTITY_UNCERTAIN, for up to this many seconds of its own observation before the usual rules decide
+RELEASE_BACK = 3.0       # s: a kit change re-births its track where its votes turn to the other team (_kit_onset), at most this far back
+                         # (like a TRACK SWITCH): the 15 votes take ~3 s to turn, and the labels earned since then are withdrawn
+TRAIL = 20               # evidence ticks (4 s, more than RELEASE_BACK) of clean kinematic state kept per track: where the person stood when
+                         # a kit change began (the re-born track's first position must match its birth time for the reach to be right), and
+                         # the released identity's memory from before the change (_forget_since)
+# Small scenes (far camera, amateur footage: SoccerTracker.small_scene) only. Kit votes drift as a player shrinks (amateur 3:
+# track 12, one person, 40 px -> 20 px, 'looks A .43 -> .09'), so small crops alone never release an identity to the other team.
+RELEASE_QUALITY = .35    # descriptor quality of a vote that counts towards a kit change on its own (~26 px at best; votes start at .2)
+RELEASE_HEIGHT = .6      # ... and its box height, as a share of the median height of the clean votes that established the team
+RELEASE_COSINE = .65     # smaller votes release only when the clean crops since the change also look like someone else: median best
+                         # OSNet cosine to the track's first crops and the identity's gallery below this (amateur 3: the same person
+                         # .71-.75 at p50, a player of the other team .60-.66)
+VOTE_HISTORY = 3000      # clean team votes of small-scene frames (10 min of ticks: the latest) kept per track for the offline association of
+                         # small fragments (tracklets._Scorer.kit_votes), so memory stays bounded on a long track
 
 
 def r3(v):
@@ -142,6 +167,17 @@ class Stab:
     x: float
     y: float
     h: float
+
+
+class Trail(NamedTuple):
+    """A track's clean kinematic state on one evidence tick: what an identity bound to it remembered then."""
+    time: float
+    segment: int
+    stab: Stab
+    pitch: tuple | None
+    velocity: tuple
+    pitch_velocity: tuple | None
+    box: list
 
 
 @dataclass
@@ -208,6 +244,8 @@ class GlobalPlayer:
     tracks: list = field(default_factory=list)           # every local track that carried this identity (fragmentation)
     clean_seen: float = -math.inf                        # when the kinematic memory (stab, velocity, last_pitch, pitch_velocity) was last
                                                          # taken from a clean box (a partial box at an occlusion holds the memory)
+    kit_heights: deque = field(default_factory=lambda: deque(maxlen=50))   # box heights of the clean votes clearly in its team's kit:
+                                                         # the crop size its team was established at (small scenes: kit change votes)
 
     @property
     def role_label(self):
@@ -246,7 +284,7 @@ class TrackState:
     zones: deque = field(default_factory=lambda: deque(maxlen=ZONE_WINDOW))
     evidence: RoleEvidence = field(default_factory=RoleEvidence)
     decision: object = None
-    team_votes: deque = field(default_factory=lambda: deque(maxlen=VOTES))
+    team_votes: deque = field(default_factory=lambda: deque(maxlen=VOTES))   # (team | 'x' | '-', time, descriptor quality, box height)
     descs: deque = field(default_factory=lambda: deque(maxlen=DESCS))
     current: object = None
     occluded: bool = False
@@ -312,6 +350,12 @@ class TrackState:
     exit_streak: int = 0                            # non-target people: consecutive ticks of clear player / goalkeeper evidence
     official_look: bool = False                     # confidently referee-like with independent support: the clean crops teach the
                                                     # classifier what the officials look like (anonymous: no identity is kept)
+    trail: deque = field(default_factory=lambda: deque(maxlen=TRAIL))   # Trail of recent clean evidence ticks (where, how fast)
+    cut_reasons: dict = field(default_factory=dict)  # switch time -> 'kit' for the re-births caused by a kit change (the offline log)
+    team_heights: deque = field(default_factory=lambda: deque(maxlen=50))   # box heights of clean votes for the track's own team
+    vote_now: str | None = None                     # this tick's clean, valid kit vote (team | 'x' | '-'), None without one
+    vote_history: deque = field(default_factory=lambda: deque(maxlen=VOTE_HISTORY))   # (time, 'A' | 'B') of the clean votes naming a
+                                                    # team on small-scene frames (the offline small-fragment rule reads them)
 
     @property
     def contaminated(self):
@@ -532,13 +576,24 @@ class IdentityManager:
             # only where the person is still counts.
             tr.evidence.add(None if contaminated else s['cls'], s['score'], None if contaminated else vote,
                             dict(s.get('cues', {}), zone=tr.zone, v=motion, clean=not contaminated))
+            tr.vote_now = None
             if vote is not None and vote.valid and not contaminated:
-                tr.team_votes.append(vote.team or ('x' if vote.outlier else '-'))
+                label = vote.team or ('x' if vote.outlier else '-')
+                height = float(s['box'][3])
+                tr.team_votes.append((label, t, float(d.quality) if d is not None else 0.0, height))
+                tr.vote_now = label
+                if label == tr.team:
+                    tr.team_heights.append(height)
+                if ctx.get('small_scene') and label in ('A', 'B'):
+                    tr.vote_history.append((r3(t), label))
                 g = self.registry.get(tr.player_id) if tr.state == 'confirmed' and tr.player_id else None
                 if g is not None and g.role == 'player' and g.team in ('A', 'B') and g.track == tr.id:
                     # The identity's team history: how clearly (not loosely) its clean crops wear its team's kit.
                     g.kit_total += 1
-                    g.kit_clear += self._clear_vote(vote, g.team, ctx['model'])
+                    clear = self._clear_vote(vote, g.team, ctx['model'])
+                    g.kit_clear += clear
+                    if clear:
+                        g.kit_heights.append(height)
             # The pitch speed over the evidence tick (last_pitch is taken on ticks, so the interval is the tick's, not
             # one frame's), from clean boxes only.
             if not tr.partial:
@@ -549,31 +604,131 @@ class IdentityManager:
                 elif tr.pitch is None:
                     tr.pitch_velocity = None
                 tr.last_pitch, tr.last_pitch_at = tr.pitch, t
+                tr.trail.append(Trail(t, ctx['segment'], tr.stab, tr.pitch, tr.velocity, tr.pitch_velocity, list(tr.box)))
         tr.last_box, tr.last_time = s['box'], t
 
     # ---------- team / role ----------
     def _check_team(self, tr, ctx, out):
-        """A confirmed player whose kit votes switched (>= 80% of the last 15) is released and re-identified."""
+        """A player track whose kit votes switched (>= 80% of the last 15) shows someone of the other team: the
+        identity it carried is released (missing, last seen before the change) and the track is re-born at the
+        change, like a TRACK SWITCH (see _rebirth_kit), so "seen together" and the over-cap wait count from the
+        change, not from the track's first frame, and the labels earned since the change are withdrawn; the
+        identity forgets what it learned of the other person since then (_forget_since). In small scenes, votes
+        from crops much smaller than those the team was established at do not release an identity alone
+        (_kit_drift)."""
         if tr.state not in ('confirmed', 'uncertain') or tr.team is None or tr.role != 'player' or len(tr.team_votes) < VOTES:
             return
         bound = self.registry.get(tr.player_id) if tr.player_id else None
         if bound is not None and bound.manual:
             return   # you gave this person their team
         other = 'B' if tr.team == 'A' else 'A'
-        n = sum(1 for v in tr.team_votes if v == other)
+        votes = [v for v in tr.team_votes if v[0] == other]
+        n = len(votes)
         if n < .8*VOTES:
             return
+        t = ctx['time']
         g = self.registry.get(tr.player_id) if tr.player_id else None
-        if g is not None and g.track == tr.id:
+        g = g if g is not None and g.track == tr.id else None
+        since = max(self._kit_onset(tr.team_votes, tr.team, other), t-RELEASE_BACK)
+        # Only an identity is protected from drift: a track without one keeps nothing by holding its old team, and
+        # held, it would be compared with (and could become) a missing player of the team its votes ruled out.
+        if ctx.get('small_scene') and g is not None and self._kit_drift(tr, g, other, votes, since, ctx, out):
+            return
+        if g is not None:
             self._unbind(g)
+            g.last_track = tr.id
+            g.last_seen = min(g.last_seen, since-1e-3)
+            self._forget_since(tr, g, since, ctx)
+            stale = []
+            for when, person in tr.emitted:
+                if when >= since-1e-6 and person.get('id') == g.pid:
+                    if person in g.emitted_all:
+                        g.emitted_all.remove(person)
+                        g.observations -= 1
+                    stale.append(person)
+            out['issues'].append({'id': g.pid, 'time': t, 'reason': f'Kit changed to the other team at {since:.2f} s; identity released.'})
+        else:
+            stale = [person for person in tr.pending if person.get('time', 0) >= since-1e-6]
+        for person in stale:
+            person.update(id=None, display='?', label='IDENTITY_UNCERTAIN', team=None, role='UNKNOWN', state='uncertain',
+                          identityConfidence=0.0, reason=f'kit changed to team {other} at {since:.2f} s')
+            for key in ('stableRole', 'memory'):
+                person.pop(key, None)
+        born = self._rebirth_kit(tr, since, other, ctx)
+        if g is not None:
             tr.former.add(g.pid)
-            out['issues'].append({'id': g.pid, 'time': ctx['time'], 'reason': 'Kit changed to the other team; identity released.'})
-        tr.player_id, tr.team, tr.state, tr.best = None, other, 'uncertain', 0.0
-        tr.reid.clear()
-        tr.team_votes.clear()
-        tr.reason = f'kit changed to team {other}'
+        tr.pending.extend(stale)
         out['events'].append(self._event('team-change', tr.id, g.pid if g else None,
-                                         f"Track {tr.id}{f' ({g.pid})' if g else ''} matched team {other}'s kit in {n} of the last {VOTES} observations; re-identifying as team {other}."))
+                                         f"Track {tr.id}{f' ({g.pid})' if g else ''} matched team {other}'s kit in {n} of the last {VOTES} observations; "
+                                         f"re-identifying as team {other}, the track re-born at {born:.2f} s"
+                                         + (f" ({len(stale)} observations since {since:.2f} s lose {g.pid})." if g is not None else '.')))
+
+    @staticmethod
+    def _kit_onset(votes, own, other):
+        """When a kit-vote window turned from team `own` to team `other`: the time of the other-team vote that starts
+        the split with the fewest votes on the wrong side (other-team votes before it, own-team votes after it), the
+        later one on a tie. A stray other-team vote of the person before the change (a shadow, a crop half hidden)
+        does not move the change back past the moment the person left, when the person whose own track ended there
+        would count as "seen together" with the re-born track; a stray own-team vote of the person after it does not
+        move the change forward either. Votes for neither team say nothing."""
+        before, after = 0, sum(1 for v in votes if v[0] == own)
+        best, onset = math.inf, None
+        for v in votes:
+            if v[0] == other:
+                if before+after <= best:
+                    best, onset = before+after, v[1]
+                before += 1
+            elif v[0] == own:
+                after -= 1
+        return onset
+
+    def _kit_drift(self, tr, g, other, votes, since, ctx, out):
+        """Small scenes only: True when the other-team votes that would release identity g from track tr come from
+        crops too small (or too poor) to say more than the drift of a shrinking player's colours, and the appearance
+        does not say someone else either; the release is held and logged (TEAM CHANGE IGNORED). Votes count on their
+        own when the descriptor quality is at least RELEASE_QUALITY and the box at least RELEASE_HEIGHT of the median
+        height of the clean votes that established the team (the identity's, else the track's own); with fewer than
+        12 such votes, the clean crops since the change (`since`) must look like someone else (RELEASE_COSINE)."""
+        heights = g.kit_heights if len(g.kit_heights) >= 5 else tr.team_heights
+        ref = float(np.median(heights)) if len(heights) >= 3 else None
+        sized = sum(1 for _, _, quality, height in votes if quality >= RELEASE_QUALITY and (ref is None or height >= RELEASE_HEIGHT*ref))
+        if sized >= .8*VOTES:
+            return False
+        refs = [f.embedding for f in tr.first if f.embedding is not None]+[x.d.embedding for x in g.gallery if x.d.embedding is not None]
+        crops = [d.embedding for d, when, occluded in tr.descs if when >= since-1e-6 and not occluded and d.quality >= .3 and d.embedding is not None]
+        best = [max(embedding_cosine(r, c) for r in refs) for c in crops] if refs else []
+        unlike = len(best) >= 2 and float(np.median(best)) < RELEASE_COSINE
+        if unlike:
+            return False
+        t = ctx['time']
+        if self._allow('kit-drift-'+str(tr.id), t, 10):
+            looks = f'the clean crops since then still look like this track (median OSNet cosine {float(np.median(best)):.2f})' if len(best) >= 2 else \
+                'too few clean crops since then to tell the person by appearance'
+            out['events'].append(self._event('team-hold', tr.id, g.pid, '\n'.join([
+                'TEAM CHANGE IGNORED: small crops (drift)', f'Local Track: {tr.id}, Global {g.pid}',
+                f'Votes for team {other}: {len(votes)} of the last {VOTES}, {sized} from crops of quality >= {RELEASE_QUALITY:.2f}'
+                + (f' and height >= {RELEASE_HEIGHT:.0%} of {ref*100:.1f}% of the frame (the size the team was established at)' if ref is not None else ''),
+                f'Appearance: {looks}', f'Decision: team {tr.team} kept; small crops alone never change the team'])))
+        return True
+
+    def _forget_since(self, tr, g, since, ctx):
+        """Identity g, just released from track tr because the track has shown someone else since `since` (a kit
+        change; a TRACK SWITCH in small scenes), forgets that person: its kinematic memory (position, speed, pitch
+        position and speed, last box, when it was taken) goes back to the track's last clean evidence tick before
+        `since` on this camera segment, its gallery loses the samples taken since then, and its last observation
+        goes back to before `since` (what _flush may label for its return, and what _score reaches from). Without
+        such a tick the position stays (the best left) but no speed is extrapolated from the other person's."""
+        before = [e for e in tr.trail if e.time < since-1e-6 and e.segment == ctx['segment']]
+        if before:
+            e = before[-1]
+            g.stab, g.velocity, g.last_pitch, g.pitch_velocity, g.last_box, g.clean_seen = e.stab, e.velocity, e.pitch, e.pitch_velocity, list(e.box), e.time
+        else:
+            g.velocity, g.pitch_velocity = (0.0, 0.0), None
+            g.clean_seen = min(g.clean_seen, since-1e-3)
+        g.last_observed = min(g.last_observed, since-1e-3)
+        g.gallery = [s for s in g.gallery if s.time < since-1e-6]
+        while g.history and g.history[-1]['t'] >= since-1e-6:
+            g.history.pop()
 
     def _promote(self, tr, ctx, out):
         """CANDIDATE -> role. Never from one frame: min_hits observations, mostly inside the pitch,
@@ -606,7 +761,8 @@ class IdentityManager:
         recent = [z for z in tr.zones if z != 'unknown']
         zr = sum(1 if z == 'inside' else .5 if z == 'boundary' else 0 for z in recent)/len(recent) if recent else 0.0
         born = tr.first_zone == 'boundary'
-        need = o.boundary_hits if born else o.min_hits
+        base = o.boundary_hits if born else o.min_hits
+        need = base
         if ctx.get('pitch_provisional'):
             need *= 2   # the playable area itself is uncertain: new people must persist longer before they become identities
         pitch_ok = ctx['pitch_reliable'] or not ctx['filter_enabled']
@@ -615,6 +771,9 @@ class IdentityManager:
         blind = not pitch_ok
         if blind:
             need = max(need, o.boundary_hits)
+        # Small scene under a provisional pitch (local tracks break every few seconds): a player is compared with the
+        # missing players at the undoubled count; only a NEW identity waits for the doubled one (_create_need).
+        first = max(base, o.boundary_hits) if self._create_need(tr, ctx) else need
         ok = d.label != 'CANDIDATE' and d.role != 'unknown' and tr.hits >= o.min_hits
         # Assistant referees run the touchline: a confident referee-like decision there is decided (as non-target).
         runner = d.role == 'referee' and d.role_confidence >= .6
@@ -626,7 +785,7 @@ class IdentityManager:
             if k.get('vetoed'):
                 ok, sideline = False, k['vetoed']
         if ok and blind:
-            ok = tr.hits >= need and (not recent or zr >= .8 or runner)
+            ok = tr.hits >= (need if runner else first) and (not recent or zr >= .8 or runner)
         elif ok:
             ok = tr.hits >= need if runner else zr >= .8 and (not born or (tr.hits >= o.boundary_hits and tr.inside >= 3))
         if d is not None:
@@ -659,7 +818,7 @@ class IdentityManager:
         else:
             tr.state = 'candidate'
         if blind and tr.state == 'candidate':
-            tr.reason = f'pitch position unresolved on this frame (no calibration): image evidence decides after {need} observations ({tr.hits} so far; {d.reason})'
+            tr.reason = f'pitch position unresolved on this frame (no calibration): image evidence decides after {first} observations ({tr.hits} so far; {d.reason})'
         elif sideline:
             tr.reason = f'looks like a goalkeeper to the detector, but {sideline}: not a goalkeeper candidate'
         elif tr.state == 'rejected':
@@ -668,6 +827,17 @@ class IdentityManager:
             tr.reason = f'no consistent role or kit after {tr.hits} observations ({d.reason})'
         else:
             tr.reason = f"{tr.hits}/{need} observations, inside {pct(zr)}{' (born on the touchline)' if born else ''}; {d.reason}"
+
+    def _create_need(self, tr, ctx):
+        """Observations a track needs before it may become a NEW identity, beyond those that promoted it: in a small
+        scene under a provisional pitch with no usable pitch on this frame, the doubled count _promote asks of a new
+        person there (the track is compared with the missing players from the undoubled one); 0 otherwise. Taken from
+        this frame's context, never from the frame of the promotion: the wait ends as soon as the pitch is usable
+        again or the scene is no longer small."""
+        if not (ctx.get('small_scene') and ctx.get('pitch_provisional')) or ctx['pitch_reliable'] or not ctx['filter_enabled']:
+            return 0
+        base = self.o.boundary_hits if tr.first_zone == 'boundary' else self.o.min_hits
+        return max(2*base, self.o.boundary_hits)
 
     # ---------- roles of confirmed identities ----------
     def _check_roles(self, live, ctx, out):
@@ -1275,6 +1445,7 @@ class IdentityManager:
         tr.role, tr.team, tr.excluded = g.role, g.team, None
         tr.team_confidence, tr.role_confidence = (.9 if g.team else 0.0), 1.0
         tr.team_votes.clear()
+        tr.team_heights.clear()
         self._bind(tr, g, t, max(.8, similarity))
         out['events'].append(self._event('reid', tr.id, g.pid, '\n'.join(
             ['RECOGNISED: IDENTIFIED BY YOU', f'Global ID: {g.pid} ({self._plain(g)}, set by you)'] + lines), accepted=True))
@@ -1859,6 +2030,10 @@ class IdentityManager:
             # player. The missing players were compared first; nobody fits, so the person is ignored.
             self._mark_nontarget(tr, d, ctx, out, 'no missing player fits, and a new player needs player evidence')
             return False
+        need = self._create_need(tr, ctx)
+        if tr.hits < need:
+            tr.reason = f'waiting: provisional pitch, a new identity needs {need} observations ({tr.hits} so far)'
+            return False
         group = 'goalkeeper' if tr.role == 'goalkeeper' else tr.team
         n, cap = self._count(group), self._cap(group)
         over = n >= cap
@@ -2105,8 +2280,9 @@ class IdentityManager:
             ga.track, gb.track = b.id, a.id
             ga.bound_at = gb.bound_at = t
             a.team, b.team, a.role, b.role = gb.team, ga.team, gb.role, ga.role
-            a.team_votes.clear()
-            b.team_votes.clear()
+            for tr in (a, b):
+                tr.team_votes.clear()
+                tr.team_heights.clear()
             # Observations emitted since the crossing began follow the corrected identities.
             for tr, g in ((a, gb), (b, ga)):
                 for when, person in tr.emitted:
@@ -2295,7 +2471,7 @@ class IdentityManager:
                 else:
                     g.last_pitch = g.pitch_velocity = None
             if tick:
-                self._remember(tr, g, t, out)
+                self._remember(tr, g, t, out, ctx.get('small_scene', False))
                 person['stableRole'], person['memory'] = ROLE_OUT.get(g.role, 'UNKNOWN'), tr.memory
                 if tr.partial:
                     person['partial'] = True
@@ -2319,12 +2495,14 @@ class IdentityManager:
                 if visible[i].team and visible[i].team == visible[j].team:
                     self.together.add(tuple(sorted((visible[i].pid, visible[j].pid))))
 
-    def _remember(self, tr, g, t, out):
+    def _remember(self, tr, g, t, out, small=False):
         """Selective memory: this tick's crop joins the identity's appearance gallery only when it is clean
         (overlapping nobody, good quality, on the pitch), the binding has settled (not just made, not
         after a crossing) and it looks like the gallery already there. Otherwise the memory is frozen
         for this tick, and a close encounter between a player (or goalkeeper) and an ignored person is
-        logged."""
+        logged. small: a small scene (far camera), where OSNet cannot tell the teams apart (the cosine to a
+        gallery admits a player of the other team): a crop whose own kit vote names the other team, or no
+        team at all, is not stored under a player identity either."""
         cur = tr.current
         if cur is None:
             tr.memory = 'frozen: no crop'
@@ -2354,6 +2532,9 @@ class IdentityManager:
             return
         if self._conf(g, t) < .6:
             tr.memory = 'frozen: identity confidence low'
+            return
+        if small and g.role == 'player' and g.team in ('A', 'B') and tr.vote_now not in (None, '-', g.team):
+            tr.memory = f'frozen: kit votes team {tr.vote_now}' if tr.vote_now in ('A', 'B') else 'frozen: kit matches neither team'
             return
         if len(g.gallery) >= 2:
             c = compare(g.gallery, [cur])
@@ -2414,6 +2595,9 @@ class IdentityManager:
             self._unbind(g)
             g.last_track = tr.id
             g.last_seen = min(g.last_seen, since-1e-3)
+            if ctx.get('small_scene'):
+                # Small scenes only (broadcast output stays as it was): the identity forgets the person shown since.
+                self._forget_since(tr, g, since, ctx)
             for when, person in tr.emitted:
                 if when >= since-1e-6 and person.get('id') == g.pid:
                     if person in g.emitted_all:
@@ -2445,6 +2629,7 @@ class IdentityManager:
         tr.zones.clear()
         tr.evidence, tr.decision = RoleEvidence(), None
         tr.team_votes.clear()
+        tr.team_heights.clear()
         tr.hist.clear()
         tr.heights.clear()
         tr.velocity, tr.pitch_velocity = (0.0, 0.0), None
@@ -2469,6 +2654,44 @@ class IdentityManager:
         tr.pending.clear()
         tr.emitted.clear()
         tr.reason = f'track switched person at {since:.2f} s: re-identifying'
+
+    def _rebirth_kit(self, tr, since, team, ctx):
+        """A kit change re-births the track at `since` (see _check_team): what _rebirth does for a TRACK SWITCH,
+        except that the person's team is known from the votes, so the track stays an uncertain player of that team
+        and is compared with its missing players at once. The re-born track starts where the person stood at the
+        change (the clean trail), so its birth time and first position agree for the reach of every missing
+        player. Returns the birth time."""
+        t = ctx['time']
+        start = next(((e.time, e.stab, e.pitch) for e in tr.trail if e.time >= since-1e-6 and e.segment == ctx['segment']), None)
+        born, stab, pitch = start if start is not None else (t, tr.stab, tr.pitch)
+        tr.switches.append(r3(since))
+        tr.cut_reasons[r3(since)] = 'kit'
+        tr.born, tr.born_segment = born, ctx['segment']
+        tr.first_stab, tr.first_pitch, tr.entry_edge = stab, pitch, ''
+        tr.born_over = {}
+        recent = [(d, when, occluded) for d, when, occluded in tr.descs if when >= since-1e-6]
+        tr.descs.clear()
+        tr.descs.extend(recent)
+        tr.first = [d for d, _, occluded in recent if not occluded][:2]
+        tr.hist.clear()
+        tr.heights.clear()
+        tr.velocity, tr.pitch_velocity = (0.0, 0.0), None
+        tr.player_id, tr.state, tr.team, tr.role = None, 'uncertain', team, 'player'
+        tr.best = 0.0
+        tr.reid.clear()
+        tr.blind, tr.released, tr.looks = [], None, None
+        tr.former.clear()
+        tr.team_votes.clear()
+        tr.team_heights.clear()
+        tr.role_streak, tr.role_wanted = 0, None
+        tr.kit_miss = tr.look_miss = tr.switch_miss = 0
+        tr.switch_since = tr.last_match = -math.inf
+        tr.switch_crops.clear()
+        tr.last_deferred, tr.deferrals = -math.inf, 0
+        tr.pending.clear()
+        tr.emitted.clear()
+        tr.reason = f'kit changed to team {team}'
+        return born
 
     def _check_mismatch(self, tr, g, ctx, out):
         """A crop whose jersey (or learned appearance) clearly contradicts the identity is not this

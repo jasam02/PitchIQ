@@ -1,0 +1,16 @@
+{
+ "note": "Ball centres marked by hand (Claude, 2026-10-17) on decoded source frames, in source pixels, about +-4 px. 'visible' false: the ball is mostly hidden (a leg in front). 'source' says how the point was found: 'eye' = marked on a 2x zoomed crop with a pixel grid; 'detector' = the detector's box centre on that frame, checked by eye. Used by tools/check_ball_truth.py to score the final ball path on the A_wrong sequence (the user's screen recording A_wrong.mp4 is clip time = source time - ~121.0 s).",
+ "6dfdc88ec6f2d100": [
+  {"time": 146.0, "x": 1082, "y": 596, "diameter": 13, "visible": true, "source": "eye"},
+  {"time": 146.4, "x": 1204, "y": 662, "diameter": 16, "visible": false, "source": "eye"},
+  {"time": 146.8, "x": 1094, "y": 655, "diameter": 17, "visible": true, "source": "eye"},
+  {"time": 147.2, "x": 981, "y": 682, "diameter": 20, "visible": true, "source": "eye"},
+  {"time": 147.6, "x": 905, "y": 703, "diameter": 15, "visible": true, "source": "eye"},
+  {"time": 148.0, "x": 843, "y": 716, "diameter": 22, "visible": true, "source": "eye"},
+  {"time": 148.4, "x": 794, "y": 718, "diameter": 22, "visible": true, "source": "eye"},
+  {"time": 148.8, "x": 552, "y": 657, "diameter": 20, "visible": true, "source": "eye"},
+  {"time": 149.2, "x": 400, "y": 597, "diameter": 21, "visible": true, "source": "detector"},
+  {"time": 149.6, "x": 385, "y": 555, "diameter": 18, "visible": true, "source": "detector"},
+  {"time": 150.0, "x": 415, "y": 533, "diameter": 14, "visible": true, "source": "detector"}
+ ]
+}

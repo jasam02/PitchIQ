@@ -56,7 +56,7 @@ class Samples:
         self.end = frames[-1]['time'] if frames else 0.0
         self.people = roster(result)
         self.excluded = {'offPitch': 0, 'lowPitchConfidence': 0, 'clipped': 0, 'lowIdentityConfidence': 0, 'notConfirmed': 0, 'notInRoster': 0}
-        raw = {pid: ([], [], []) for pid in self.people}
+        raw = {pid: ([], [], [], [], [], []) for pid in self.people}   # t, x, y, identity confidence, pitch confidence, sigma (m)
         for f in frames:
             t = float(f['time'])
             seen = set()
@@ -86,17 +86,22 @@ class Samples:
                 if pid in seen:
                     continue   # one identity, one position per frame
                 seen.add(pid)
-                ts, xs, ys = raw[pid]
+                ts, xs, ys, cs, qs, ss = raw[pid]
                 ts.append(t)
                 xs.append(float(pos[0]))
                 ys.append(float(pos[1]))
+                cs.append(float(p.get('identityConfidence') or 0.0))
+                qs.append(float(p.get('pitchConfidence') or 0.0))
+                sigma = p.get('pitchSigma')
+                ss.append(float(max(sigma)) if isinstance(sigma, (list, tuple)) and sigma and all(isinstance(v, (int, float)) for v in sigma) else math.nan)
         self.tracks = {}
-        for pid, (ts, xs, ys) in raw.items():
+        for pid, (ts, xs, ys, cs, qs, ss) in raw.items():
             if not ts:
                 continue
             t = np.array(ts, np.float64)
             order = np.argsort(t, kind='stable')
             t, x, y = t[order], np.array(xs, np.float64)[order], np.array(ys, np.float64)[order]
+            c, q, sg = np.array(cs, np.float64)[order], np.array(qs, np.float64)[order], np.array(ss, np.float64)[order]
             # Runs of continuous observation: a break where the samples are further apart than TRAIL_GAP or where the
             # step is faster than any player (a registration glitch). Smoothing never bleeds across a break.
             why = _breaks(t, x, y, self.length, self.width)
@@ -105,7 +110,10 @@ class Samples:
             for k in np.unique(run):
                 m = run == k
                 sx[m], sy[m] = _smooth(t[m], x[m], y[m], SMOOTH_WINDOW)
-            self.tracks[pid] = {'t': t, 'x': sx, 'y': sy, 'w': _weights(t, self.cap, 1/self.fps), 'run': run, 'why': why}
+            # The raw (unsmoothed) positions and the per-sample confidences are kept for analyses built on these samples
+            # (soccer/team_shape.py): identity confidence, pitch confidence and the position sigma in metres.
+            self.tracks[pid] = {'t': t, 'x': sx, 'y': sy, 'w': _weights(t, self.cap, 1/self.fps), 'run': run, 'why': why,
+                                'rawX': x, 'rawY': y, 'identity': c, 'quality': q, 'sigma': sg}
 
     def window(self, pid, t0, t1):
         """The samples of an identity within [t0, t1]: (t, x, y, w, run, why) arrays, empty when none."""

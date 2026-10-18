@@ -11,9 +11,17 @@ UNKNOWN (missing without an exit seen), LEFT (you marked the player as substitut
 RETIRED (merged into another identity). The expected sizes of the teams come from the run's
 maxPerTeam; a team with more identities than that is reported as over the cap (duplicates after a
 failed re-identification) rather than hidden. People tracked with a team but no identity are counted as
-anonymous observations: real measurements the 2D view shows as '?' markers, never as identities.
+anonymous observations: real measurements the 2D view shows as '?' markers, never as identities. In a small-scene run
+(far camera, amateur footage) the anonymous local tracks that continue each other are also reported as provisional
+persons (P-n, tracklets.chain_fragments): one unidentified person across track breaks, never an identity.
 """
 from collections import Counter
+from types import SimpleNamespace
+
+import numpy as np
+
+from .labels import small_scene_run
+from .tracklets import chain_fragments
 
 ACTIVE_WITHIN = 1.0   # seconds before the end of the segment within which a last observation counts as active
 STATUSES = ('ACTIVE', 'OFF_SCREEN', 'UNKNOWN', 'LEFT', 'RETIRED')
@@ -48,6 +56,23 @@ def observations(result):
             if tid not in current:
                 del open_runs[tid]
     return {'seen': seen, 'first': first, 'last': last, 'tracks': tracks, 'anonymousFrames': anonymous_frames, 'anonymousFragments': fragments}
+
+
+def provisional(result):
+    """The provisional persons of a small-scene run (tracklets.chain_fragments over the frames, with the camera motion of
+    the frames' own motion rows and the run's pitch size), or None on any other run."""
+    frames = result.get('frames', [])
+    if not small_scene_run(frames):
+        return None
+    motions = []
+    for f in frames:
+        m = f.get('motion')
+        M = None if m is None else np.array([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [0.0, 0.0, 1.0]])
+        motions.append((M, bool(f.get('cameraReliable', M is not None)), bool(f.get('cut', False))))
+    video = result.get('video') or {}
+    size = (result.get('tactical') or {}).get('pitchSize')
+    return chain_fragments(frames, motions, float(video.get('width') or 1920), float(video.get('height') or 1080),
+                           SimpleNamespace(length=float(size['length']), width=float(size['width'])) if size else None)
 
 
 def build(result):
@@ -93,9 +118,13 @@ def build(result):
     over = {team: n-per_team for team, n in counts.items() if n > per_team}
     if keepers > 2:
         over['goalkeepers'] = keepers-2
+    anonymous = {'fragments': obs['anonymousFragments'], 'frames': obs['anonymousFrames']}
+    chains = provisional(result)
+    if chains is not None:
+        anonymous['provisional'] = chains
     return {'expected': expected, 'counts': {'A': counts.get('A', 0), 'B': counts.get('B', 0), 'goalkeepers': keepers},
             'slots': slots, 'overCap': over,
-            'anonymous': {'fragments': obs['anonymousFragments'], 'frames': obs['anonymousFrames']},
+            'anonymous': anonymous,
             'statuses': dict(Counter(s['status'] for s in slots)),
             'assignment': ((result.get('summary') or {}).get('identity') or {}).get('assignment'),
             # Proposed merges (two identities that may be one person) are kept across re-derivations; never applied here.
@@ -103,6 +132,10 @@ def build(result):
 
 
 def summary(roster):
-    return {'expected': roster['expected'], 'counts': roster['counts'], 'overCap': roster['overCap'], 'statuses': roster['statuses'],
-            'anonymousFragments': roster['anonymous']['fragments'], 'anonymousFrames': roster['anonymous']['frames'],
-            'mergeProposals': len(roster.get('mergeProposals') or [])}
+    out = {'expected': roster['expected'], 'counts': roster['counts'], 'overCap': roster['overCap'], 'statuses': roster['statuses'],
+           'anonymousFragments': roster['anonymous']['fragments'], 'anonymousFrames': roster['anonymous']['frames'],
+           'mergeProposals': len(roster.get('mergeProposals') or [])}
+    if 'provisional' in roster['anonymous']:
+        chains = roster['anonymous']['provisional']
+        out['provisionalPersons'] = {'count': len(chains), 'frames': sum(c['frames'] for c in chains)}
+    return out

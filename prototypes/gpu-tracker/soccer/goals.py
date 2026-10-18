@@ -6,9 +6,10 @@ that pans out of view is still known. With a pitch calibration the penalty areas
 """
 import math
 
+from . import field
 from .geometry import x_at
 
-PENALTY_DEPTH = 16.5     # metres from the goal line
+PENALTY_DEPTH = field.PA     # metres from the goal line
 PLAYER_HEIGHT = 1.8
 
 
@@ -31,7 +32,7 @@ class GoalMemory:
         stab: camera-stabilized foot point and box height (x, y, h)."""
         if pitch_point is not None:
             x, y = pitch_point
-            depth = (PENALTY_DEPTH+2)/105
+            depth = (PENALTY_DEPTH+2)/field.DEFAULT_LENGTH   # on the standard pitch: the goal memory is given no pitch size
             if .15 <= y <= .85:
                 if x <= depth:
                     return 'left'

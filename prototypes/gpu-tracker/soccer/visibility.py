@@ -1,9 +1,11 @@
 """Which part of the physical pitch the camera sees on a frame, and what that says about every roster slot
 that is not observed on it.
 
-The frame's final homography (calibration.H, world metres -> pixels) maps the image rectangle, cut at
-the horizon, onto the ground: `view`, a polygon in normalized pitch coordinates clipped to the pitch
-plus a margin. A slot that is not observed on the frame is then one of:
+The frame's final homography (calibration.H, world metres -> pixels, re-oriented first: a stored matrix can have lost
+its sign) maps the image rectangle, cut at the horizon, onto the ground: `view`, a polygon in normalized pitch
+coordinates clipped to the pitch plus a margin. Where a tick recorded the part of the frame that carries image
+(`imageArea`, from image_area: a dewarped camera leaves curved black regions at the corners or along the top), that
+outline takes the black away, so it is not counted as seen. A slot that is not observed on the frame is then one of:
 
     C  IN_FRAME_BUT_OCCLUDED-or-missed: its estimated position lies inside the view by more than its
        uncertainty, so the camera should see it (hidden behind someone, or not detected)
@@ -19,6 +21,7 @@ or invented because of it.
 """
 import math
 
+import cv2
 import numpy as np
 
 from . import field
@@ -29,14 +32,78 @@ HORIZON_SHARE = .02      # points closer to the horizon than this share of the f
 ESTIMATE_MAX_AGE = 10.0  # seconds a last observation is still used as an estimate
 SIGMA_BASE, SIGMA_RATE = 2.0, 1.5   # metres, metres per second: the estimate's uncertainty from its age
 MIN_SIGMA = 1.0
+NO_IMAGE_LEVEL = 8         # every channel below this: no image (where a dewarp leaves the lens image), never dark grass or shadow
+NO_IMAGE_WIDTH = 320       # px: the resolution the no-image region is measured at
+NO_IMAGE_MIN_SHARE = .02   # the near-black region touching the frame border must cover this share of the frame to count.
+                           # Measured on sampled frames: broadcast 0 (4 of 4 frames), Veo at most .0011, amateur 3 (dewarped
+                           # follow camera) .119 at 124 s, .037 at 133 s, .044 at 160 s, .009 at 141 s, 0 at 148 s
+NO_IMAGE_MAX_SHARE = .5    # more than this without image is a fade or a black frame, not a dewarp's edge: no outline (the whole
+                           # frame counts, as without one). Measured every 2 s of the uploads: amateur 3 at most .211, the Veo
+                           # upload 1.0 on one (black) frame, broadcast 0
+NO_IMAGE_SIMPLIFY = 1.0    # px at NO_IMAGE_WIDTH: the outline's polygon tolerance
 
 
-def view_polygon(H, width, height, size=None):
+def _channels_max(image):
+    return image.max(axis=-1) if image.ndim == 3 else image
+
+
+def _dark_border(frame, small_height):
+    """The cheap structural pre-check of image_area: is any pixel of the frame's border near-black at the measuring
+    resolution (each border strip averaged one measuring pixel deep)? A region without image that touches the border
+    has such pixels; the frame corners alone would not do, since a virtual camera tilted down meets the edge of the lens
+    image as a bulge in the middle of the top border (amateur 3 at 150-158 s: 25 of the 58 sampled frames with at
+    least NO_IMAGE_MIN_SHARE black have no black corner). Every broadcast frame stops here (measured: 0 of 152)."""
+    h, w = frame.shape[:2]
+    kx, ky = max(1, int(math.ceil(w/NO_IMAGE_WIDTH))), max(1, int(math.ceil(h/small_height)))
+    rows = [cv2.resize(strip, (NO_IMAGE_WIDTH, 1), interpolation=cv2.INTER_AREA) for strip in (frame[:ky], frame[h-ky:])]
+    cols = [cv2.resize(strip, (1, small_height), interpolation=cv2.INTER_AREA) for strip in (frame[:, :kx], frame[:, w-kx:])]
+    return any(bool((_channels_max(s) < NO_IMAGE_LEVEL).any()) for s in rows+cols)
+
+
+def image_area(frame):
+    """The part of a frame (BGR or grey pixels) that carries image, as a normalized polygon: the outline of the largest
+    region left when the near-black pixels connected to the frame border are taken away; None when those cover less than
+    NO_IMAGE_MIN_SHARE of the frame (the whole frame is image: every broadcast frame) or more than NO_IMAGE_MAX_SHARE (a
+    fade or a black frame), or leave nothing. For the tick output, so that view_polygon does not count where a dewarp
+    left the lens image as seen. Cheap where there is nothing to find: a frame without a near-black border pixel returns after
+    looking at its border strips alone (measured at 1080p: 0.05 ms, against 2.4 ms for the whole measurement)."""
+    h, w = frame.shape[:2]
+    small_height = max(1, int(round(NO_IMAGE_WIDTH*h/w)))
+    if not _dark_border(frame, small_height):
+        return None
+    small = cv2.resize(frame, (NO_IMAGE_WIDTH, small_height), interpolation=cv2.INTER_AREA)
+    dark = (_channels_max(small) < NO_IMAGE_LEVEL).astype(np.uint8)
+    _, labels = cv2.connectedComponents(dark, connectivity=8)
+    border = np.unique(np.r_[labels[0], labels[-1], labels[:, 0], labels[:, -1]])
+    no_image = np.isin(labels, border[border > 0])
+    if not NO_IMAGE_MIN_SHARE <= no_image.mean() <= NO_IMAGE_MAX_SHARE:
+        return None
+    contours, _ = cv2.findContours((~no_image).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    outline = cv2.approxPolyDP(max(contours, key=cv2.contourArea), NO_IMAGE_SIMPLIFY, True).reshape(-1, 2)
+    if len(outline) < 3:
+        return None
+    sh, sw = no_image.shape
+    return [[round(float(x)/(sw-1), 4), round(float(y)/(sh-1), 4)] for x, y in outline]
+
+
+def view_polygon(H, width, height, size=None, area=None):
     """The visible pitch as a normalized polygon (x along the length, y across), or None when the frame
-    sees no ground in front of the camera. H: world metres -> pixels (3x3, list or array)."""
+    sees no ground in front of the camera. H: world metres -> pixels (3x3, list or array), re-oriented here
+    (field.orient: results stored before registration.homography_json kept the sign can hold the matrix with
+    its sign lost, the Veo regression window on 272 of 900 frames; a no-op on every matrix stored since).
+    area: the normalized outline of the part of the frame that carries image (image_area), or None for the
+    whole frame. The outline only takes area away: whether and where the view is cut at the horizon is
+    decided by the frame rectangle in both cases (an outline that lost its deepest corners would otherwise
+    move the cut towards the horizon and admit the band HORIZON_SHARE leaves out), so the outlined view is
+    always part of the plain one. An outline bitten at the corners is not convex: clipping it by a half-plane
+    still keeps its region (pieces may be joined along the cut line)."""
     if H is None:
         return None
-    H = np.asarray(H, np.float64).reshape(3, 3)
+    H = field.orient(np.asarray(H, np.float64).reshape(3, 3), width, height)
+    if H is None:
+        return None
     size = size or field.PitchSize()
     try:
         inverse = np.linalg.inv(H)
@@ -47,12 +114,14 @@ def view_polygon(H, width, height, size=None):
     depths = [a*x+b*y+c for x, y in corners]
     if max(depths) <= 0:
         return None
-    polygon = corners
+    polygon = [(float(x)*width, float(y)*height) for x, y in area] if area and len(area) >= 3 else corners
     if min(depths) <= 0:
-        # Cut the rectangle at a line a little in front of the horizon (depth = share of the deepest corner).
+        # Cut the image outline at a line a little in front of the horizon (depth = share of the frame's deepest corner).
         level = HORIZON_SHARE*max(depths)
         if abs(a) < 1e-12 and abs(b) < 1e-12:
             return None
+        if polygon is not corners and max(a*x+b*y+c for x, y in polygon) <= level:
+            return None       # the image left by the outline lies entirely beyond the cut
         # Two points on the line a x + b y + c = level.
         if abs(b) >= abs(a):
             p0, p1 = (0.0, (level-c)/b), (float(width), (level-c-a*width)/b)
@@ -149,10 +218,14 @@ def annotate(result):
     width, height = result['video']['width'], result['video']['height']
     estimates, source = _estimates(result, slots)
     counts = {'O': 0, 'C': 0, 'S': 0, 'U': 0}
-    views = 0
+    views = cut = 0
+    area = None
     for i, f in enumerate(frames):
+        if f.get('pitch'):
+            area = f['pitch'].get('imageArea')   # the latest tick's outline of the image (absent: the whole frame is image)
         H = (f.get('calibration') or {}).get('H') if f.get('calibrated') else None
-        view = view_polygon(H, width, height, size) if H else None
+        view = view_polygon(H, width, height, size, area) if H else None
+        cut += view is not None and area is not None
         f['view'] = view
         views += view is not None
         observed = {p.get('id') for p in f.get('people', []) if p.get('id')}
@@ -172,4 +245,4 @@ def annotate(result):
         f['visibility'] = codes
     total = max(1, sum(counts.values()))
     return {'estimates': source, 'framesWithView': views, 'slotFrames': total,
-            'shares': {k: round(v/total, 3) for k, v in counts.items()}}
+            'shares': {k: round(v/total, 3) for k, v in counts.items()}, **({'viewsWithoutBlackCorners': cut} if cut else {})}

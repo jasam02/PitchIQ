@@ -104,7 +104,8 @@ def assess(detections, pitch, config, size=None, user_polygon=None, live=(), hei
 
     detections: [{'box': [x,y,w,h] normalized, 'score', 'cls', ...}]; live: boxes of people tracked
     on the previous frames (robust mode keeps small detections that continue them); height_px: frame
-    height, for the pixel size of people.
+    height, for the pixel size of people (SMALL_PX); the tracker passes its 1080p equivalent for a
+    low-resolution source (tracker.pixel_scale), whose people the detector sees magnified.
     Returns (accepted, continuation, rejected, size_model). Each accepted/continuation item is the
     detection dict extended with 'foot', 'zone', 'outsideBy', 'sizeRatio'. Continuation items are
     just beyond a touchline (not audience): they may extend an existing track but never start one.

@@ -158,5 +158,12 @@ def to_normalized(matrix_px, width, height):
     return scale_matrix(1/width, 1/height) @ matrix_px @ scale_matrix(width, height)
 
 
-# The painted spots of a 105 x 68 m pitch in normalized pitch coordinates: left penalty spot, right penalty spot, centre spot.
-PAINTED_SPOTS = ((11/105, .5), (94/105, .5), (.5, .5))
+def __getattr__(name):
+    """PAINTED_SPOTS: the painted spots of the standard pitch in normalized pitch coordinates (left penalty
+    spot, right penalty spot, centre spot), from soccer/field.py where the dimensions live. Resolved on first
+    use: field imports this module, so it cannot be imported at the top."""
+    if name == 'PAINTED_SPOTS':
+        from .field import PitchSize, painted_spots
+        globals()['PAINTED_SPOTS'] = spots = painted_spots(PitchSize())
+        return spots
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

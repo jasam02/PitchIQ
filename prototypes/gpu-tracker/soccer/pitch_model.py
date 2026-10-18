@@ -36,6 +36,10 @@ REFINE_TOL = .008            # fraction of the frame width: the paint must agree
 REGISTER_MAX_SHIFT = .1      # fraction of the frame width: a direct registration further from the chain is suspect, unless the chain is weak
 REGISTER_WEAK = .5           # temporal confidence below which the chain is weak
 REGISTER_MATCHES_FLOOR = 40  # matches at which a direct registration's quality starts counting
+CAP_METRES = 1.0             # a matched line lifts a capped chain's ceiling when it pins the line this well: its pixel error times the metres
+                             # per pixel across it (midfield.CONFIRM_METRES)
+CAP_SUPPORT = .05            # ... and is a detected segment at least this well supported (midfield.CONFIRM_SUPPORT)
+CIRCLE_GATE = 3.0            # analysis-mask pixels: on a capped chain only circle paint this close to the predicted circle refines it
 
 
 def levels(confidence):
@@ -69,6 +73,10 @@ class PitchTracker:
         self.refinement = None        # the last refinement: {'time', 'own' (its own observability), 'anchor' (what an anchor of it is worth)}
         self.strikes = 0
         self.inside = None            # (inside, total) of the last people check
+        self.cap = None               # observability ceiling of a chain started by an unconfirmed automatic pinhole anchor (midfield.PINHOLE_CAP), or None
+        self.capped = False           # the chain started from a capped anchor: its refinements use only circle paint near the predicted circle,
+                                      # its own lines and lines that agree with it (refine)
+        self.fitted = frozenset()     # the painted lines a capped anchor was fitted to: their paint never lifts its ceiling
 
     # ---------- state ----------
     @property
@@ -85,11 +93,18 @@ class PitchTracker:
         self.H, self.temporal, self.observability, self.state, self.lost = None, 0.0, 0.0, 'lost', why
         self.details, self.matched, self.strikes = {}, [], 0
         self.anchored_index = None
+        self.cap, self.capped, self.fitted = None, False, frozenset()
 
-    def anchor(self, H_image_to_world, time, rms=None, note='calibration keyframe', observability=None, details=None, source='calibration', index=None):
+    def anchor(self, H_image_to_world, time, rms=None, note='calibration keyframe', observability=None, details=None, source='calibration', index=None, cap=None,
+               fitted=None):
         """Adopt a calibration (image pixels -> metres, as calibration.solve returns it). observability:
         the geometric certainty of its evidence (field.observability); without one the anchor is taken
-        as fully constrained. An anchor below MIN_ANCHOR is refused: it would only be carried smoothly."""
+        as fully constrained. An anchor below MIN_ANCHOR is refused: it would only be carried smoothly.
+        cap (automatic anchors only, below 1): the ceiling of the chain's observability until a refinement
+        brings paint that pins the pitch down independently of the anchor (_lifts_cap): a circle and its
+        diameter seen through an assumed camera model never earn more on their own. fitted: the names of the
+        painted lines the anchor was fitted to (default: its details' 'evidence'); the same paint seen again
+        is not independent of it, so it never lifts the ceiling."""
         try:
             H = field.orient(np.linalg.inv(np.asarray(H_image_to_world, np.float64)), self.width, self.height)
         except np.linalg.LinAlgError:
@@ -106,6 +121,10 @@ class PitchTracker:
         self.anchored_index = index
         self.refinement = None
         self.strikes = 0
+        self.cap = cap if cap is not None and cap < 1 else None
+        self.capped = self.cap is not None
+        fitted = (details or {}).get('evidence', ()) if fitted is None else fitted
+        self.fitted = frozenset(fitted) if self.capped else frozenset()
         self.events.append((time, 'anchored', f'camera homography anchored by a {note}' + (f' (landmarks agree within {rms:.2f} m)' if rms is not None else '') +
                             f'; observability {observability:.2f}, confidence {self.confidence:.2f}'))
         return True
@@ -146,6 +165,15 @@ class PitchTracker:
         W, Hh = self.width, self.height
         self.matched = field.match_segments(self.H, self.size, segs, W, Hh)
         circle = list(circle or ())
+        if self.capped:
+            # A chain started from an unconfirmed automatic anchor moves only with its own evidence (the circle
+            # near its prediction, the halfway line, the lines the anchor was fitted to) and with lines that
+            # already agree with it to CAP_METRES. A line farther off is either the chain's error or not that
+            # marking, and one detected segment cannot tell which: amateur 3's boards' foot, 8-9 px (6-9 m)
+            # beyond the far touchline, matched as the far touchline pulled the chain onto it, and then, 0.5 px
+            # from the moved chain, 'confirmed' it (the chain 6-12 m off at the hand-marked frames).
+            self.matched = [m for m in self.matched if m['name'] == 'halfway line' or m['name'] in self.fitted or self._pins(m, self.H)]
+            circle = self._near_circle(circle) if circle else circle
         if self.matched or circle:
             if self.temporal < REFINE_BELOW:
                 obs = {'lines': self.matched, 'circle': circle}
@@ -158,6 +186,12 @@ class PitchTracker:
                     # this evidence constrains the pitch better than what the chain rested on.
                     self.temporal = max(self.temporal, min(.96, .75+.07*len(self.matched)+.1*bool(circle)))
                     found = field.observability(dict(obs, H=fit.H), W, Hh, self.size, rms_px=fit.rms_px, jac=fit.jac)
+                    if self.cap is not None:
+                        if self._lifts_cap(fit.H):
+                            self.cap = None
+                            self.events.append((time, 'confirmed', 'a painted line seen finely enough confirms the automatic anchor: its ceiling is lifted'))
+                        else:
+                            found = dict(found, score=min(found['score'], self.cap), cap=self.cap)
                     # What this refinement is worth as an anchor: the chain's certainty, which the paint just
                     # confirmed (or its own, when that is higher). Whether it anchors at all is decided by its own
                     # evidence (tracker: MIN_ANCHOR), so a single faint line never restarts a chain.
@@ -199,6 +233,44 @@ class PitchTracker:
         self.events.append((time, 'reregistered', f'registered directly to {note} ({matches} matches, {rms_px:.1f} px); '
                                                   f'moved {shift:.1f} px, confidence {before:.2f} -> {self.confidence:.2f}'))
         return shift
+
+    def _lifts_cap(self, H):
+        """Does this refinement's paint pin the pitch down independently of the anchor: a matched line other
+        than the lines the anchor was fitted to (self.fitted) that _pins? (The test midfield._confirmations
+        applies to the anchor itself.)"""
+        return any(m['name'] not in self.fitted and self._pins(m, H) for m in self.matched)
+
+    def _pins(self, m, H):
+        """Is a matched line other than the halfway line, from a detected segment of at least CAP_SUPPORT, pinned
+        down to CAP_METRES on the ground under H: its pixel error times the metres per pixel across it?"""
+        if m['name'] == 'halfway line' or m.get('support', 0.0) < CAP_SUPPORT:
+            return False
+        (ax, ay), (bx, by) = m['a'], m['b']
+        mid = np.array([(ax+bx)/2, (ay+by)/2])
+        length = math.hypot(bx-ax, by-ay)
+        if length < 1:
+            return False
+        probes = [mid, mid+np.array([-(by-ay), bx-ax])/length]
+        if (field.image_depth(H, probes) <= 1e-9).any():
+            return False
+        g = field.unproject(H, probes)
+        return max(m['error'], 1.0)*float(np.hypot(*(g[1]-g[0]))) <= CAP_METRES
+
+    def _near_circle(self, circle):
+        """The circle paint (pixels) within CIRCLE_GATE analysis pixels of the circle the model predicts: the
+        shipped circle search fits background paint on a far, flat circle (amateur 3), and such points would
+        pull a capped chain away from the anchor that found the real one."""
+        cx, cy = field.circle_centre(self.size)
+        t = np.linspace(0, 2*math.pi, 360, endpoint=False)
+        ring = np.c_[cx+field.RADIUS*np.cos(t), cy+field.RADIUS*np.sin(t)]
+        ring = ring[field.depth(self.H, ring) > 1e-9]
+        if len(ring) < 3:
+            return []
+        image = field.project(self.H, ring)
+        pts = np.asarray(circle, np.float64)
+        gap = np.min(np.hypot(pts[:, None, 0]-image[None, :, 0], pts[:, None, 1]-image[None, :, 1]), axis=1)
+        near = pts[gap <= CIRCLE_GATE*self.width/640]
+        return [(float(x), float(y)) for x, y in near] if len(near) >= 12 else []
 
     def _shift(self, H_new):
         """Mean displacement (pixels) of ground points spread over the image between the current and a

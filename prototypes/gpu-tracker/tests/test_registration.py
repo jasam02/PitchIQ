@@ -375,6 +375,30 @@ class MidfieldAnchorTests(unittest.TestCase):
         self.assertIsNone(circle_points(detector.masks, touchline, model.markings))
 
 
+class HomographyJsonTests(unittest.TestCase):
+    """The stored per-frame homography keeps the orientation the registration gave it."""
+
+    def test_a_far_left_corner_behind_the_camera_keeps_the_orientation(self):
+        # A camera at the near touchline beyond the halfway line looking at the right end: the far-left corner
+        # (the world origin, whose depth H[2, 2] is) lies behind it.
+        C = np.array([70.0, 72.0, -6.0])
+        z = np.array([105.0, 55.0, 0.0])-C
+        z /= np.linalg.norm(z)
+        y = np.array([0.0, 0.0, 1.0])-z[2]*z
+        y /= np.linalg.norm(y)
+        R = np.vstack([np.cross(y, z), y, z])
+        K = np.array([[900.0, 0, W/2], [0, 900.0, H/2], [0, 0, 1]])
+        P = field.orient(K @ np.c_[R[:, 0], R[:, 1], -R @ C], W, H)
+        self.assertLess(field.depth(P, [(0, 0)])[0], 0)
+        self.assertLess(P[2, 2], 0)
+        stored = np.array(registration.homography_json(P)).reshape(3, 3)
+        self.assertAlmostEqual(abs(stored[2, 2]), 1.0)
+        self.assertGreater(field.image_depth(stored, [(W/2, .95*H)])[0], 0)
+        self.assertLess(spot_error(stored, P), 1e-6)
+        upright = field.orient(broadcast.camera(), W, H)   # the usual side view: H[2, 2] > 0, stored as before
+        self.assertAlmostEqual(np.array(registration.homography_json(upright)).reshape(3, 3)[2, 2], 1.0)
+
+
 class PositionUncertaintyTests(unittest.TestCase):
     """Pass 3 (Phase 1): every position carries a sigma in metres; nothing is written below the confidence
     floor or above the horizon; the forward/backward disagreement is measured over the visible pitch."""

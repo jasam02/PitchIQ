@@ -51,6 +51,18 @@ TAU_ROLE = 20.0          # s: how fast a hidden player's offset relaxes from whe
 TAU_SHIFT = 2.0          # s: the team's movement is applied to the last position only gradually (holding wins in the first seconds)
 SHIFT_SIGMA_RATE = .8    # m/s: growth of the team-shift estimate's uncertainty (the player moves with the team, plus this)
 HYBRID_BASE = 'shift'    # the one-sided estimate used where only one side is observed (chosen on the benchmark)
+# A position under estimate()'s min_confidence is still an observation on a small-scene frame (frame['profile']['smallScene']:
+# far, small players or a low-resolution source) when its frame's registration is good and the position's own sigma
+# is this small: its pitchConfidence is low only because a few pixels are worth many metres there (the local projection
+# certainty), which the sigma already says. Measured with tools/diagnose.py: 0 such positions on the broadcast, Veo and
+# amateur 3 regression windows (0 of 42 189, 11 313 and 31 419 positioned live people under .2 at all).
+OBS_MAX_SIGMA = 6.0      # m
+# The frame's registration confidence the rule needs: pitch_model.MEDIUM (a LOW registration, carried far from its anchor,
+# is part of why the position is uncertain, and the sigma does not say so: it is the foot-pixel Jacobian plus the
+# forward/backward disagreement, without the registration's temporal decay). Not registration.MIN_POSITION (.2): every
+# positioned frame has that, so it would test nothing. Not higher: an automatic midfield anchor without an independent
+# painted line starts at combine(1, midfield.PINHOLE_CAP) = .66 and decays from there.
+OBS_MIN_FRAME = .35
 KINDS = {'O': 0, 'I': 1, 'P': 2, 'U': 3}
 KIND_NAMES = ['O', 'I', 'P', 'U']
 
@@ -285,6 +297,17 @@ def estimate_team(pos, sig, times, method='voting', bidirectional=True, learned=
 
 
 # ---------- the result's timeline block ----------
+def _precise_on_small_scene(person, frame):
+    """A low-confidence position that is still an observation: on a small-scene frame, with a registration of at least
+    OBS_MIN_FRAME and a sigma of at most OBS_MAX_SIGMA (see the constants). Always False off small-scene frames (every
+    broadcast frame) and for a position without a sigma."""
+    if not (frame.get('profile') or {}).get('smallScene', False):
+        return False
+    sigma = person.get('pitchSigma')
+    return (((frame.get('calibration') or {}).get('confidence') or 0.0) >= OBS_MIN_FRAME
+            and isinstance(sigma, list) and bool(sigma) and max(sigma) <= OBS_MAX_SIGMA)
+
+
 def estimate(result, size_length=105.0, size_width=68.0, min_confidence=.2):
     """The `timeline` block of a finished result: per roster slot (team players and goalkeepers), per frame,
     the estimated normalized position, its kind and its sigma (metres), from the observed positions of the
@@ -308,7 +331,9 @@ def estimate(result, size_length=105.0, size_width=68.0, min_confidence=.2):
             continue
         for p in f.get('people', []):
             k = index.get(p.get('id'))
-            if k is None or not isinstance(p.get('pitch'), list) or (p.get('pitchConfidence') or 0.0) < min_confidence:
+            if k is None or not isinstance(p.get('pitch'), list):
+                continue
+            if (p.get('pitchConfidence') or 0.0) < min_confidence and not _precise_on_small_scene(p, f):
                 continue
             pos[t, k] = (p['pitch'][0]*size_length, p['pitch'][1]*size_width)
             s = p.get('pitchSigma')

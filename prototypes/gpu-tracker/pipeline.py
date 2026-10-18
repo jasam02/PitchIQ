@@ -36,6 +36,17 @@ DETECT_BATCH = 1      # consecutive frames per whole-frame detector call on the 
                       # because the main thread is the bottleneck. Worth trying again on a different GPU.
 BALL_SCAN_S = 1.0     # seconds between the safeguard ball tile scans while the ball tracker is LOCKED (config ballScanEvery);
                       # while it is not (searching, recovering, occluded) the tiles run every other frame
+NEAR_PASS = 640       # small scenes only: an extra whole-frame people pass at this input size (config nearPass). On amateur 3 (1080p,
+                      # pole camera) the 960 and 1536 passes miss near players of 60-120 px that a 640 pass finds (148.0 s: the ball
+                      # carrier is found at 640 only; 1280 and 1536 often find no near player at all)
+NEAR_MIN_PX = 60      # px at 1080p (scaled with a low-resolution source): the near pass only fills in people at least this tall ...
+NEAR_FILL_SHARE = .3  # ... that no whole-frame person row covers this share of (of the smaller box). Merged in the joint
+                      # suppression it replaced the main passes' box on about 3 people per frame (24-60 px) and put a second box on
+                      # (or one over two of) about 2 more, which cut their local tracks (amateur 3 118-182 s: 357 -> 524 local
+                      # tracks; 38 sampled frames: 6 rows of 60 px or more that the other passes miss, 2 under it)
+BALL_TILE_PX = 800    # px: the ball tile side, shrunk to 640 (0.8x, at 1080p; scaled with a low-resolution source)
+# The ball candidates' source, the last column of the rows handed to the tracker (diagnostic: no decision reads it).
+BALL_FROM_PASSES, BALL_FROM_TILES, BALL_FROM_CROP = 0.0, 1.0, 2.0
 # BGR; the same colours as the review page.
 COLORS = {'A': (255, 140, 185), 'B': (100, 181, 246), 'GOALKEEPER': (162, 95, 255), 'REFEREE': (100, 225, 255), 'UNCERTAIN': (194, 180, 169),
           'PITCH': (255, 200, 124), 'BALL': (61, 255, 198)}
@@ -75,10 +86,13 @@ def normalized(box, width, height):
             round(float((x2-x1)/width), 6), round(float((y2-y1)/height), 6)]
 
 
-def ball_tiles(model, frame):
-    """Magnify the full image in overlapping regions; don't assume ball is centered."""
+def ball_tiles(model, frame, scale=1.0):
+    """The whole image in overlapping square regions of BALL_TILE_PX, each run at 640 (0.8x on a 1080p frame: the
+    scale of a 1536 detail pass, more than a 960 or 1280 one), so the ball is looked for everywhere, not only where
+    it is expected. scale: tracker.pixel_scale, under 1 for a low-resolution source, whose regions shrink with it
+    so that the ball reaches the detector at the size it has in a 1080p frame's tiles."""
     height, width = frame.shape[:2]
-    size = min(800, width, height)
+    size = min(round(BALL_TILE_PX*scale), width, height)
     def starts(length):
         return sorted(set(list(range(0, max(1, length-size), round(size*.8)))+[length-size]))
     regions = [(x, y) for y in starts(height) for x in starts(width)]
@@ -94,14 +108,15 @@ def ball_tiles(model, frame):
     return output
 
 
-def ball_crop(model, frame, window):
+def ball_crop(model, frame, window, scale=1.0):
     """Ball detections in a crop of the frame at its original resolution (the local search around the
-    ball tracker's prediction): rows [x1, y1, x2, y2, score, 0] in frame pixels."""
+    ball tracker's prediction): rows [x1, y1, x2, y2, score, 0] in frame pixels. scale: tracker.pixel_scale; a
+    low-resolution source's crop is magnified by 1/scale (up to 1280), as a 1080p frame's crop would show the ball."""
     x0, y0, x1, y1 = window
     crop = frame[y0:y1, x0:x1]
     if crop.size == 0:
         return []
-    size = int(min(1280, max(320, 32*round(max(crop.shape[:2])/32))))
+    size = int(min(1280, max(320, 32*round(max(crop.shape[:2])/scale/32))))
     result = model.predict(crop, imgsz=size, conf=.08, iou=.4, classes=[0], device=0, half=True, verbose=False)[0]
     rows = []
     for box in result.boxes:
@@ -114,7 +129,9 @@ def far_tiles(model, frame, band):
     """Robust-footage fallback: overlapping square tiles over the image band (y0, y1) in pixels where
     the tracked people are expected to be too small for the whole-frame passes, run at a higher
     effective resolution. Only people are looked for; the tracker treats the result as provisional
-    (pipeline column 7) until it repeats or continues a tracked person."""
+    (pipeline column 7) until it repeats or continues a tracked person. The tiles stay at least 96 source
+    pixels wide on any source (the band itself scales with a low-resolution one): that caps the magnification
+    of source pixels at 6.7x, and a low-resolution source has no finer detail to magnify."""
     y0, y1 = band
     height, width = frame.shape[:2]
     size = max(96, y1-y0)
@@ -198,6 +215,32 @@ def merge_far(rows, extra):
     return np.r_[np.c_[rows, np.zeros(len(rows), np.float32)], flagged]
 
 
+def ball_candidates(rows, tile_rows, crop_rows, width, height):
+    """One frame's ball candidates from its three sources: the whole-frame passes' ball rows (rows: their (N, 6)
+    detections), the ball tiles' rows (None on the frames the scans skip) and the search crop's. One suppression
+    at IoU .3 merges them (the better-scored box stays, whatever its source) and obviously huge boxes (largest
+    side over 3.5% of the frame) go; everything else is scored by the ball tracker. Returns the (M, 7) rows
+    [x1, y1, x2, y2, score, 0, source] with the source (BALL_FROM_*) carried through, and the diagnostic counts per
+    source before and after: {'raw': [passes, tiles, crop], 'kept': [...]}."""
+    found = [r+[BALL_FROM_PASSES] for r in rows[rows[:, 5] == 0].tolist()]
+    found += [list(r)+[BALL_FROM_TILES] for r in (tile_rows or [])]
+    found += [list(r)+[BALL_FROM_CROP] for r in crop_rows]
+    counts = lambda sources: [int(np.sum(sources == s)) for s in (BALL_FROM_PASSES, BALL_FROM_TILES, BALL_FROM_CROP)]
+    if not found:
+        return np.zeros((0, 7), np.float32), {'raw': [0, 0, 0], 'kept': [0, 0, 0]}
+    raw = torch.tensor(found, dtype=torch.float32)
+    kept = raw[nms(raw[:, :4], raw[:, 4], .3)].numpy()
+    kept = kept[np.maximum(kept[:, 2]-kept[:, 0], kept[:, 3]-kept[:, 1]) <= max(width, height)*.035]
+    return np.asarray(kept, np.float32).reshape(-1, 7), {'raw': counts(raw[:, 6].numpy()), 'kept': counts(kept[:, 6])}
+
+
+def auto_landmarks(keyframe_times, start, finish):
+    """Whether this run must find its pitch landmarks automatically: no calibration keyframe lies within the segment
+    or ROLL_SECONDS of it (no keyframe the pre-roll, the post-roll or the offline registration could carry in). The
+    gate of the automatic calibration routes that would otherwise compete with the user's keyframes."""
+    return not any(start-ROLL_SECONDS <= t <= finish+ROLL_SECONDS for t in keyframe_times)
+
+
 def _joint_nms(rows, shape):
     """The whole-frame passes of one frame, merged: person roles may disagree across scales, so those
     duplicates are suppressed jointly (the ball is kept apart by an offset)."""
@@ -209,28 +252,65 @@ def _joint_nms(rows, shape):
     return rows[keep].numpy()
 
 
-def detect_batch(model, frames, detail):
+def near_pass_adds(detail):
+    """Whether the NEAR_PASS pass is a size the whole-frame passes (960 and the detail size) do not run already."""
+    return NEAR_PASS not in {960, detail}
+
+
+def detect_batch(model, frames, detail, near=False, near_min=NEAR_MIN_PX):
     """Whole-frame detection of several consecutive frames of the same size: one model.predict call per
     size pass for all of them (the detector runs them as one batch), then the per-frame merge and NMS
     that detect() does for a single frame. Returns one (N, 6) array per frame, in the frames' order.
     Only the GPU work is shared: every frame's rows come from its own letterboxed image and its own
-    suppression. (FP16 batching may move the scores in the last digits; nothing else changes.)"""
+    suppression. (FP16 batching may move the scores in the last digits; nothing else changes.)
+    near: also a NEAR_PASS pass for people only (small scenes), which only fills in (_fill_in) people of at
+    least near_min pixels that the other passes missed; the ball is not looked for at that size, where it is a
+    few pixels across."""
     if not len(frames):
         return []
     # This checkpoint loses larger foreground players at high input sizes.
     # Keep the 960 whole-frame view and merge an additional detail pass.
+    sizes = sorted({960, detail})
     passes = [[] for _ in frames]
-    for size in sorted({960, detail}):
+    for size in sizes:
         results = model.predict(list(frames), imgsz=size, conf=.10, iou=.45,
                                 classes=None, device=0, half=True, verbose=False)
         for collected, result in zip(passes, results):
             collected.append(result.boxes.data.cpu())
-    return [_joint_nms(torch.cat(collected), frame.shape) for collected, frame in zip(passes, frames)]
+    merged = [_joint_nms(torch.cat(collected), frame.shape) for collected, frame in zip(passes, frames)]
+    if near and near_pass_adds(detail):
+        results = model.predict(list(frames), imgsz=NEAR_PASS, conf=.10, iou=.45,
+                                classes=[1, 2, 3], device=0, half=True, verbose=False)
+        merged = [_fill_in(rows, result.boxes.data.cpu().numpy(), near_min) for rows, result in zip(merged, results)]
+    return merged
 
 
-def detect(model, frame, detail):
+def _fill_in(rows, extra, min_height):
+    """The rows of the whole-frame passes plus those people of `extra` (the near pass) at least min_height pixels tall
+    whose box no person row covers NEAR_FILL_SHARE of (of the smaller box): a person the other passes missed. A near
+    row never replaces or doubles a person the other passes found (their boxes would alternate from frame to frame)."""
+    extra = np.asarray(extra, np.float32).reshape(-1, 6)
+    extra = extra[(extra[:, 3]-extra[:, 1] >= min_height) & (extra[:, 5] != 0)]
+    if not len(extra):
+        return rows
+    people = rows[rows[:, 5] != 0] if len(rows) else np.zeros((0, 6), np.float32)
+    area = lambda b: np.maximum(b[..., 2]-b[..., 0], 0)*np.maximum(b[..., 3]-b[..., 1], 0)
+    keep = []
+    for r in extra:
+        if len(people):
+            w = np.clip(np.minimum(r[2], people[:, 2])-np.maximum(r[0], people[:, 0]), 0, None)
+            h = np.clip(np.minimum(r[3], people[:, 3])-np.maximum(r[1], people[:, 1]), 0, None)
+            if (w*h/np.maximum(np.minimum(area(r), area(people)), 1e-6)).max() >= NEAR_FILL_SHARE:
+                continue
+        keep.append(r)
+    if not keep:
+        return rows
+    return np.concatenate([np.asarray(rows, np.float32).reshape(-1, 6), np.asarray(keep, np.float32)]).astype(rows.dtype if len(rows) else np.float32)
+
+
+def detect(model, frame, detail, near=False, near_min=NEAR_MIN_PX):
     """Whole-frame detection of one frame (a batch of one)."""
-    return detect_batch(model, [frame], detail)[0]
+    return detect_batch(model, [frame], detail, near, near_min)[0]
 
 
 def _colour(person):
@@ -334,13 +414,22 @@ class Prefetch:
     The ball tile scans do depend on one thing the tracker knows: whether the ball is being followed. The
     main thread writes `ball_locked` after every frame (the ball tracker's phase is LOCKED); the worker
     reads it when it decides a frame's scan, which it does as late as it can, at the moment the hand-over
-    has room for that frame, so the word it reads is at most `depth` frames old."""
+    has room for that frame, so the word it reads is at most `depth` frames old.
+
+    The NEAR_PASS people pass depends on the tracker too: it runs on small scenes only. The main thread records
+    the tracker's small_scene per frame in `small` (note_scene); the worker reads the word of a fixed earlier
+    frame (near_wanted), one the main thread has certainly finished, so the pass follows the gate a few frames
+    late but identically whatever the timing of the two threads."""
 
     def __init__(self, video_path, model_path, first_frame, fps, start, finish, roll_until, detail, tiles, cancelled, depth=None, batch=DETECT_BATCH,
-                 scan_every=BALL_SCAN_S, model=None):
+                 scan_every=BALL_SCAN_S, model=None, near=False, scale=1.0):
         self.video_path, self.model_path, self.model = video_path, model_path, model   # model: the worker's own detector instance, else loaded here
         self.first_frame, self.fps, self.start, self.finish, self.roll_until = first_frame, fps, start, finish, roll_until
         self.detail, self.tiles, self.cancelled = detail, tiles, cancelled
+        self.scale = scale         # tracker.pixel_scale: the ball tiles' size on a low-resolution source
+        self.near = bool(near)     # the NEAR_PASS pass is allowed (config nearPass); it runs on small-scene frames only
+        self.small = {}            # frame index -> the tracker's small_scene after that frame (note_scene, main thread)
+        self.near_frames = 0       # frames detected with the NEAR_PASS pass
         # Consecutive frames of the segment go through the whole-frame detector `batch` at a time (the last
         # group may be shorter); the hand-over holds two groups so that the worker's next batch overlaps the
         # tracking of the current one. A slot is taken per item handed out and given back by the consumer
@@ -365,6 +454,19 @@ class Prefetch:
         if not self.ball_locked:
             return n % 2 == 0
         return n % self.scan_every == 0
+
+    def note_scene(self, index, small_scene):
+        """The main thread's word after frame `index`: the tracker's small_scene."""
+        self.small[index] = bool(small_scene)
+
+    def near_wanted(self, first):
+        """Whether the batch starting at frame `first` gets the NEAR_PASS pass: the small_scene word of frame
+        first-depth-1. When the worker detects that batch it has handed out every item before `first`, and at most
+        `depth` of them are still held by the consumer, so frame first-depth-1 is finished and its word written
+        (earlier frames, or roll frames, have none: no pass). Reading this frame's word, never a later one, keeps
+        the detections independent of how far the consumer happens to be ahead. Never when the detail size is NEAR_PASS
+        itself (detect_batch would add nothing), so near_frames counts the frames the extra pass really ran on."""
+        return self.near and near_pass_adds(self.detail) and self.small.get(first-self.depth-1, False)
 
     def _work(self):
         capture = None
@@ -411,7 +513,9 @@ class Prefetch:
             pending.clear()
             return
         t0 = clock()
-        detections = detect_batch(model, [frame for _, _, frame in pending], self.detail)
+        near = self.near_wanted(pending[0][0])
+        detections = detect_batch(model, [frame for _, _, frame in pending], self.detail, near, NEAR_MIN_PX*self.scale)
+        self.near_frames += len(pending) if near else 0
         each = (clock()-t0)/len(pending)
         for (index, stamp, frame), rows in zip(pending, detections):
             if not self._room():
@@ -420,7 +524,7 @@ class Prefetch:
             tile_rows = None
             if self.tiles and self.scan_wanted(index):   # decided now, with the main thread's latest word
                 t0 = clock()
-                tile_rows = ball_tiles(model, frame)
+                tile_rows = ball_tiles(model, frame, self.scale)
                 spent['ballTiles'] = clock()-t0
                 self.scans += 1
             self.queue.put(('frame', index, stamp, frame, rows, tile_rows, spent))
@@ -480,6 +584,7 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
     # Keyframes just outside the segment are not lost: the frames from such a keyframe to the start are processed
     # for camera motion and pitch evidence only (pre-roll), and after the end up to such a keyframe (post-roll).
     keyframe_times = sorted(float(c['time']) for c in (config.get('calibrations') or []))
+    tracker.auto_landmarks = auto_landmarks(keyframe_times, start, finish)
     roll_from = min((t for t in keyframe_times if start-ROLL_SECONDS <= t < start), default=None)
     roll_until = max((t for t in keyframe_times if finish <= t <= finish+ROLL_SECONDS), default=None)
     first_frame = int(round((start if roll_from is None else roll_from)*fps))
@@ -492,7 +597,9 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
     clock = time.perf_counter
     ahead = Prefetch(video_path, model_path, first_frame, fps, start, finish, roll_until, int(config.get('imageSize', 1280)),
                      bool(config.get('ballTiles', False)), cancelled, batch=int(config.get('detectBatch', DETECT_BATCH)),
-                     scan_every=float(config.get('ballScanEvery', BALL_SCAN_S)), model=shared.worker_detector)
+                     scan_every=float(config.get('ballScanEvery', BALL_SCAN_S)), model=shared.worker_detector,
+                     near=bool(config.get('nearPass', True)), scale=tracker.pixel_scale)
+    debug = bool(config.get('debug', True))
     try:
         for kind, index, stamp, frame, rows, tile_rows, spent in ahead:
             if cancelled():
@@ -514,7 +621,7 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
                               'videoTime': stamp, 'elapsed': round(elapsed, 1), 'frames': len(frames), 'gpu': gpu})
                     last_notice = elapsed
                 continue
-            ball_rows = rows[rows[:, 5] == 0].tolist()
+            whole = rows
             band = tracker.far_band()
             if band is not None:
                 far_passes += 1
@@ -527,24 +634,28 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
                 t0 = clock()
                 rows = merge_crops(rows, local_crops(model, frame, windows))
                 timing['localCrops'] += clock()-t0
-            if tile_rows is not None:
-                ball_rows += tile_rows
             window = tracker.ball.search_window()
+            crop_rows = []
             if window is not None and config.get('ballSearch', True):
                 ball_searches += 1
                 t0 = clock()
-                ball_rows += ball_crop(model, frame, window)
+                crop_rows = ball_crop(model, frame, window, tracker.pixel_scale)
                 timing['ballCrop'] += clock()-t0
-            if ball_rows:
-                raw = torch.tensor(ball_rows, dtype=torch.float32)
-                ball_rows = raw[nms(raw[:, :4], raw[:, 4], .3)].numpy()
-                # Obviously huge boxes are never the ball; everything else is scored by the ball tracker.
-                ball_rows = ball_rows[np.maximum(ball_rows[:, 2]-ball_rows[:, 0], ball_rows[:, 3]-ball_rows[:, 1]) <= max(width, height)*.035]
+            else:
+                window = None
+            ball_rows, passes = ball_candidates(whole, tile_rows, crop_rows, width, height)
             t0 = clock()
-            observation, _, _ = tracker.step(frame, stamp, rows[rows[:, 5] != 0], np.asarray(ball_rows, np.float32).reshape(-1, 6))
+            observation, _, _ = tracker.step(frame, stamp, rows[rows[:, 5] != 0], ball_rows)
             timing['tracking'] += clock()-t0
-            ahead.ball_locked = tracker.ball.phase == 'LOCKED'   # the worker scans the tiles only while this is False (plus its safeguard)
+            # The worker's words: it scans the ball tiles only while the ball is not followed by a certain lock (plus its
+            # safeguard), and adds the near pass on small scenes.
+            ahead.ball_locked = tracker.ball.scan_locked
+            ahead.note_scene(index, tracker.small_scene)
             observation = {'time': round(stamp, 6), 'frame': index, **observation}
+            if debug:
+                observation['ballPasses'] = passes | {'tiles': tile_rows is not None,
+                                                      'crop': None if window is None else [round(window[0]/width, 4), round(window[1]/height, 4),
+                                                                                           round(window[2]/width, 4), round(window[3]/height, 4)]}
             frames.append(observation)
             tracker.emitted = len(frames)
             pitch = observation['pitch'] or pitch
@@ -588,7 +699,9 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
     report['summary']['pitch']['propagatedFrames'] = propagated
     report['summary']['pitch']['farTilePasses'] = far_passes
     report['summary']['detection'] = dict(tracker.detection) | {'farTilePasses': far_passes, 'localCropPasses': crop_passes,
-                                                                 'ballTileScans': ahead.scans, 'detectBatch': ahead.batch}
+                                                                 'ballTileScans': ahead.scans, 'detectBatch': ahead.batch,
+                                                                 'nearPassFrames': ahead.near_frames}
+    report['summary']['profile'] = run_profile(frames, tracker, ahead.near)
     report['summary']['pitch']['registration'] = tracker.registration
     report['summary']['ball']['localSearches'] = ball_searches
     timing['report'] += clock()-t0
@@ -597,7 +710,8 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
     (output/'identities.json').write_text(json.dumps(snapshot, separators=(',', ':')), encoding='utf-8')
     (output/'registration.json').write_text(json.dumps(registration_record(tracker, meta, config), separators=(',', ':'), default=_json_default),
                                             encoding='utf-8')
-    (output/'result.json').write_text(json.dumps(report, separators=(',', ':'), allow_nan=False), encoding='utf-8')
+    # A numpy number left in a debug field must not cost the run its result (the default is consulted for nothing else).
+    (output/'result.json').write_text(json.dumps(report, separators=(',', ':'), allow_nan=False, default=_json_default), encoding='utf-8')
     # The offline passes' events (tracklets, registration, ball path) go to the log too, after the online ones.
     with (output/'events.log').open('a', encoding='utf-8') as log:
         for event in tracker.events:
@@ -605,6 +719,19 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
                 log.write(f"[{event['time']:.2f}s] {event['kind'].upper()} (offline)\n{event['message']}\n\n")
     progress({'stage': report['status'], 'progress': 1, 'summary': report['summary'], 'teams': report['teams']})
     return report
+
+
+def run_profile(frames, tracker, near):
+    """summary.profile: the run's gates. A run is a small scene when at least half its frames are (the offline passes
+    decide so from frames[].profile themselves); autoLandmarks is the per-run gate of the automatic calibration.
+    smallSceneChanges counts the frames where the gate differs from the frame before (the gate latches, so at most one
+    in a run) and smallSceneFrom is the time of the first small-scene frame (None in a run without one)."""
+    flags = [bool((f.get('profile') or {}).get('smallScene')) for f in frames]
+    small = sum(flags)
+    return {'smallSceneFrames': small, 'smallSceneShare': round(small/max(1, len(frames)), 3), 'smallSceneRun': bool(frames) and small >= .5*len(frames),
+            'smallSceneChanges': sum(1 for a, b in zip(flags, flags[1:]) if a != b),
+            'smallSceneFrom': next((f.get('time') for f, on in zip(frames, flags) if on), None),
+            'autoLandmarks': bool(tracker.auto_landmarks), 'pixelScale': round(float(tracker.pixel_scale), 4), 'nearPass': bool(near)}
 
 
 def stage_timing(timing, frames, elapsed, rolled=0):
@@ -695,7 +822,7 @@ def finalize_pitch(frames, tracker):
     tracker.sections = [s for s in tracker.sections if not covered(s)]
     ticks = [f['pitch'] for f in frames if f.get('pitch')]
     curvatures = [p['curvature'] for p in ticks if p.get('curvature') is not None]
-    tracker.registration = registration.summarize(timeline, tracker.anchors, offset) | metrics | {
+    tracker.registration = registration.summarize(timeline, tracker.anchors, offset, size) | metrics | {
         'propagatedFrames': filled, 'ballFramesBridged': bridged, 'registrations': dict(getattr(tracker, 'registrations', {})),
         'lens': lens.summarize(getattr(tracker, 'lens_samples', [])),
         'lensCurvature': round(float(np.median(curvatures)), 2) if curvatures else None,
@@ -731,6 +858,8 @@ def finalize_identities(frames, tracker):
     report['mergeProposalCounts'] = {k: proposals[k] for k in ('pairsCompared', 'rejectedByAppearance', 'rejectedByContinuity', 'interleaved')}
     report['merged'] = merged['merged']
     report['assigned'], report['framesAssigned'] = assigned['accepted'], assigned['framesAssigned']
+    if 'smallAccepted' in assigned:
+        report['smallAssigned'] = assigned['smallAccepted']   # small-scene runs: fragments the assignment placed on position
     report['assignment'] = {k: assigned[k] for k in ('proposed', 'accepted', 'rejectedByLead', 'rejectedByScore', 'rounds')}
     report['events'] = report['events']+assigned['events']+continued['events']+[e for e in proposals['events'] if e.get('playerId') not in applied]+merged['events']
     tracker.events += report['events']
@@ -805,7 +934,7 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             'teleports': jumps['teleports'], 'footSwitches': jumps['footSwitches'],
             'longestUnknownSeconds': ball_report['final']['longestUnknownSeconds'] if ball_report else None,
             'droppedFirstPassRuns': len(ball_report['dropped']) if ball_report else 0, 'firstPass': first_pass,
-            **({k: ball_report['final'].get(k, 0) for k in ('staticRunsDropped', 'longUnseenLinks', 'stationaryLinks', 'markingNodes')} if ball_report else {}),
+            **({k: ball_report['final'].get(k, 0) for k in ('staticRunsDropped', 'longUnseenLinks', 'stationaryLinks', 'markingNodes', 'lockAudits')} if ball_report else {}),
             'reacquisitions': first_pass['reacquisitions'], 'lost': first_pass['lost'],
             'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
     nontarget = [p for f in frames for p in f['people'] if p.get('state') == 'nontarget']

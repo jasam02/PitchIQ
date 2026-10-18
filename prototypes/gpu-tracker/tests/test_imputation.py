@@ -129,6 +129,37 @@ class EstimateTests(unittest.TestCase):
         self.assertTrue(all(x is None for x in block['ids']['B-01']['x']))
         self.assertAlmostEqual(sum(block['kinds'].values()), 1.0, places=2)
 
+    def test_a_precise_far_position_on_a_small_scene_frame_stays_an_observation(self):
+        """pitchConfidence under .2 only because a few pixels are worth many metres at the far side: on small-scene frames
+        with a registration of at least MEDIUM and a sigma of at most 6 m it is still observed; never on other frames."""
+        def run(small, sigma=(2.5, 4.0), frame_confidence=.6):
+            frames = []
+            for i in range(30):
+                people = [{'id': 'A-01', 'team': 'A', 'pitch': [.5, .1], 'pitchConfidence': .15, 'pitchSigma': None if sigma is None else list(sigma)},
+                          {'id': 'A-02', 'team': 'A', 'pitch': [.5, .6], 'pitchConfidence': .8, 'pitchSigma': [.5, .5]}]
+                f = {'time': round(i*.2, 3), 'calibrated': True, 'people': people, 'calibration': {'confidence': frame_confidence}}
+                if small is not None:
+                    f['profile'] = {'smallScene': small}
+                frames.append(f)
+            result = {'frames': frames, 'roster': {'slots': [{'id': 'A-01', 'team': 'A', 'status': 'ACTIVE'}, {'id': 'A-02', 'team': 'A', 'status': 'ACTIVE'}]}}
+            return imputation.estimate(result)['ids']
+        ids = run(True)
+        self.assertTrue(all(k == 'O' for k in ids['A-01']['kind']))
+        self.assertEqual((ids['A-01']['x'][3], ids['A-01']['y'][3], ids['A-01']['sigma'][3]), (.5, .1, [4.0, 4.0]))
+        self.assertTrue(all(k == 'O' for k in run(True, frame_confidence=imputation.OBS_MIN_FRAME)['A-01']['kind']))
+        # Not on other frames; not beyond 6 m; not without a sigma; not on a frame whose registration is calibrated (it
+        # wrote positions: >= .2) but LOW, where the registration's own decay, which the sigma leaves out, is part of the doubt.
+        for kwargs in ({'small': False}, {'small': None}, {'small': True, 'sigma': (2.5, 8.0)}, {'small': True, 'sigma': None},
+                       {'small': True, 'frame_confidence': .3}):
+            ids = run(**kwargs)
+            self.assertNotIn('O', ids['A-01']['kind'], kwargs)        # dropped as before: estimated or unknown
+            self.assertTrue(all(k == 'O' for k in ids['A-02']['kind']))
+
+    def test_the_small_scene_frame_floor_is_the_medium_registration_level(self):
+        from soccer import pitch_model, registration
+        self.assertEqual(imputation.OBS_MIN_FRAME, pitch_model.MEDIUM)
+        self.assertGreater(imputation.OBS_MIN_FRAME, registration.MIN_POSITION)    # a floor every positioned frame passes tests nothing
+
 
 if __name__ == '__main__':
     unittest.main()

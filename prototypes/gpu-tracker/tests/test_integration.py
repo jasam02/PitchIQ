@@ -4,6 +4,11 @@ Skipped when Ultralytics or ONNX Runtime is not installed."""
 import importlib.util
 import os
 import unittest
+from pathlib import Path
+
+# Before anything imports ultralytics (BoT-SORT below): its settings are the pipeline's own file, never the global one.
+(Path(__file__).resolve().parents[1]/'settings'/'Ultralytics').mkdir(parents=True, exist_ok=True)
+os.environ['YOLO_CONFIG_DIR'] = str(Path(__file__).resolve().parents[1]/'settings')
 
 import numpy as np
 

@@ -46,6 +46,7 @@ class AnalyticsView {
     this.result = null; this.info = null; this.view = null;
     this.cache = new Map(); this.data = null; this.loading = null; this.seq = 0;
     this.tab = 'heatmap'; this.layer = null; this.layerKey = null; this.markerKey = null; this.block = null;
+    this.paused = false;   // true while another analysis (team shape) owns the shared canvas and panel
     this.c.tabs.forEach(b => b.addEventListener('click', () => this.setTab(b.dataset.tab)));
     this.c.team.addEventListener('change', () => { this.fillPlayers(); this.request(); });
     this.c.player.addEventListener('change', () => this.request());
@@ -66,7 +67,7 @@ class AnalyticsView {
     this.view = result ? Tactical.create({canvas: this.canvas, controls: {}}) : null;
     if (this.view) this.view.load(result, info);
     this.fillPlayers();
-    if (!result) { this.setNotice('Player analytics appear here after a run.'); this.setStatus(''); this.clear(); return; }
+    if (!result) { this.setNotice('Player analytics appear here after a run.'); this.setStatus(''); this.clear(); this.describe(null, 'Player analytics appear here after a run.'); return; }
     this.request();
   }
 
@@ -100,7 +101,7 @@ class AnalyticsView {
   setTab(tab) {
     const changed = this.tab !== tab;
     this.tab = TABS.includes(tab) ? tab : 'heatmap';
-    this.c.tabs.forEach(b => b.classList.toggle('active', b.dataset.tab === this.tab));
+    this.c.tabs.forEach(b => { b.classList.toggle('active', b.dataset.tab === this.tab); b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(b.dataset.tab === this.tab)); });
     this.c.scopeWrap.hidden = this.tab !== 'average';
     this.layerKey = null;
     if (changed) { this.canvas.style.animation = 'none'; void this.canvas.offsetWidth; this.canvas.style.animation = ''; }
@@ -128,7 +129,7 @@ class AnalyticsView {
   async request() {
     if (!this.result) return;
     const player = this.c.player.value;
-    if (!player) { this.data = null; this.setNotice('No confirmed player of this team has pitch positions.'); this.setStatus(''); this.clear(); return; }
+    if (!player) { this.data = null; this.setNotice('No confirmed player of this team has pitch positions.'); this.setStatus(''); this.clear(); this.describe(null, 'No confirmed player of this team has pitch positions.'); return; }
     const key = this.key();
     if (this.cache.has(key)) { this.data = this.cache.get(key); this.layerKey = null; this.redraw(); return; }
     const r = this.range(), seq = ++this.seq;
@@ -143,18 +144,29 @@ class AnalyticsView {
       this.redraw();
     } catch (error) {
       if (seq !== this.seq) return;
-      this.data = null; this.setNotice(error.message); this.setStatus(''); this.clear();
+      this.data = null; this.setNotice(error.message); this.setStatus(''); this.clear(); this.describe(null, error.message);
     }
   }
 
+  setPaused(paused) {
+    // While paused another analysis (team shape) owns the shared canvas, notice, legend, panel and status line: nothing
+    // here writes to them. On resuming, everything is shown again from this view's own state.
+    this.paused = !!paused;
+    if (this.paused) return;
+    this.layerKey = null;
+    if (!this.result) { this.setNotice('Player analytics appear here after a run.'); this.setStatus(''); this.clear(); this.describe(null, 'Player analytics appear here after a run.'); return; }
+    if (!this.data) { this.request(); return; }
+    this.redraw();
+  }
+
   // ---------- drawing ----------
-  setNotice(text) { if (this.notice.textContent !== text) { this.notice.textContent = text; this.notice.hidden = !text; } }
-  setStatus(text) { if (this.status.textContent !== text) this.status.textContent = text; }
-  clear() { if (this.view) { this.view.resize(); const g = this.view.geometry(); this.ctx.clearRect(0, 0, g.width, g.height); this.ctx.drawImage(this.view.drawPitch(g), 0, 0); } else this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.legend.replaceChildren(); }
+  setNotice(text) { if (this.paused) return; if (this.notice.textContent !== text) { this.notice.textContent = text; this.notice.hidden = !text; } }
+  setStatus(text) { if (this.paused) return; if (this.status.textContent !== text) this.status.textContent = text; }
+  clear() { if (this.paused) return; if (this.view) { this.view.resize(); const g = this.view.geometry(); this.ctx.clearRect(0, 0, g.width, g.height); this.ctx.drawImage(this.view.drawPitch(g), 0, 0); } else this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.legend.replaceChildren(); }
   colours() { return this.board ? this.board.colours : {A: '#b98cff', B: '#f6b564'}; }
 
   redraw() {
-    if (!this.view) return;
+    if (!this.view || this.paused) return;
     this.view.resize();
     const g = this.view.geometry(), colours = this.colours(), d = this.data;
     const key = `${this.tab}|${this.canvas.width}|${colours.A}|${colours.B}|${d ? this.key() : 'none'}`;
@@ -178,9 +190,11 @@ class AnalyticsView {
     if (this.tab === 'trail') this.drawMarker(g);
   }
 
-  describe(d) {
+  describe(d, message) {
+    if (this.paused) return;
     const panel = this.insights;
     const empty = text => { if (panel) { panel.replaceChildren(); const p = document.createElement('p'); p.className = 'an-empty'; p.textContent = text; panel.append(p); } };
+    if (!d && message) { empty(message); return; }
     if (!d) { this.setNotice(this.loading ? '' : 'Choose a player.'); empty('Choose a player to see their observed coverage, duration and samples.'); this.setStatus(''); return; }
     if (!d.player) { this.setNotice('This identity is not analysable (not a confirmed team player or goalkeeper).'); empty('This identity is not a confirmed team player or goalkeeper.'); this.setStatus(''); return; }
     const cov = d.coverage, r = d.range, ex = d.excluded || {};
@@ -345,7 +359,7 @@ class AnalyticsView {
 
   // Every animation frame from the page: the current-time marker and the "current 5 minutes" block.
   tick(t) {
-    if (!this.result || !this.data) return;
+    if (!this.result || !this.data || this.paused) return;
     if (this.c.range.value === 'current') {
       const k = Math.floor(Math.max(0, t) / CURRENT_WINDOW);
       if (k !== this.block) { this.block = k; this.request(); return; }

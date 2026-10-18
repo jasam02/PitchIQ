@@ -6,7 +6,13 @@
 
 Per frame: people tracked (confirmed or uncertain), candidates, people drawn in the 2D view (an identity
 of the final roster with a valid pitch position), tracked people with a position but no identity (what the
-2D view cannot show yet), and the identified share by box height. The identity, pitch, ball and timing
+2D view cannot show yet), people whose kit is undecided ('unknown' state: on amateur footage typically the
+small far-side players, which no other count includes) and how many of them have a position, and the
+identified share by box height. The field filter's decisions are checked against the final registration
+(tools/diagnose.py): rejected detections per frame, those whose foot the final homography puts inside the
+pitch (all reasons and the field filter's own: audience, outside-pitch), and people suppressed as long
+outside the pitch whom it puts inside, counted over the frames confident enough to check (insideCheckedFrames;
+no count at all without one). The identity, pitch, ball and timing
 summaries come from the result. The agreement between two runs matches people frame by frame by box
 overlap (IoU >= .5): box agreement (how many people both runs tracked), label agreement (the same global
 id, exactly and under the best one-to-one mapping of ids, since ids are numbered in creation order), and
@@ -19,6 +25,9 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import diagnose  # noqa: E402
 
 HEIGHT_BUCKETS = ((0, 30), (30, 40), (40, 60), (60, 90), (90, 10000))
 TRACKED = ('confirmed', 'uncertain')
@@ -38,7 +47,7 @@ def metrics(result, name=''):
     n = max(1, len(frames))
     height = result['video']['height']
     roster = roster_ids(result)
-    tracked = candidates = drawn = anonymous = undrawn = 0
+    tracked = candidates = drawn = anonymous = undrawn = undecided = undecided_placed = 0
     by_height = {b: [0, 0] for b in HEIGHT_BUCKETS}
     disagreements, low_positions = [], 0
     for f in frames:
@@ -46,6 +55,9 @@ def metrics(result, name=''):
             state = p.get('state')
             if state == 'candidate':
                 candidates += 1
+            if state == 'unknown':
+                undecided += 1
+                undecided_placed += _valid(p.get('pitch'))
             if state not in TRACKED:
                 continue
             tracked += 1
@@ -102,6 +114,10 @@ def metrics(result, name=''):
                         if math.hypot((cols['x'][i]-cols['x'][j])*length, (cols['y'][i]-cols['y'][j])*width)/(times[i]-times[j]) > 12.0:
                             jumps['measured (1 s)'] += 1
     footprint = sum(1 for f in frames if f.get('view'))
+    counted, _ = diagnose.counts_rows(result)
+    total = lambda key: sum(r[key] for r in counted)
+    checked = [r for r in counted if r['insideChecked']]   # the inside checks exist on confident frames only
+    inside = lambda key: sum(r[key] for r in checked) if checked else None
     s = result.get('summary', {})
     ident = s.get('identity') or {}
     reg = (s.get('pitch') or {}).get('registration') or {}
@@ -109,7 +125,11 @@ def metrics(result, name=''):
     weak = sum(1 for a in anchors if a.get('source') == 'paint' and a.get('score') is not None and a['score'] < .15)
     out = {'run': name, 'frames': len(frames), 'start': result.get('config', {}).get('start'), 'seconds': result.get('config', {}).get('seconds'),
            'perFrame': {'tracked': round(tracked/n, 2), 'candidates': round(candidates/n, 2), 'drawnIdentified': round(drawn/n, 2),
-                        'anonymousWithPosition': round(anonymous/n, 2), 'trackedUndrawn': round(undrawn/n, 2)},
+                        'anonymousWithPosition': round(anonymous/n, 2), 'trackedUndrawn': round(undrawn/n, 2),
+                        'kitUndecided': round(undecided/n, 2), 'kitUndecidedWithPosition': round(undecided_placed/n, 2)},
+           'fieldFilter': {'rejectedPerFrame': round(total('rejected')/n, 2), 'insideCheckedFrames': len(checked),
+                           'rejectedInsideFinalPitch': inside('rejectedInside'), 'fieldFilterInsideFinalPitch': inside('rejectedInsideFieldFilter'),
+                           'longOutsideInsideFinalPitch': inside('longOutsideInside')},
            'identifiedShare': s.get('identifiedShare'),
            'identifiedByHeight': {f'{lo}-{hi if hi < 10000 else ""}px': (round(v[1]/v[0], 3) if v[0] else None) for (lo, hi), v in by_height.items()},
            'identity': {k: ident.get(k) for k in ('idSwitches', 'trackSwitchesFoundOnline', 'globalIdFragmentation', 'newPlayerIdentities', 'teamsOverCap',

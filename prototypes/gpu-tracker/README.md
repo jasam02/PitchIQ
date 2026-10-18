@@ -631,8 +631,9 @@ on the board, with their visibility. Identities are never invented for them.
 
 ### 4. Pitch coordinates and the pitch model
 
-There is no automatic metric calibration (no field keypoint model ships with
-this prototype), so the pitch model is anchored by your landmarks. Pause on a
+No field keypoint model ships with this prototype, so the pitch model is
+anchored by your landmarks; a run without any keyframe near it falls back on
+the automatic pinhole midfield anchor ("Amateur footage" below). Pause on a
 clear frame, use **Mark landmarks**, pick named landmarks (corners, halfway line
 ends, centre spot and circle, penalty and goal box corners, penalty spots) and
 click them on the video; four or more that are not on one line are needed. Two
@@ -701,6 +702,11 @@ keeps its `automatic` mode. Centre-circle paint is found with RANSAC
 over the connected arcs of the ridge mask around the likeliest halfway-line
 candidates; a thin ellipse that only explains a straight line is rejected.
 The circle also feeds the refinement of an existing model.
+
+Runs without user keyframes use a different search and solver (a pinhole camera
+fitted to the circle, the halfway line, people's heights and the other paint;
+see "Pitch without keyframes" under "Amateur footage"). Runs with keyframes keep
+the construction above unchanged.
 
 **Direct re-registration to the keyframe's view** (`soccer/camera.py`
 `AnchorViews`). A chain of frame-to-frame motions drifts: measured on the
@@ -861,7 +867,7 @@ SEARCHING ─(several consistent, moving detections)─▶ LOCKED ─(no detecti
    ▲                                                   ▲                         │ short gap: predicted,
    │                                                   └───(reconnect)───────────┤ kept at the player
    │                                                                             ▼ that hides it
-   └──────────── LOST ◀─(1.5 s free / 3 s at a player)─ RECOVERING (search area grows, confirmation needed)
+   └──────────── LOST ◀─(2.5 s free / 3 s at a player)─ RECOVERING (search area grows, confirmation needed)
 ```
 
 Every frame the active ball is **predicted** with a constant-velocity Kalman
@@ -1025,8 +1031,164 @@ links that are flights (`longUnseenLinks`) and the stationary links
 weak sighting on the path is shown as such, and the ball-likeness it is
 accepted with is never a measure of how sure the sighting is.
 `ball_cleanup.py <result.json>` re-decodes an existing result without the
-detector (camera motion from `frames[].motion`, an `.npz`, or re-estimated from
-the video).
+detector (camera motion from the run's `registration.json`, else `frames[].motion`,
+an `.npz`, or re-estimated from the video; `--small-scene on|off` forces the
+small-scene gate for the decode only, for results written before the frames
+carried `profile.smallScene`). A ball candidate without a `source` key comes
+from the whole-frame detector (`tiles`, `crop` and `proposal` are written).
+
+## Amateur footage (small scenes)
+
+Pole and tripod cameras on amateur pitches show players of 6-40 px, a ball the
+detector often does not see at a dribbler's feet, a centre circle as a thin far
+ellipse and frequently no user keyframe at all. Everything this section
+describes sits behind one of three gates, and broadcast footage opens none of
+them (`tools/exact_diff.py` compares a broadcast run with and without the code
+bit for bit; see PROGRESS.md for the measurements):
+
+- **`small_scene`** (`SoccerTracker.small_scene`, written per frame as
+  `profile.smallScene`): the far band (where people are expected to be under
+  30 px) active on at least half of the last 2 s, or a source under 720 px
+  tall. It latches once open: a gate flipping with the view would switch the
+  tracker's box convention, the ball rules and the identity rules back and
+  forth. Broadcast 0-60 s: far band on 1 of 1800 frames, never open. A run
+  counts as a **small-scene run** (`labels.small_scene_run`) when at least half
+  of its frames are small-scene frames; the offline passes use that.
+- **`auto_landmarks`**: no user keyframe within the segment ±15 s. Every
+  regression window with keyframes keeps it closed.
+- **`pitch_provisional`**: the pitch comes from an automatic anchor only.
+
+### Pitch without keyframes
+
+With `auto_landmarks` the centre circle is searched on the grass only
+(`pitch.find_circle(on_grass=True)`: paint between grass, inside the grass
+region, people's boxes masked, straight arcs kept, a minimum inlier density
+and the ellipse's centre near the halfway line) and a **pinhole camera** is
+solved from it (`midfield.solve(allow_pinhole=True)` → `pinhole_solve`): the
+halfway line and the circle with one unknown focal length (principal point at
+the image centre). When the camera stands in or near the halfway line's
+vertical plane, as both pole and broadcast cameras do, that alone cannot fix
+the camera (two mirror solutions, an unobservable focal length), so the fit
+also uses people's box heights (they fix the horizon; a robust loss), the
+other painted markings the solved camera predicts and the touchlines found
+through it (`_ground_touchlines`, within 4 m of the model's line). Without
+such evidence it refuses. An anchor whose only support is the circle, the
+halfway line and people is **capped** (MEDIUM at most); only independent
+painted lines it was not fitted to lift the cap (`pitch_model._lifts_cap`).
+Field dimensions come from one place (`field.PitchSize`, 105 × 68 m assumed;
+`registration.json` records `fieldSize` with the source of each dimension and
+the width the anchors measured). A frame under 720 px whose turf the fixed
+grass rule rejects (a screen recording's colour cast) learns the turf colour
+from the lower frame (`pitch.ground_colour`).
+
+Lens distortion is not what bends a panoramic follow camera's view: its output
+is rectilinear (long paint is straight; `lens.estimate_k` finds nothing), and
+the curved black corners are the edge of the panorama. On small scenes each
+evidence tick also stores the outline of the part of the frame that carries
+image (`pitch.imageArea`, `visibility.image_area`), so the view polygon does
+not count the black as seen.
+
+**Registered pitch (final)** (Advanced → Debug overlays) projects the frame's
+final homography, the geometry the 2D positions use: cyan, a side solid where
+the paint of a tick at most 0.2 s old lies on it under that tick's own final H,
+dashed where predicted; other markings dashed; detected paint thin white; all
+muted below 0.5 confidence.
+
+### Detection and local tracks
+
+On small-scene frames only:
+
+- **Near pass**: an extra 640 px people pass that only *fills in* people of at
+  least 60 px (scaled with a low-resolution source) that no row of the 960 and
+  detail passes covers 30% of (`pipeline._fill_in`). The 960 and 1536 passes
+  miss some near players of 60-120 px (amateur 3, 148.0 s: the ball carrier is
+  found at 640 only). Merged into the joint suppression instead, it replaced
+  the main passes' box on about three people per frame and doubled about two
+  more, which cut their local tracks (awsrc: 357 → 524 local tracks).
+- **Tiny far-tile rows** (under 30 px) are confirmed by the foot point (within
+  half a body height, height within 1.67×) instead of IoU > .5, which never
+  survives 1-2 px of jitter on a 6 × 13 px box; a tile row duplicating a
+  whole-frame row that can start a track is dropped; one confirmed tile row
+  replaces weak whole-frame rows of the same person.
+- **Buffered IoU**: BoT-SORT sees boxes under 24 × 12 px inflated to that size
+  about their centre (the identity layer keeps the true box); the live tracks
+  are re-boxed when the gate opens.
+- `dropped` lists the detections the local tracker did not use (debug).
+
+### Identities
+
+- **Kit change re-births the track** (no gate; a bug fix): when 12 of 15 clean
+  kit votes name the other team, the track is re-born where the votes turned
+  (at most 3 s back), the released identity loses the labels since then and
+  is marked missing with its last sighting before the change. Before, the
+  track kept its old birth time and ruled out every same-team identity as
+  "seen together", creating a duplicate.
+- **Size-aware kit votes** (small scenes): a vote counts alone only from a
+  crop of quality .35 or more and at least 0.6 × the height the team was
+  established at; otherwise the change needs the crops to look like someone
+  else, else it is held (`team-hold` event).
+- **Kit-consistent galleries** (small scenes): a crop whose own vote names the
+  other team, or neither, is not stored.
+- **Slots by kit establishment** (small-scene runs): the numbered display
+  slots go first to identities with an established kit history.
+- **Impossible side** (no gate; a bug fix): the offline connector scores a
+  fragment by the better of the identity's sightings before and after it; an
+  identity whose sighting on either side is farther than 12 m/s of the gap
+  (counted as at least 0.5 s) is not that fragment (`tracklets.SIDE_MAX_SPEED`).
+- **Small fragments** (small-scene runs, median box under 30 px or crop
+  quality under .35): position decides and appearance only vetoes; the
+  fragment's own kit votes must not name the other team; the identity's
+  nearest sighting must lie within 2 m + 3 m/s of a gap of at most 2 s and
+  lead every identity the position does not rule out.
+- **Provisional persons**: anonymous local tracks that chain (end-to-start
+  within 1.5 s and 1.5 body heights per half second, or 8 m/s on the pitch,
+  leading every rival link) are reported as provisional persons; they are not
+  given an identity.
+
+### The ball
+
+On small-scene frames only (`BallTracker.small_scene`):
+
+- **Classical proposals** (`soccer/ball_proposals.py`): where the detector is
+  blind, a compact, round, bright, unsaturated blob standing out from the grass
+  around the last sighting and the prediction, the size of a ball at that row,
+  not part of a line or a kit and not on a shirt or shins. A proposal carries
+  detector score .12, needs a chain of two earlier sightings within .3 s,
+  never wins over a detector candidate and never lets the tracker stop the
+  ball-tile scan (`scan_locked`).
+- **The hidden-ball gate at the candidate's depth**: the metres of a gap are
+  converted to pixels with the scale at the candidate's row, not at the last
+  sighting's (a near sighting made a 21 m gate at the far side).
+- **Provisional lock**: a reacquisition beyond the gate locks provisionally and
+  flags nothing as `OTHER_OBJECT` until it proves itself: 0.5 s old, moved a
+  metre (image and pitch both) and passed within reach of a player (the causal
+  camera compensation drifted 1.6-3.4 m/s on a still speck, so motion alone
+  proves nothing there).
+- **Size prior**: the score peaks at the measured box / prior ratio of real
+  balls (1.4) and never expects a ball under 3 px.
+
+In small-scene runs the offline decoder (`ball_path.py`) also audits a causal
+lock on a still thing (still, unattended, nothing rolled into it, while a
+strong, free, moving competitor was seen: the decoder stops deferring to it),
+measures stillness within the camera-compensation drift for things nobody is
+near, gives proposals no causal-acceptance bonus, and cuts a stretch that
+stood still for seconds, unattended, that the causal pass never took for the
+ball and that nothing it took for the ball left (a ball placed for a set piece
+is kicked away: it stays).
+
+### Measuring
+
+`tools/diagnose.py RUN_DIR [--window S E] [--out DIR]` exports, read-only,
+calibration.csv (the final registration per frame, its anchor, the stored-H
+orientation, the final H checked against the detected paint), counts.csv
+(people by state, rejected detections and those inside the final pitch),
+ball_window.txt (final ball, first pass and every candidate) and
+identity_fragments.csv (each identity's local-track segments and what bridged
+each gap), plus a summary. `tools/check_ball_truth.py RUN_DIR` scores the
+final ball against `tools/annotations/ball_positions.json` (hand-marked ball
+centres; a hit is within max(2 diameters, 15 px)); `tools/check_pitch_truth.py RUN_DIR` scores the
+final registration against `tools/annotations/pitch_landmarks.json`
+(hand-marked points and lines, in pixels and metres).
 
 ## The review page
 
@@ -1179,6 +1341,190 @@ decoder's node scores take any such verifier as one more factor whenever one
 exists. The hard negatives for training one are already in every result: the
 rejected candidates with their reasons, boxes and frames.
 
+## Team shape analytics
+
+Analytics has two categories: **Player** (heatmap, average position, movement
+trail, as before) and **Team shape** (`teamshape.js`, `soccer/team_shape.py`,
+`GET /api/team-shape`, `GET /api/team-shape/snapshot`), with three tabs:
+WIDTH & DEPTH, DEFENSIVE LINE and FORMATION. They share the pitch, the
+insight panel, the team selector, a range (the analysed segment or a custom
+interval) and a SNAPSHOT slider that picks one sample of the analysed data (it
+never moves the video; there is no playback on Analytics). A chart under the
+pitch shows the measurement over the range (click it to choose the snapshot);
+the formation tab shows the formation history instead. A custom range is
+validated: an empty field asks for both times, a range given end first is
+swapped and says so, and a range outside the analysed segment shows nothing
+rather than a boundary sample.
+
+**One shared timeline.** Everything is computed from the same validated
+samples as the player analytics (`analytics.Samples`: the final roster's
+confirmed team players and goalkeepers, observed, identity confidence 0.3 or
+more, registration confidence 0.5 or more, on the pitch, feet not cut by the
+frame), so identity corrections, exclusions and relabelling apply. On top:
+5 samples a second on real frames, each standing for the time to its
+neighbours; positions with a sigma above 3 m dropped; registration glitches
+dropped (a run shorter than 0.5 s that a registration jump separates from the
+track on one side, with a jump, a gap or the track's end on the other: a
+mapped position that leaps 40 m and back, or leaps and disappears, changes
+nothing); two identities of one team within 0.4 m of each other on 3 or more
+consecutive samples on which both are seen counted once (the less certain
+goes, the most certain identities first; a second detection that flickers on
+and off is caught, two teammates side by side for a moment are not merged); a
+player you marked as having left the match no longer counted after that time,
+even when his identity carried on onto his substitute. Every sample keeps the players' mean
+registration confidence and lowest identity confidence. Goalkeepers are kept
+apart: shown on the pitch, never in width, depth, formation or the line.
+Positions are OBSERVED by default; "Observed + estimated" adds the timeline's
+interpolated and predicted positions (sigma at most 8 m), always counted and
+labelled separately: an estimate on top of an observed teammate is taken for
+the same person and dropped, of two estimates on top of each other only the
+more certain counts, and a sample never has more positions than its lineup. Metres use the registration's pitch size;
+when it is the standard assumption (no measured size) every metre value says
+"est.".
+
+**Coverage.** Each sample compares the observed outfield players with the
+lineup: 10, or fewer for the whole video or from a time on (a dismissal),
+set under Formation. Width and depth are *complete* with all of them,
+*reliable* with at least 8 (all but one of a smaller lineup) when every
+missing player's estimated position lies inside the measured extremes (only
+estimates of distinct people count: a split identity's stale prediction on top
+of an observed teammate is not the missing player), *partial* with 6 or more
+otherwise (the observed spread, a lower bound: shown with "≥" and faded, never
+in the averages), and *unavailable* below 6. More observed players than the
+lineup is *excess* (a duplicate identity, or a player who left still tracked:
+mark him as left), kept out of the averages. With estimated positions a sample
+is complete only when enough of its players were observed; one made mostly of
+estimates is *mostly estimated* (faded, not in the averages), and one where a
+lineup player has no position at all stays partial. On the Metrica sample games with a
+simulated side camera (a 60 m window following the ball), a whole team was in
+view only about 0.1% of the time; those complete and reliable values were
+within about 2 m of the true width and depth (90th percentile 1.3 to 3.5 m),
+while partial values were 3.4 to 5.4 m short on average (90th percentile 11
+to 16 m off), which is why they are labelled and kept out of the averages.
+
+**Width and depth.** Width = max(y) − min(y), depth = max(x) − min(x) of the
+measured outfield players, in metres (12 to 57 m across is 45 m; 28 to 79 m
+along is 51 m). The players defining them are ringed; the indicators are drawn
+along the pitch's own axes; the bounding rectangle is an outline only. The
+10th to 90th percentile spread is reported separately as the central spread.
+Aggregates over the range: time-weighted mean and median, minimum and
+maximum, the share of time reliable, and the other team's averages. Long
+ranges are thinned for the chart (at most 1500 points); the report says the
+step, and the chart joins samples across it, so a full match draws lines, not
+dots.
+
+**Direction.** Which goal a team defends comes from your setting (team A's
+goal and an optional time when the sides swap, e.g. the second half), else the
+tracking's goal ends (one named end names the other), else the positions when
+they agree. Every 30 s (and at the side swap) the positions are checked: the
+goalkeeper's side and the goal-side order of the two teams' outfield centres;
+the goalkeeper decides when he is seen, the order otherwise (on Metrica the
+two disagreed in 1 to 3% of the windows, as often under the right direction as
+under a wrong one). Where the evidence contradicts the direction, and in a
+window without evidence next to such a window, no line or formation is
+reported and the panel says so (an unknown side change is never believed
+silently; it is caught within one 30 s window).
+Without a setting or goal ends, the last seconds after the final 30 s window
+take the side of the evidence just before them. Width and depth do not depend
+on the direction.
+
+**Defensive line.** The defensive unit is the back line of the formation
+around the sample. The nearest formation window decides the period and the
+formation: your label for that period when you set one (also for an "unclear"
+or "transition" period), else the recognised formation. Over that period's
+windows of that formation within 30 s, the players most often in its back line
+form the unit, exactly as many as the back line has. A set piece or a
+fullback's run does not change who the defenders are, a swap inside the back
+line keeps both, a sustained swap (a centre-back and the holding midfielder
+exchanging places for half a minute) is followed without a moment where
+neither counts, and the neighbouring periods never outvote a short period or
+your label. Back threes,
+fours and fives are supported. Without a formation window within 30 s the
+nearest one within 60 s is used ("last known roles"), then (with at least 8
+players present) the 3 to 5 deepest players over 30 s behind a gap of 4 m or
+more, found per defending direction. LINE HEIGHT = the median of the measured
+defenders' distances from their own goal line (31, 32, 34, 33 m give 32.5 m);
+DEEPEST DEFENDER = their minimum (31 m). Complete with every defender
+measured, partial with one missing, unavailable with fewer, no direction or no
+unit; *displaced* when the unit is ahead of most of its team (an attacking
+corner): no line then. Quality from the defenders' spread along the pitch:
+coherent (within 8 m), uneven (one defender stepped up, the others within 8 m,
+for a back three too), stretched (within 15 m), disrupted (beyond: out of the
+summary). The deepest defender is summarised from complete samples only (with
+one defender unmeasured, he may be the deepest; the snapshot shows "≤"). With
+estimated positions, a line standing mostly on predicted defenders is *mostly
+estimated*: drawn faded, not summarised. The line is drawn across the
+unit's lateral extent (not as a full-width offside line), solid when complete
+and coherent, dashed otherwise, with the distance from the own goal line; the
+chart shows height and deepest defender over time with gaps where there is no
+value, and a trend (a weighted linear fit: advancing, retreating or steady).
+Possession is not in the result, so the line is positional and labelled so.
+
+**Formation.** Recognised from observed positions only, in 15 s windows
+every 5 s, in the team's attacking frame (own goal at 0), with at most one
+player of the lineup missing (9 of 10, 8 of 9), each observed for half the
+window (on Metrica with a simulated camera, 8-player windows agreed with the
+full-coverage label only 25 to 56% of the time). A window spanning a lineup
+change is not classified. When more players than the lineup were observed (a
+substitution), the previous window's players, then the most observed ones,
+form the shape, and such a period is never called clear. A player's position in a
+window is his mean offset from a voted team centre (each visible player's
+position minus his own offset, so a camera on one side does not drag the
+shape). Candidates: 4-4-2, 4-3-3, 4-2-3-1, 4-1-4-1, 3-5-2, 3-4-3, 5-3-2, 5-4-1
+(4-4-1, 4-3-2, 5-3-1 for nine). Templates are the mean role positions of
+SoccerCPD's 864 real formation periods (Kim et al., KDD 2022) for 4-4-2,
+4-2-3-1, 4-3-3, 3-5-2 and 3-4-3, the others composed from the same lines; each
+is stretched and shifted per axis (within 0.6 to 1.8 of its size) and the
+players are assigned to its roles one to one by the Hungarian algorithm, a
+player leaving the back line he held in the previous window paying a
+continuity cost. The fit error is the RMS distance from the fitted roles
+(shown in metres, compared relative to the team's spread). Stabilization is a
+change-point search (Viterbi over the formations and an "unclear" state) over
+each unbroken run of classified windows: a change costs as much as 0.45 of
+relative fit error summed over windows, so a clear change takes 15 to 30 s and
+a slight one over a minute; any window without the data for a formation
+(coverage, direction, lineup) ends the run, so the label after a gap is
+decided afresh. A formation period under 30 s between two periods of evidence
+is a transition; next to a data gap it keeps its label. On Metrica (tuned on
+game 1) that brought about 250 raw window-to-window label changes an hour
+down to a handful per half on the held-out game 2. A period is *clear* (margin
+to the runner-up at least 10%, 60% of its windows agreeing, every player of
+the lineup, at least 3 windows, mean identity confidence 0.6 or more and at
+least 70% of its players holding one role), *likely*, or *ambiguous* (margin
+under 4%: "4-4-2 or 4-2-3-1"). The view shows the period's average shape from
+observed positions with the goalkeeper's average position, its units joined
+left to right from the team's own point of view, the fitted template's role
+anchors as faint circles (players are never moved onto them), or a snapshot
+with the roles of its window. The history strip shows only analysed periods;
+click one to show it, and moving the snapshot selects the period it falls in.
+Possession is not known, so shapes are observed positional structures over
+both phases, labelled so.
+
+**Corrections and settings** (`runs/<video>/team_shape.json`, apart from the
+tracking): the defending direction and the side-swap time, the outfield lineup
+per team (for the whole video, or from a time on), and formation labels for
+periods (`POST /api/team-shape/settings`, `/api/team-shape/formation-label`,
+`/remove`). A label leads the panel with "set by you" while PitchIQ's
+prediction stays beside it unchanged; no position moves; the label decides
+that period's defensive unit. A label belongs to a period when they share at
+least half of each: it still finds its period after a re-run moves the
+boundaries by a few seconds, a period now split in two keeps it on both
+halves, and a short label never takes over a long neighbour. A label that no
+period matches any more is kept and reported as not applied; saving a label
+replaces, and removing removes, every label of that team belonging to the
+period. Labels are kept with the
+prediction they replaced, for evaluating the recognition later. Writes are
+serialized and atomic (a unique temporary file, retried while Windows holds
+the old one open), and a settings file that cannot be read is never taken as
+empty by a save. Malformed settings or requests are refused or dropped, never
+an error page.
+
+**What is not claimed.** No formation accuracy is reported: the tests use
+hand-placed layouts deliberately different from the templates, and Metrica's
+sample games have no expert labels. `tools/team_shape_bench.py` runs the whole
+analysis on the Metrica games (with `--camera WIDTH` for a simulated broadcast
+camera and the errors by status against full coverage).
+
 ## Debug view (how to test)
 
 - **Identity debug** labels every tracked person, e.g. `A-07 · Track 91 · Team A ·
@@ -1212,7 +1558,8 @@ rejected candidates with their reasons, boxes and frames.
   position (a cross) and a 1 s trail in Identity debug; otherwise `BALL UNKNOWN`
   in the corner. **Ball debug** adds every other candidate with its label and
   score: `CANDIDATE`, `FIELD_LINE`, `STATIC`, `PLAYER_ATTACHED`, `OTHER_OBJECT`,
-  `TRAJECTORY_FAIL`, `LOW_SCORE`, `SIZE`, `OUTSIDE_PITCH`.
+  `TRAJECTORY_FAIL`, `LOW_SCORE`, `SIZE`, `OUTSIDE_PITCH`, `JUMP`, `NO_ENTRY`,
+  `UNCONFIRMED`.
 - **Rejected detections** shows each rejected person with its reason
   (`REJECTED: AUDIENCE`, `REJECTED: OUTSIDE PITCH`, `REJECTED: SIZE`,
   `REJECTED: LOW PLAYER CONFIDENCE`).
@@ -1567,7 +1914,10 @@ measured camera motion) and the disagreement share. `tools/counts.py RUN_DIR`
 compares the people tracked at the hand-counted frames of
 `tools/annotations/counts.json` (people on the playing field, counted by
 inspection with a stated uncertainty) with the counts: a recall proxy by frame
-and overall, the small people among them, over-counts. `PROGRESS.md` records
+and overall, the small people among them, over-counts. `tools/diagnose.py`,
+`tools/check_ball_truth.py` and `tools/check_pitch_truth.py` (the hand-marked
+ball and pitch references of the amateur window) are described under
+"Amateur footage" → "Measuring". `PROGRESS.md` records
 the runs and numbers of every phase.
 
 ## Tests
@@ -1620,8 +1970,35 @@ cut, the offline timeline (carried both ways up to a cut, blended anchors with
 their disagreement, coarse motion fading faster, tracks remapped or left
 unresolved, mapping-loss warnings), ball gap bridging, and the automatic
 midfield anchor from exact and from detected paint on a rendered low view.
+`test_team_shape.py` covers the team shape analytics on synthetic matches
+whose hand-placed layouts differ from the formation templates: width and depth
+(the max - min definitions, goalkeepers, referees and unconfirmed identities
+left out, duplicates, glitches next to gaps and track ends, coverage and
+estimated-mode statuses, players who left), the defending direction (tracking,
+one named end, evidence alone and its tail, a side swap inside an evidence
+window), the defensive line (median and deepest, the right goal, a back three
+with a stepped-up defender, a fullback's overlap, a set piece, a sustained swap
+into the back line, a coach's label on an unclear period, the depth fallback
+across a side swap) and the formations (clear layouts, roles, orientation,
+missing players, swaps, runs, sustained changes, gaps, transitions, ambiguous
+shapes, half time, nine-player and changing lineups, identity confidence), the
+settings and ranges (malformed input, oversized numbers, ranges outside or
+reversed), and the cases a second review reproduced (flickering and chained
+duplicates, a departed player's identity on his substitute, split-identity
+estimates, short periods and short labels, more players than the lineup).
 These are synthetic checks of the logic, not accuracy measurements on real
 footage.
+
+The amateur-footage work ("Amateur footage" above) is covered by `test_midfield.py` (the pinhole midfield
+solve on rendered pole and broadcast views, the mirror camera, capped anchors), `test_tracker.py` (the
+small-scene gate and its latch, tiny far-tile rows, buffered boxes), `test_pipeline_run.py` (gates closed on
+broadcast-like input, a low-resolution run), `test_prefetch.py` (the near pass only fills in tall people the
+other passes missed), `test_ball_proposals.py`, `test_ball_small_scene.py`, `test_ball_path_small.py` and
+`test_ball_cleanup.py` (the classical proposals, the hidden-ball gate at depth, the provisional lock, the
+still-lock audit, a placed ball kept for its set piece), `test_identity_amateur.py` (the kit-change re-birth,
+size-aware votes, kit-consistent galleries) and `test_identity_fragments.py`
+(small fragments on position, an identity ruled out by an impossible side); each checks that the shipped
+behaviour is unchanged with its gate closed.
 
 ## Install on another computer
 

@@ -162,6 +162,53 @@ class RelevanceTests(unittest.TestCase):
         self.assertFalse(rejected)
 
 
+class GroundColourTests(unittest.TestCase):
+    """A low-resolution screen recording whose turf the fixed grass rule rejects learns the turf colour; full-
+    resolution footage never does."""
+
+    OLIVE, OLIVE_DARK = (68, 99, 110), (62, 92, 104)   # BGR: red above green, as A_wrong's turf
+
+    def olive(self, size):
+        from unittest import mock
+        scale = np.diag([size[0]/broadcast.W, size[1]/broadcast.H, 1.0])
+        with mock.patch.object(broadcast, 'GRASS', self.OLIVE), mock.patch.object(broadcast, 'GRASS_DARK', self.OLIVE_DARK):
+            return broadcast.render(scale @ broadcast.camera(), stands=False, size=size)
+
+    def test_a_low_resolution_recording_learns_its_turf_colour(self):
+        from soccer.pitch import ground_colour
+        frame = self.olive((896, 506))
+        self.assertIsNotNone(ground_colour(frame))
+        model = detect(frame)
+        self.assertTrue(model.reliable)
+        self.assertGreater(model.coverage, .3)
+        self.assertIn('far', {l['side'] for l in model.lines})
+
+    def test_full_resolution_footage_keeps_the_fixed_rule(self):
+        self.assertFalse(detect(self.olive((1280, 720))).reliable)
+
+    def test_a_low_resolution_frame_of_green_turf_keeps_the_fixed_rule(self):
+        # Natural yellow-green turf (OpenCV hue 45) that the colour learning would accept as well: the fixed rule
+        # finds the grass, so the masks are the fixed rule's, pixel for pixel.
+        from unittest import mock
+        from soccer.pitch import ground_colour, line_masks
+        size = (896, 506)
+        scale = np.diag([size[0]/broadcast.W, size[1]/broadcast.H, 1.0])
+        with mock.patch.object(broadcast, 'GRASS', (50, 130, 90)), mock.patch.object(broadcast, 'GRASS_DARK', (45, 118, 82)):
+            frame = broadcast.render(scale @ broadcast.camera(), stands=False, size=size)
+        self.assertIsNotNone(ground_colour(frame))
+        detector = PitchDetector()
+        self.assertTrue(detector.analyze(frame, 0.0).reliable)
+        fixed = line_masks(frame)
+        for key in ('grass', 'ridge', 'h_line', 'v_line'):
+            self.assertTrue(np.array_equal(detector.masks[key], fixed[key]), key)
+
+    def test_a_crowd_is_not_turf(self):
+        from soccer.pitch import ground_colour
+        crowd = np.random.default_rng(0).integers(40, 200, size=(506, 896, 3), dtype=np.uint8)
+        self.assertIsNone(ground_colour(crowd))
+        self.assertFalse(detect(crowd).reliable)
+
+
 class DrawnPeopleTests(unittest.TestCase):
     def test_people_do_not_break_the_pitch(self):
         frame = pitch_frame()

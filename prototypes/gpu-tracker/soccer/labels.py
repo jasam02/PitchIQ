@@ -12,7 +12,11 @@ identities than it fields, the slots go to the identities with the most particip
 the whole segment (seconds observed clear of the frame edges and of the outside of the pitch, compared
 in two-second steps; ties in creation order), never to the first created: a person seen for four seconds at the bottom edge
 among the staff does not keep a slot from a player tracked for a minute on the far touchline whose
-kit took longer to read. Identities beyond the active slots stay unconfirmed (`A-?`), with all
+kit took longer to read. In a small-scene run (far camera, amateur footage: at least half the frames have
+profile.smallScene) the slots go first to the identities whose clean kit votes clearly established them as team
+players (teamHistory.established, or identified by you), then by participation: there a duplicate made by a kit
+misread on small crops collects as much presence as a real player, but not his kit history (amateur 3: B-11, 7 of
+29 clear votes, numbered over the established B-01, 64 of 75). Identities beyond the active slots stay unconfirmed (`A-?`), with all
 their tracking data kept for re-identification and corrections, until a slot frees up, for instance
 when you delete a false player: then the remaining players are renumbered without gaps and the
 person who was B-11 is shown as B-09 while remaining the same internal identity. The roster count is
@@ -29,6 +33,7 @@ EXTRA = '?'        # the display of a confirmed identity beyond the active slots
 EDGE = .005        # a box this close to a frame edge (normalized) is clipped: not evidence of being on the pitch
 PRESENCE_STEP = 2.0   # seconds: presence is compared in steps of this size, so near-equal evidence keeps the creation order
                       # (a few frames more or less between runs never move a number)
+SMALL_SCENE_SHARE = .5   # a run is a small scene when at least this share of its frames are (frames[].profile.smallScene)
 
 
 def long_label(display):
@@ -48,6 +53,19 @@ def outfield_of(result):
 def _order(pid):
     m = re.fullmatch(r'[AB]-(\d+)', pid or '')
     return (int(m.group(1)) if m else 10**6, pid or '')
+
+
+def small_scene_run(frames):
+    """A small-scene run (far camera, amateur footage): at least SMALL_SCENE_SHARE of its frames were small scenes
+    (SoccerTracker.small_scene, written as frames[].profile.smallScene). Never true on broadcast footage."""
+    small = sum(1 for f in frames if (f.get('profile') or {}).get('smallScene'))
+    return bool(frames) and small >= SMALL_SCENE_SHARE*len(frames)
+
+
+def established(entry):
+    """A match entry whose clean kit votes clearly established it as a team player (IdentityManager._established),
+    or someone you identified."""
+    return bool(entry.get('manual') or (entry.get('teamHistory') or {}).get('established'))
 
 
 def participation(result):
@@ -83,12 +101,15 @@ def plan(result):
     match = result.get('match') or {}
     cap = outfield_of(result)
     part = participation(result)
+    small = small_scene_run(result.get('frames') or [])
     mapping, counts = {}, {}
     for team in ('A', 'B'):
         players = sorted((e for e in match.get('players', []) if e.get('team') == team and e.get('id')), key=lambda e: _order(e['id']))
         active_players = [e for e in players if not e.get('left')]
         # Over the cap, the slots go to the identities with the most participation evidence; ties keep the creation order.
-        ranked = sorted(active_players, key=lambda e: (-int(part.get(e['id'], {}).get('presence', 0.0)//PRESENCE_STEP), _order(e['id'])))
+        # A small-scene run ranks the identities with an established kit history first.
+        presence = lambda e: (-int(part.get(e['id'], {}).get('presence', 0.0)//PRESENCE_STEP), _order(e['id']))
+        ranked = sorted(active_players, key=(lambda e: (not established(e),)+presence(e)) if small else presence)
         confirmed = {e['id'] for e in ranked[:cap]}
         numbered = active = left = extra = 0
         waiting = []
@@ -110,6 +131,9 @@ def plan(result):
         counts[team] = {'numbered': numbered, 'active': active, 'left': left, 'unconfirmed': extra,
                         'unconfirmedIds': waiting, 'participation': {pid: part.get(pid) for pid in waiting},
                         'weakestConfirmed': min((part.get(e['id'], {}).get('presence', 0.0) for e in active_players if e['id'] in confirmed), default=None)}
+        if small:
+            counts[team]['ranking'] = 'established kit, then participation'
+            counts[team]['teamHistory'] = {e['id']: e.get('teamHistory') for e in players if e['id'] in waiting}
     return mapping, counts
 
 
@@ -157,6 +181,10 @@ def describe(outcome):
                          f" ({q.get('edgeShare', 0):.0%} at an edge), at most {q.get('teammatesInView', 0)} teammates in view with it; the slots went to"
                          f" identities present {c['weakestConfirmed']:.1f} s or more" if c.get('weakestConfirmed') is not None else
                          f"  {pid} unconfirmed: seen {q.get('seconds', 0):.1f} s")
+            if 'teamHistory' in c:
+                h = c['teamHistory'].get(pid) or {}
+                lines[-1] += (f"; kit history {h.get('clearKitVotes', 0)} of {h.get('kitVotes', 0)} clean votes clearly team {team} "
+                              f"({'established' if h.get('established') else 'not established'}; {c['ranking']})")
     moves = [f'{pid}: {old} -> {new}' for pid, (old, new) in sorted(outcome['changed'].items(), key=lambda kv: _order(kv[0])) if old is not None]
     if moves:
         lines.append('Renumbered (internal identity: old label -> new label): ' + ', '.join(moves))

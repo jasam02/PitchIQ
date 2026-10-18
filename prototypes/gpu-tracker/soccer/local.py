@@ -12,6 +12,7 @@ import numpy as np
 from .geometry import iou
 
 HIGH, LOW = .30, .10
+NEW_TRACK = .40          # a detection needs this score to start a track (an unmatched one scoring HIGH..NEW_TRACK is dropped)
 SMALL_LOW = .05          # second-stage threshold while small people are expected: weaker detections still continue a track
 SMALL_BUFFER = 90        # frames an unmatched track survives while small people are expected (60 otherwise)
 BUFFER = 60
@@ -26,7 +27,7 @@ class BotSortTracker:
         from ultralytics.engine.results import Boxes
         from ultralytics.trackers.bot_sort import BOTSORT
         self._boxes = Boxes
-        args = SimpleNamespace(track_high_thresh=HIGH, track_low_thresh=LOW, new_track_thresh=.40,
+        args = SimpleNamespace(track_high_thresh=HIGH, track_low_thresh=LOW, new_track_thresh=NEW_TRACK,
                                track_buffer=60, match_thresh=.75, fuse_score=True,
                                gmc_method='sparseOptFlow', proximity_thresh=.3, appearance_thresh=.85,
                                with_reid=False, model='auto')
@@ -45,6 +46,7 @@ class BotSortTracker:
         self.ids = {}
         self.next = 1
         self.known = set()
+        self.unmatched = []   # after each update: [(row index, best IoU with a track)] for rows neither matched nor starting a track
 
     def _local(self, track_id):
         key = (self.generation, int(track_id))
@@ -76,10 +78,36 @@ class BotSortTracker:
             if det >= 0:
                 used.add(det)
                 matches.append((self._local(track_id), det))
+        self.unmatched = self._unmatched(rows, used, subsets[True])
         alive = {t.track_id for t in self.tracker.tracked_stracks+self.tracker.lost_stracks}
         ended = [self.ids[(self.generation, t)] for t in self.known-alive if (self.generation, t) in self.ids]
         self.known = alive
         return matches, ended
+
+    def _unmatched(self, rows, used, high):
+        """Rows the update neither matched to an output track nor started a new (not yet confirmed) track with, each with
+        its best IoU against the tracks' boxes after the update (a lost track's is its prediction). A track started on
+        this frame is recognised by its start frame, and its detection by its index in the high-score pool. Read only."""
+        now = self.tracker.frame_id
+        started = {int(high[int(t.idx)]) for t in self.tracker.tracked_stracks
+                   if not t.is_activated and t.start_frame == now and 0 <= int(t.idx) < len(high)}
+        left = [i for i in range(len(rows)) if i not in used and i not in started]
+        if not left:
+            return []
+        tracks = np.asarray([t.xyxy for t in self.tracker.tracked_stracks+self.tracker.lost_stracks], np.float64).reshape(-1, 4)
+        out = []
+        for i in left:
+            r = rows[i]
+            if len(tracks):
+                ix = np.maximum(0, np.minimum(r[2], tracks[:, 2])-np.maximum(r[0], tracks[:, 0]))
+                iy = np.maximum(0, np.minimum(r[3], tracks[:, 3])-np.maximum(r[1], tracks[:, 1]))
+                inter = ix*iy
+                union = (r[2]-r[0])*(r[3]-r[1])+(tracks[:, 2]-tracks[:, 0])*(tracks[:, 3]-tracks[:, 1])-inter
+                best = float((inter/np.maximum(union, 1e-9)).max())
+            else:
+                best = 0.0
+            out.append((i, best))
+        return out
 
     def small_objects(self, active):
         """Small-object tuning while the measured condition holds (people expected under the far-tile size): a lower
@@ -101,6 +129,24 @@ class BotSortTracker:
             if 0 < gone <= max_frames and (self.generation, track.track_id) in self.ids:
                 out.append((self.ids[(self.generation, track.track_id)], [float(v) for v in track.xyxy], int(gone)))
         return out
+
+    def rebox(self, size):
+        """Give live tracks (tracked or lost) a new box: size(local id or None, [x1, y1, x2, y2] pixels) returns the new
+        box, or None to keep the track's. The Kalman state's position and size are replaced, its velocities and
+        covariance kept, so the next prediction starts from the new box. For a change of the convention the boxes are
+        given in (soccer.tracker: buffered boxes for tiny people in a small scene). Returns the local ids changed."""
+        changed = []
+        for track in self.tracker.tracked_stracks+self.tracker.lost_stracks:
+            if track.mean is None:
+                continue
+            local_id = self.ids.get((self.generation, int(track.track_id)))
+            box = size(local_id, [float(v) for v in track.xyxy])
+            if box is None:
+                continue
+            x1, y1, x2, y2 = box
+            track.mean[:4] = track.convert_coords(np.asarray([x1, y1, x2-x1, y2-y1], np.float64))
+            changed.append(local_id)
+        return changed
 
     def forget(self, local_id):
         """Remove a lost track whose identity moved to another track, so it cannot come back as a ghost."""

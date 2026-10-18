@@ -14,13 +14,25 @@ decoded path leaves those frames NOT VISIBLE instead.
 
 The result's per-frame `ball`, the 2D view and the ball metrics use this trajectory; the first pass
 stays available as `firstPass` for comparison.
+
+Small-scene runs (amateur footage; never broadcast) add four rules. A run is small-scene when at least SMALL_RUN of its
+frames carry `profile.smallScene` (plan interface 6, the rule the other offline passes use too); each rule then applies
+only to the frames that carry it. A classical near-feet proposal of the causal pass (source 'proposal') never earns the
+bonus of a causal acceptance; a causal lock on a still thing is audited (_audit_locks): when the causal pass stayed
+locked on something that stood still with nobody near it and that nothing was seen rolling to, while a strong, free,
+moving competitor was seen at the same time, the decoder stops deferring to that lock; things nobody is near count as
+standing still within the drift of the camera compensation (SMALL_DRIFT); and the review rules out a stretch that stood
+still for seconds, unattended, that the causal pass never took for the ball and that nothing the causal pass took for
+the ball left (a ball placed for a set piece is kicked away: it stays).
 """
+import itertools
 import math
 from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
 
+from .field import DEFAULT_LENGTH, DEFAULT_WIDTH
 from .geometry import PAINTED_SPOTS, clamp
 
 NULL_COST = 1.0      # per frame: the ball is not visible, nothing known (about -log .37)
@@ -74,6 +86,19 @@ ISLAND_S = 1.0       # a run shorter than this that no ball could have reached f
                      # (both faster than JUMP_SPEED) is an island: a white thing seen while the ball was known to be elsewhere, cut
 STRONG_DET = .3      # detector confidence and ...
 STRONG_Q = .5        # ... ball-likeness from which a sighting is a confirmed OBSERVATION; below, a WEAK_DETECTION (labelled, kept)
+CAUSAL_BONUS = 1.15  # ball-likeness factor of a sighting the causal pass took (with its full-resolution look), unless it was a proposal
+# Small-scene frames only (frame['profile']['smallScene']): the still-lock audit.
+SMALL_RUN = .5       # share of a run's frames that must be small-scene for any of these rules to run (plan interface 6: a partly small
+                     # run, e.g. a broadcast-like segment with a spell of far play, decodes like any other)
+SMALL_DRIFT = .3     # m/s: the offline camera compensation of such footage drifts on still things (amateur 3: a speck 2.2 m in 7.5 s,
+                     # another .27 m in 3.5 s); a thing nobody was near is still for _standing_markings within this much more per second
+AUDIT_FREE = .25     # at most this share of a lock's (or a competitor's) sightings may have a player within reach (on a lower body)
+AUDIT_DET = .5       # a competitor's mean detector score ...
+AUDIT_SPEED = 2.0    # ... and the speed (m/s, camera-compensated, first to last sighting) from which it is a moving ball; amateur 3
+                     # 149.2-151.2 s: the real ball 6.7 m/s at detector .74, the locked speck .3 m/s (2.2 m in 7.5 s)
+DEPART_S = 1.0       # an unattended still stretch the path leaves, within this many seconds, into a sighting the causal pass took for
+                     # the ball was a ball kicked from rest (a goal kick, a free kick with the taker stepped back): the causal pass
+                     # acquires a moving ball after a few consistent frames, a second covers a frame or two behind the kicker's leg
 
 
 @dataclass
@@ -133,7 +158,22 @@ def _pixels_per_metre(people, y, H):
 
 
 def _on_painted_spot(p):
-    return p is not None and any(math.hypot((p[0]-x)*105, (p[1]-y)*68) <= SPOT_RADIUS for x, y in PAINTED_SPOTS)
+    return p is not None and any(math.hypot((p[0]-x)*DEFAULT_LENGTH, (p[1]-y)*DEFAULT_WIDTH) <= SPOT_RADIUS for x, y in PAINTED_SPOTS)
+
+
+def quality(c, elsewhere=True, bonus=True):
+    """A recorded candidate's ball-likeness from its evidence: appearance, paint, attachment, stillness, having been seen
+    while the causal pass confidently tracked the ball elsewhere (`elsewhere`), and the causal pass having taken it
+    (`bonus`; never for a classical proposal, which is weak evidence by construction)."""
+    s = c.get('scores', {})
+    visual = c.get('visual')
+    if visual is None:
+        det = clamp((c.get('det', 0)-.08)/.45)
+        visual = .4*det+.2*s.get('size', .5)+.15*s.get('shape', .5)+.15*s.get('isolation', .5)+.1*s.get('field', .7)
+    q = visual*(1-.5*s.get('line', 0.0))*(1-.7*s.get('attach', 0.0))*(1-.6*s.get('static', 0.0))*(ELSEWHERE if elsewhere and s.get('otherObject') else 1.0)
+    if bonus and c.get('status') == 'ball' and c.get('source') != 'proposal':
+        q = min(1.0, q*CAUSAL_BONUS)   # the causal pass, with its full-resolution look, took it
+    return q
 
 
 def nodes_of(i, frame, W, H, to_pitch=None):
@@ -147,14 +187,7 @@ def nodes_of(i, frame, W, H, to_pitch=None):
         x, y, w, h = c['box']
         cx, cy = (x+w/2)*W, (y+h/2)*H
         d = math.sqrt(max(w*W*h*H, 1.0))
-        s = c.get('scores', {})
-        visual = c.get('visual')
-        if visual is None:
-            det = clamp((c.get('det', 0)-.08)/.45)
-            visual = .4*det+.2*s.get('size', .5)+.15*s.get('shape', .5)+.15*s.get('isolation', .5)+.1*s.get('field', .7)
-        q = visual*(1-.5*s.get('line', 0.0))*(1-.7*s.get('attach', 0.0))*(1-.6*s.get('static', 0.0))*(ELSEWHERE if s.get('otherObject') else 1.0)
-        if c.get('status') == 'ball':
-            q = min(1.0, q*1.15)   # the causal pass, with its full-resolution look, took it
+        q = quality(c)
         lower = lower_body(people, cx, cy, W, H)
         pid, u, v, bw, bh = lower if lower is not None else (None, 0.0, 0.0, 0.0, 0.0)
         pxm = c.get('pxm') or _pixels_per_metre(people, cy, H)
@@ -171,11 +204,13 @@ def nodes_of(i, frame, W, H, to_pitch=None):
     return out
 
 
-def _standing_markings(layers, times, T):
+def _standing_markings(layers, times, T, frames=None):
     """A tracklet whose sightings span STATIC_SECONDS and all lie within STATIC_RADIUS of the first (on the pitch when
     registered, else camera-compensated in the image) is a thing standing still for seconds: a field marking, debris,
     a bag. Its sightings lose ball-likeness like a painted spot, unless the causal pass tracked the ball there (a
-    ball at rest before a free kick). Returns the number of sightings discounted."""
+    ball at rest before a free kick). On small-scene frames (`frames` given), for a tracklet nobody was within reach
+    of, the radius grows by SMALL_DRIFT per second: the camera compensation of such footage drifts on still things.
+    Returns the number of sightings discounted."""
     by_tracklet = {}
     for i, nodes in enumerate(layers):
         for m in nodes:
@@ -186,14 +221,16 @@ def _standing_markings(layers, times, T):
         if times[entries[-1][0]]-times[entries[0][0]] < STATIC_SECONDS or len(entries) < 3:
             continue
         i0, first = entries[0]
+        drifts = frames is not None and all(small_scene(frames[i]) for i, _ in entries) and \
+            sum(1 for _, m in entries if m.near is not None) <= AUDIT_FREE*len(entries)
         still = True
         for i, m in entries[1:]:
             if first.pitch is not None and m.pitch is not None:
-                metres = math.hypot((m.pitch[0]-first.pitch[0])*105, (m.pitch[1]-first.pitch[1])*68)
+                metres = math.hypot((m.pitch[0]-first.pitch[0])*DEFAULT_LENGTH, (m.pitch[1]-first.pitch[1])*DEFAULT_WIDTH)
             else:
                 p = T[i0] @ np.linalg.inv(T[i]) @ np.array([m.x, m.y, 1.0])
                 metres = math.hypot(p[0]/p[2]-first.x, p[1]/p[2]-first.y)/max((first.pxm+m.pxm)/2, 1e-3)
-            if metres > STATIC_RADIUS:
+            if metres > (STATIC_RADIUS+SMALL_DRIFT*(times[i]-times[i0]) if drifts else STATIC_RADIUS):
                 still = False
                 break
         if not still:
@@ -203,6 +240,90 @@ def _standing_markings(layers, times, T):
                 m.q, m.marking = max(1e-3, m.q*MARKING_FACTOR), True
                 discounted += 1
     return discounted
+
+
+def small_scene(frame):
+    """The frame's small-scene gate as the causal pass recorded it (absent on broadcast and older results: closed)."""
+    return bool((frame.get('profile') or {}).get('smallScene', False))
+
+
+def _metres_apart(a, i, b, j, T):
+    """Metres between node a (frame i) and node b (frame j): on the registered pitch when both have a position, else
+    camera-compensated in the image at their mean depth."""
+    if a.pitch is not None and b.pitch is not None:
+        return math.hypot((a.pitch[0]-b.pitch[0])*DEFAULT_LENGTH, (a.pitch[1]-b.pitch[1])*DEFAULT_WIDTH)
+    p = T[i] @ np.linalg.inv(T[j]) @ np.array([b.x, b.y, 1.0])
+    return math.hypot(p[0]/p[2]-a.x, p[1]/p[2]-a.y)/max((a.pxm+b.pxm)/2, 1e-3)
+
+
+def _audit_locks(layers, frames, times, T, fps):
+    """Small-scene frames: the decoder must not defer to a causal lock on a still thing (amateur 3, 149.2-151.2 s: the
+    causal pass stayed on a 3-4 px speck while the real ball rolled free at detector .5-.95; the lock's acceptance bonus,
+    its exemption from the marking discount and the "seen elsewhere" flags it put on the real ball made the decoder
+    follow the speck). The causal acceptances of one tracklet are audited when all of these hold:
+      - every one of its frames is a small-scene frame, it has MIN_RUN sightings or more;
+      - it stood still: camera-compensated, nothing further than STILL_SPEED x its duration from its first sighting;
+      - nobody within reach of it (at most AUDIT_FREE of its sightings);
+      - nothing was seen rolling into it: no earlier causal acceptance, or the last one (another tracklet) ENTRY_GAP_S or
+        more before it, or that far away that it was a flight (TRAVEL_SPEED);
+      - a competitor was seen during it: another tracklet with MIN_RUN sightings in its span, mean detector AUDIT_DET or
+        more, moving AUDIT_SPEED or faster, and free (at most AUDIT_FREE of its sightings on a player's lower body).
+    Then the lock's sightings lose the acceptance bonus and count as a field marking (MARKING_FACTOR, and the review may
+    cut them as one), and the competitors' sightings lose the "seen elsewhere" factor. A ball at rest before a set
+    piece is not touched: it was seen rolling or carried there, or nothing moving competed with it. Changes the nodes in
+    place; returns the audits (for the events and the report)."""
+    by_tracklet = {}
+    for i, nodes in enumerate(layers):
+        for m in nodes:
+            if m.tracklet is not None:
+                by_tracklet.setdefault(m.tracklet, []).append((i, m))
+    accepted = sorted(((i, m) for entries in by_tracklet.values() for i, m in entries if m.source.get('status') == 'ball'), key=lambda e: e[0])
+    audits = []
+    for k, entries in by_tracklet.items():
+        # A tracklet is one object (the causal linker lets it go after half a second unseen): its causal acceptances are one lock.
+        lock = [(i, m) for i, m in entries if m.source.get('status') == 'ball']
+        if len(lock) < MIN_RUN or not all(small_scene(frames[i]) for i, _ in lock):
+            continue
+        (i0, first), (i1, _) = lock[0], lock[-1]
+        duration = times[i1]-times[i0]
+        moved = max(_metres_apart(first, i0, m, i, T) for i, m in lock[1:])
+        if duration <= 0 or moved >= STILL_SPEED*duration:
+            continue
+        if sum(1 for _, m in lock if m.near is not None) > AUDIT_FREE*len(lock):
+            continue
+        previous = next(((j, m) for j, m in reversed(accepted) if j < i0 and m.tracklet != k), None)
+        if previous is not None:
+            j, m = previous
+            seconds = times[i0]-times[j]
+            metres = _metres_apart(first, i0, m, j, T)
+            if seconds < ENTRY_GAP_S and metres/max(seconds, 1e-3) < TRAVEL_SPEED:
+                continue   # seen rolling (or carried) there
+            entered = f'{seconds:.2f} s and {metres:.1f} m after the previous causal sighting (tracklet {m.tracklet})'
+        else:
+            entered = 'from nothing'
+        rivals = []
+        for r, others in by_tracklet.items():
+            inside = [(i, m) for i, m in others if i0 <= i <= i1 and small_scene(frames[i])]
+            if r == k or len(inside) < MIN_RUN:
+                continue
+            det = sum(m.source.get('det', 0.0) for _, m in inside)/len(inside)
+            (ja, a), (jb, b) = inside[0], inside[-1]
+            speed = _metres_apart(a, ja, b, jb, T)/max(times[jb]-times[ja], 1e-3)
+            lower = sum(1 for _, m in inside if m.pid is not None)
+            if det >= AUDIT_DET and speed >= AUDIT_SPEED and lower <= AUDIT_FREE*len(inside):
+                rivals.append({'tracklet': r, 'sightings': len(inside), 'det': round(det, 3), 'speed': round(speed, 2)})
+        if not rivals:
+            continue
+        for _, m in lock:
+            m.q, m.marking = max(1e-3, quality(m.source, bonus=False)*MARKING_FACTOR), True
+        free = {r['tracklet'] for r in rivals}
+        for r in free:
+            for _, m in by_tracklet[r]:
+                if m.source.get('scores', {}).get('otherObject'):
+                    m.q = max(1e-3, quality(m.source, elsewhere=False)*(MARKING_FACTOR if m.marking else 1.0))
+        audits.append({'start': round(times[i0], 3), 'end': round(times[i1], 3), 'tracklet': k, 'sightings': len(lock), 'moved': round(moved, 2),
+                       'x': first.x, 'y': first.y, 'entered': entered, 'competitors': rivals})
+    return audits
 
 
 def _attachment(layers, fps):
@@ -423,21 +544,38 @@ def _strong(node):
     return node.source.get('det', 0.0) >= STRONG_DET and node.q >= STRONG_Q
 
 
-def _review(path, runs, times, T, layers, fps):
+def _taken(node):
+    """The causal pass took this sighting for the ball on a detector's evidence (a classical proposal is weak evidence)."""
+    return node.source.get('status') == 'ball' and node.source.get('source') != 'proposal'
+
+
+def _review(path, runs, times, T, layers, fps, small=None):
     """Still stretches on the path (every sighting within STILL_REGION of the stretch's first, at least MIN_RUN
     of them) whose sightings the causal pass rejected (it followed the ball somewhere else, or knew the thing
     for a spot, paint or a boot), and that nothing was seen rolling to: the stretch starts a trajectory, or the
     link into it is a flight (TRAVEL_SPEED or more) or bridged ENTRY_GAP_S unseen. Such a stretch is a white thing standing where the ball was known
     not to be, not the ball. The ball at rest stays on the path when it rolled there, or when the causal pass
     had nothing against it (a ball waiting for a kick-off). layers and fps are kept for the callers' sake.
+    small: per frame, the small-scene gate (None: closed everywhere). On small-scene frames the stillness radius grows
+    by SMALL_DRIFT per second, and a stretch that stood still for STATIC_SECONDS with nobody within reach and that the
+    causal pass never took for the ball is ruled out as a whole (amateur 3, 172-181 s: a speck the causal pass
+    rejected only as off its trajectory, chained by stationary links for nine seconds), unless the path leaves it
+    within DEPART_S into a sighting the causal pass took for the ball: the exit counterpart of the entry rule. The
+    causal pass never takes a ball at rest (it acquires one once it moves), so a ball placed for a set piece, the taker
+    stepped back, is unattended and never taken until it is kicked away; a speck is never kicked.
     Returns the stretches to cut out with what was seen."""
     out = []
     for first, last, sightings in runs:
         k = 0
         while k < len(sightings):
             stretch = [sightings[k]]
-            while k+len(stretch) < len(sightings) and _metres_between(path, stretch[0], sightings[k+len(stretch)], T) < STILL_REGION:
-                stretch.append(sightings[k+len(stretch)])
+            while k+len(stretch) < len(sightings):
+                i = sightings[k+len(stretch)]
+                drifts = small is not None and small[stretch[0]] and small[i]
+                region = STILL_REGION+SMALL_DRIFT*(times[i]-times[stretch[0]]) if drifts else STILL_REGION
+                if _metres_between(path, stretch[0], i, T) >= region:
+                    break
+                stretch.append(i)
             k += len(stretch)
             nodes = [path[i][0] for i in stretch]
             # Fewer sightings than a run are not judged, except when every one of them is a known marking: a
@@ -449,7 +587,13 @@ def _review(path, runs, times, T, layers, fps):
             if duration > 0 and moved/duration >= STILL_SPEED:
                 continue   # a rolling ball passes through half a metre in a few frames: not a still stretch
             elsewhere = sum(1 for n in nodes if n.source.get('reason') in REJECTED_REASONS or n.marking)
-            if elsewhere < REJECTED_SHARE*len(nodes):
+            unattended = small is not None and all(small[i] for i in stretch) and duration >= STATIC_SECONDS and \
+                not any(n.source.get('status') == 'ball' for n in nodes) and sum(1 for n in nodes if n.near is not None) <= AUDIT_FREE*len(nodes)
+            if unattended:
+                # Kicked away: the path goes on from the stretch (sightings[k:], the rest of this run) into a causal acceptance.
+                after = itertools.takewhile(lambda i: times[i]-times[stretch[-1]] <= DEPART_S, sightings[k:])
+                unattended = not any(_taken(path[i][0]) for i in after)
+            if elsewhere < REJECTED_SHARE*len(nodes) and not unattended:
                 continue   # the causal pass had nothing against these sightings: a ball at rest is kept
             tracklets = {n.tracklet for n in nodes if n.tracklet is not None}
             # The entry, judged from the last sighting before the stretch that the causal pass accepted: rejected
@@ -471,7 +615,7 @@ def _review(path, runs, times, T, layers, fps):
                         'reasons': dict(Counter(('MARKING' if n.marking else n.source.get('reason')) or 'none' for n in nodes)),
                         'det': sum(n.source.get('det', 0.0) for n in nodes)/len(nodes), 'q': sum(n.q for n in nodes)/len(nodes),
                         'strong': sum(1 for n in nodes if _strong(n)), 'tracklets': tracklets, 'marking': all(n.marking for n in nodes),
-                        'x': nodes[0].x, 'y': nodes[0].y, 'previous': gap, 'kind': 'still',
+                        'x': nodes[0].x, 'y': nodes[0].y, 'previous': gap, 'kind': 'still', 'unattended': unattended,
                         'entered': 'from nothing' if gap is None else f"{gap['seconds']:.2f} s and {gap['metres']:.1f} m after the last accepted sighting ({gap['speed']:.1f} m/s)"})
     # Islands: a short run that no ball could have reached from the run before it, nor left for the run after it.
     # Whatever it was, the ball was somewhere else just before and just after; the frames stay unknown.
@@ -564,16 +708,26 @@ def finalize(frames, motions, W, H, fps, to_pitch=None):
     before = shown_jumps(frames, W, H)
     first = [dict(f['ball']) for f in frames]
     layers = [nodes_of(i, f, W, H, to_pitch) for i, f in enumerate(frames)]
-    _attachment(layers, fps)
     times = [f['time'] for f in frames]
     T, _, _ = _chain(motions)
+    flags = [small_scene(f) for f in frames]
+    small = n > 0 and sum(flags) >= SMALL_RUN*n   # a small-scene run (frame['profile']['smallScene']); the rules are off on every other run
+    audits = _audit_locks(layers, frames, times, T, fps) if small else []
+    _attachment(layers, fps)
     _velocities(layers, times, T)
-    marking_nodes = sum(1 for l in layers for m in l if m.marking)+_standing_markings(layers, times, T)
+    marking_nodes = sum(1 for l in layers for m in l if m.marking)+_standing_markings(layers, times, T, frames if small else None)
     reviews, events = [], []
+    for a in audits:
+        rivals = '; '.join(f"tracklet {r['tracklet']} ({r['sightings']} sightings, detector {r['det']:.2f}, {r['speed']:.1f} m/s)" for r in a['competitors'])
+        events.append({'time': a['start'], 'kind': 'ball', 'track': None, 'playerId': None, 'message': '\n'.join([
+            'BALL LOCK AUDIT', f"Frames: {a['start']:.2f}-{a['end']:.2f} s ({a['sightings']} causal sightings of tracklet {a['tracklet']} at x = {a['x']:.0f}, y = {a['y']:.0f} px)",
+            f"Motion over them: {a['moved']:.2f} m (camera motion compensated: YES), nobody within reach; entered {a['entered']}",
+            f'Seen at the same time, free and moving: {rivals}',
+            'Decision: the lock counts as a field marking (no acceptance bonus); the competitors lose the "seen while the ball was elsewhere" discount'])})
     for _ in range(REVIEW_ROUNDS):
         path = decode(layers, times, motions, fps)
         runs = [r for r in _runs(path) if len(r[2]) >= MIN_RUN]
-        static = _review(path, runs, times, T, layers, fps)
+        static = _review(path, runs, times, T, layers, fps, flags if small else None)
         if not static:
             break
         for s in static:
@@ -585,7 +739,8 @@ def finalize(frames, motions, W, H, fps, to_pitch=None):
                       f"Current mode: a still stretch of the path at x = {s['x']:.0f}, y = {s['y']:.0f} px, entered {s['entered']}"),
                      ('Last confirmed observation before it: ' + (f"{prev['time']:.2f} s at x = {prev['x']:.0f}, y = {prev['y']:.0f} px, {prev['metres']:.1f} m away, {prev['seconds']:.2f} s earlier" if prev else 'none')),
                      f"Visual evidence: detector {s['det']:.2f}, ball-likeness {s['q']:.2f}", f"Motion over its sightings: {s['moved']:.2f} m (camera motion compensated: YES)",
-                     f"Causal pass: ruled out {s['elsewhere']} of {len(s['sightings'])} sightings ({', '.join(f'{k} {v}' for k, v in s['reasons'].items())})",
+                     f"Causal pass: ruled out {s['elsewhere']} of {len(s['sightings'])} sightings ({', '.join(f'{k} {v}' for k, v in s['reasons'].items())})"
+                     + (', never took it for the ball, nobody within reach, never kicked away (small scene)' if s.get('unattended') else ''),
                      ('Decision: REJECTED_IMPOSSIBLE_JUMP (no ball could have come from the run before it nor reached the run after it: a thing seen while the ball was elsewhere; left NOT VISIBLE)' if island else
                       'Decision: REJECTED_STATIC_UNANCHORED (a white thing that never moved, that nothing rolled to and that was seen while the ball was known to be elsewhere; left NOT VISIBLE)')]
             events.append({'time': round(t0, 3), 'kind': 'ball', 'track': None, 'playerId': None, 'message': '\n'.join(lines)})
@@ -699,5 +854,5 @@ def finalize(frames, motions, W, H, fps, to_pitch=None):
     return {'firstPass': {'states': states(first), **before}, 'final': {'states': states([f['ball'] for f in frames]), **after, 'runs': len(runs),
                                                                         'longestUnknownSeconds': round(longest_unknown/fps, 2),
                                                                         'staticRunsDropped': len(reviews), 'longUnseenLinks': long_unseen, 'stationaryLinks': still_links,
-                                                                        'markingNodes': marking_nodes},
-            'dropped': dropped, 'review': reviews, 'events': events}
+                                                                        'markingNodes': marking_nodes, 'lockAudits': len(audits)},
+            'dropped': dropped, 'review': reviews, 'audits': audits, 'events': events}

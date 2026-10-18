@@ -2,11 +2,17 @@
 the detector: the regression tool for ball tracking on real footage.
 
     python ball_cleanup.py runs/<video>/<run>/result.json [--video uploads/<video>.mp4] [--motion motion.npz]
+                           [--registration registration.json] [--small-scene auto|on|off]
                            [--out result.cleaned.json] [--dry]
 
-Camera motion per frame comes from the result itself (`frames[].motion`, written by current runs), else
-from --motion (an .npz with M, reliable, cut), else it is re-estimated from the video. Prints the
-first-pass and final ball metrics and the first-pass sightings the final path leaves out.
+Camera motion per frame comes from the run's registration.json (the carried homographies the pipeline's own decode
+used; the first pass's nearTrack and the registration timeline the pipeline mapped through are not stored, so a
+re-decode matches the stored path closely, not bit for bit), else from the result itself (`frames[].motion`, the
+per-frame estimate rounded to 5 decimals: still things drift in it), else from --motion (an .npz with M, reliable,
+cut), else it is re-estimated from the video. --small-scene: the frames' own small-scene gate (auto,
+`frames[].profile`), or forced on every frame for results written before the profile existed (on / off), for the
+decode only: the written result keeps the profiles the causal pass recorded. Prints the
+first-pass and final ball metrics, the still-lock audits and the first-pass sightings the final path leaves out.
 """
 import argparse
 import json
@@ -17,8 +23,15 @@ import numpy as np
 from soccer import ball_path, field, registration
 
 
-def motions_of(result, args):
+def motions_of(result, args, path):
     frames = result['frames']
+    reg = Path(args.registration) if args.registration else path.with_name('registration.json')
+    if reg.exists():
+        record = json.loads(reg.read_text(encoding='utf-8'))
+        offset = int(record.get('offset', 0))
+        log = record['frames'][offset:offset+len(frames)]
+        if len(log) == len(frames):
+            return [(None if e['M'] is None else np.asarray(e['M'], np.float64).reshape(3, 3), bool(e['reliable']), bool(e['cut'])) for e in log]
     if all('motion' in f for f in frames):
         out = []
         for f in frames:
@@ -71,11 +84,32 @@ def to_pitch_of(frames):
     return to_pitch
 
 
+def finalize(frames, motions, W, H, fps, small_scene='auto'):
+    """ball_path.finalize, with the small-scene gate forced on every frame (small_scene 'on' / 'off') for this decode only:
+    the frames keep the profile their causal pass recorded, which the other offline passes (tracklets, labels,
+    imputation) trust."""
+    if small_scene == 'auto':
+        return ball_path.finalize(frames, motions, W, H, fps, to_pitch_of(frames))
+    saved = [(f['profile'],) if 'profile' in f else () for f in frames]
+    for f in frames:
+        f['profile'] = {**(f.get('profile') or {}), 'smallScene': small_scene == 'on'}
+    try:
+        return ball_path.finalize(frames, motions, W, H, fps, to_pitch_of(frames))
+    finally:
+        for f, kept in zip(frames, saved):
+            if kept:
+                f['profile'] = kept[0]
+            else:
+                f.pop('profile', None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('result')
     parser.add_argument('--video')
     parser.add_argument('--motion')
+    parser.add_argument('--registration', help="the run's registration.json (default: next to the result, when it exists)")
+    parser.add_argument('--small-scene', choices=('auto', 'on', 'off'), default='auto')
     parser.add_argument('--out')
     parser.add_argument('--dry', action='store_true', help='print the report only')
     args = parser.parse_args()
@@ -90,10 +124,14 @@ def main():
         elif isinstance(f.get('ball'), dict) and f['ball'].get('firstPass'):
             f['ball'] = {'state': 'UNKNOWN', 'confidence': 0.0}
     W, H, fps = result['video']['width'], result['video']['height'], result['video']['fps']
-    motions = motions_of(result, args)
-    report = ball_path.finalize(frames, motions, W, H, fps, to_pitch_of(frames))
+    motions = motions_of(result, args, path)
+    report = finalize(frames, motions, W, H, fps, args.small_scene)
     print('first pass:', json.dumps(report['firstPass']))
     print('final:     ', json.dumps(report['final']))
+    for a in report['audits']:
+        rivals = ', '.join(f"{r['tracklet']} (detector {r['det']:.2f}, {r['speed']:.1f} m/s)" for r in a['competitors'])
+        print(f"  lock audit {a['start']:.2f}-{a['end']:.2f} s: tracklet {a['tracklet']} ({a['sightings']} causal sightings, moved {a['moved']:.2f} m, "
+              f"entered {a['entered']}) gave way to {rivals}")
     for d in report['dropped']:
         print(f"  dropped {d['start']:.2f}-{d['end']:.2f} s ({d['frames']} frames" + (f", on track {d['player']}'s lower body" if d['player'] is not None else '') + f"): {d['why']}")
     if args.dry:

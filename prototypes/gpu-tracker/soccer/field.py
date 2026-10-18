@@ -22,7 +22,24 @@ DEFAULT_LENGTH, DEFAULT_WIDTH = 105.0, 68.0
 LENGTH_RANGE, WIDTH_RANGE = (60.0, 120.0), (40.0, 90.0)
 PA, GA, SPOT, RADIUS = 16.5, 5.5, 11.0, 9.15     # penalty area depth, goal area depth, spot, circle radius
 PA_HALF, GA_HALF = 20.16, 9.16
-SIDES = {'far': 'far touchline', 'near': 'near touchline', 'left': 'left goal line', 'right': 'right goal line'}
+GOAL_WIDTH = 7.32            # metres between the inside of the posts
+PENALTY_ARC_RADIUS = RADIUS  # the arc outside the penalty area, about the penalty spot (Laws of the Game: 9.15 m)
+CORNER_ARC_RADIUS = 1.0
+
+# The markings' semantic identities, as the names the fits, the calibration UI and the stored results use
+# (the strings are the established ones; the constants only name them).
+CENTER_CIRCLE = 'centre circle'
+HALFWAY_LINE = 'halfway line'
+TOUCHLINE_FAR, TOUCHLINE_NEAR = 'far touchline', 'near touchline'
+GOAL_LINE_LEFT, GOAL_LINE_RIGHT = 'left goal line', 'right goal line'
+PENALTY_AREA_LEFT, PENALTY_AREA_RIGHT = 'left penalty area', 'right penalty area'   # + ' front' | ' far side' | ' near side'
+GOAL_AREA_LEFT, GOAL_AREA_RIGHT = 'left goal area', 'right goal area'               # + ' front' | ' far side' | ' near side'
+PENALTY_ARC_LEFT, PENALTY_ARC_RIGHT = 'left penalty arc', 'right penalty arc'
+CENTRE_SPOT = 'centre-spot'
+PENALTY_SPOT_LEFT, PENALTY_SPOT_RIGHT = 'left-penalty-spot', 'right-penalty-spot'
+GOALPOST_LEFT_FAR, GOALPOST_LEFT_NEAR = 'left-goalpost-far', 'left-goalpost-near'
+GOALPOST_RIGHT_FAR, GOALPOST_RIGHT_NEAR = 'right-goalpost-far', 'right-goalpost-near'
+SIDES = {'far': TOUCHLINE_FAR, 'near': TOUCHLINE_NEAR, 'left': GOAL_LINE_LEFT, 'right': GOAL_LINE_RIGHT}
 
 
 @dataclass
@@ -34,6 +51,13 @@ class PitchSize:
 
     def to_json(self):
         return {'length': round(self.length, 1), 'width': round(self.width, 1), 'source': self.source}
+
+    def dimensions(self):
+        """Each dimension with where it comes from: 'assumed' (the standard 105 x 68 m, nobody measured this
+        pitch) or 'landmarks' (learned from the calibration keyframes, both dimensions together): the run
+        metadata a field-size selector reads."""
+        source = 'assumed' if self.source == 'standard' else self.source
+        return {'length': {'value': round(self.length, 1), 'source': source}, 'width': {'value': round(self.width, 1), 'source': source}}
 
     @classmethod
     def from_json(cls, data):
@@ -85,6 +109,36 @@ def lines(size):
 
 def circle_centre(size):
     return (size.length/2, size.width/2)
+
+
+def goalposts(size):
+    """The goalposts' foot points (metres): the landmarks a goal offers. Kept apart from landmarks(), whose
+    names are the calibration UI's."""
+    L, cy, half = size.length, size.width/2, GOAL_WIDTH/2
+    return {GOALPOST_LEFT_FAR: (0.0, cy-half), GOALPOST_LEFT_NEAR: (0.0, cy+half), GOALPOST_RIGHT_FAR: (L, cy-half), GOALPOST_RIGHT_NEAR: (L, cy+half)}
+
+
+def arcs(size):
+    """Every curved painted marking as (name, centre, radius, start, end) in metres and degrees (counter-
+    clockwise from the x axis in pitch coordinates): the centre circle, the penalty arcs (the part of the
+    circle about each spot outside its penalty area) and the four corner arcs."""
+    L, W = size.length, size.width
+    cy = W/2
+    reach = math.degrees(math.acos((PA-SPOT)/PENALTY_ARC_RADIUS))   # where the spot's circle leaves the box front
+    return [(CENTER_CIRCLE, circle_centre(size), RADIUS, 0.0, 360.0),
+            (PENALTY_ARC_LEFT, (SPOT, cy), PENALTY_ARC_RADIUS, -reach, reach),
+            (PENALTY_ARC_RIGHT, (L-SPOT, cy), PENALTY_ARC_RADIUS, 180.0-reach, 180.0+reach),
+            ('corner arc far-left', (0.0, 0.0), CORNER_ARC_RADIUS, 0.0, 90.0),
+            ('corner arc far-right', (L, 0.0), CORNER_ARC_RADIUS, 90.0, 180.0),
+            ('corner arc near-right', (L, W), CORNER_ARC_RADIUS, 180.0, 270.0),
+            ('corner arc near-left', (0.0, W), CORNER_ARC_RADIUS, 270.0, 360.0)]
+
+
+def painted_spots(size):
+    """The painted spots in normalized pitch coordinates (x along the length, y across): the left penalty
+    spot, the right penalty spot, the centre spot."""
+    L, W = size.length, size.width
+    return ((SPOT/L, (W/2)/W), ((L-SPOT)/L, (W/2)/W), ((L/2)/L, (W/2)/W))
 
 
 # ---------- projection ----------
@@ -651,7 +705,7 @@ def _family(name):
     return 'longitudinal' if any(name.endswith(n) for n in LONGITUDINAL) else 'transverse'
 
 
-def observability(obs, width, height, size=None, rms_m=None, rms_px=None, jac=None):
+def observability(obs, width, height, size=None, rms_m=None, rms_px=None, jac=None, circle_agreement=None):
     """Geometric certainty of a calibration from its evidence alone, 0 (useless) .. 1 (excellent), with
     the parts. It is independent of how smoothly an estimate was carried through time:
 
@@ -667,7 +721,9 @@ def observability(obs, width, height, size=None, rms_m=None, rms_px=None, jac=No
       residual      how well the evidence agrees with one pitch plane (metres for landmarks, pixels
                     for paint)
     The parts combine as: coverage = evidence of both axes and enough of it; score = coverage x
-    conditioning x residual."""
+    conditioning x residual. circle_agreement replaces the circle's metric agreement (share of its pixels
+    within .6 m of the circle) by the caller's own: a grazing far circle is a pixel or two deep, where .6 m
+    is less than the paint's width (midfield's pinhole route measures it in pixels)."""
     size = size or PitchSize()
     marks = landmarks(size)
     points = [p for p in obs.get('points', ()) if p['name'] in marks]
@@ -706,7 +762,7 @@ def observability(obs, width, height, size=None, rms_m=None, rms_px=None, jac=No
             bins = np.unique(np.floor((angles+180)/15).astype(int))
             coverage = len(bins)/24
             radii = np.hypot(world[:, 0]-cx, world[:, 1]-cy)
-            agreement = float(np.mean(np.abs(radii-RADIUS) <= .6))
+            agreement = float(np.mean(np.abs(radii-RADIUS) <= .6)) if circle_agreement is None else float(circle_agreement)
             circle_score = min(1.0, coverage/.5)*agreement
             details.update(circleCoverage=round(coverage, 3), circleAgreement=round(agreement, 3))
         except np.linalg.LinAlgError:
