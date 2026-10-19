@@ -3,9 +3,10 @@
 
    Data. Nothing is computed here: the page asks the server (/api/analytics, soccer/analytics.py) for one selection
    (player, time range, scope) and caches the answer per result; the server computes from the saved result with the
-   validity rules documented there (observed samples only, trusted registration, confirmed identities of the final
-   roster, time-weighted). The same normalized pitch coordinates as the board: x 0..1 left goal line to right goal
-   line, y 0..1 far touchline to near touchline.
+   validity rules documented there (observed samples only, a registration the pitch model rates MEDIUM or HIGH,
+   confirmed identities of the final roster, time-weighted). Each answer says how much of its observed time rests on a
+   MEDIUM registration; the status line says so when that is most of it. The same normalized pitch coordinates as the
+   board: x 0..1 left goal line to right goal line, y 0..1 far touchline to near touchline.
 
    The <video> element is the clock for the "current 5 minutes" range and for the marker that follows the trail. */
 (function (global) {
@@ -223,6 +224,14 @@ class AnalyticsView {
     const notes = [];
     if (!cov.samples) notes.push('Not enough observed positions for this player in the selected range.');
     else if (cov.low) notes.push(`Low coverage: this ${this.tab === 'heatmap' ? 'heatmap' : this.tab === 'average' ? 'average' : 'trail'} describes only the observed ${Math.round(cov.coverage * 100)}% of the interval, not where the player was in between.`);
+    // The registration behind the positions (the server's time-weighted shares, soccer/analytics.quality; the average
+    // tab speaks for every player it draws): said when a MEDIUM registration holds most of the observed time, with the
+    // measured share and nothing more (a run without keyframes is capped at MEDIUM).
+    const q = (this.tab === 'average' && d.averagesQuality) || d.quality;
+    if (q && q.mostlyMedium) {
+      const share = `${Math.round(q.medium * 100)}%`;
+      notes.push(`${this.tab === 'average' && d.averagesQuality ? `Of the drawn players' observed time, ${share}` : `${share} of this observed time`} comes from positions the pitch registration places with only medium confidence (not high), so these positions are less certain.`);
+    }
     if (this.tab === 'average' && d.average && d.average.position) notes.push('An average is a summary of the observed positions, not a place the player stood.');
     if (dropped) notes.push('Excluded samples had an untrusted registration, lay off the pitch or had the feet unseen.');
     this.setStatus(notes.join(' '));

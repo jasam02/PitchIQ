@@ -3,9 +3,11 @@
 
    Data. Nothing is computed here. The page asks the server for one team, range and position mode
    (/api/team-shape, soccer/team_shape.py) and for the measured positions at one sample (/api/team-shape/snapshot),
-   and caches both per result. Coordinates are the result's normalized pitch coordinates (x along the goal-to-goal
-   axis, y across), so a measurement drawn "along y" is the team's width whatever way the board is shown: everything
-   is placed with the board's own toPx(x, y), never with screen assumptions.
+   and caches both per result. The report says how much of the team's observed time rests on a MEDIUM (not HIGH)
+   registration; the status line says so when that is most of it. Coordinates are the result's normalized pitch
+   coordinates (x along the goal-to-goal axis, y across), so a measurement drawn "along y" is the team's width
+   whatever way the board is shown: everything is placed with the board's own toPx(x, y), never with screen
+   assumptions.
 
    The snapshot slider picks a sample of the analysed data; it is not a second player and never moves the video.
    The canvas, notice, legend, insight panel and status line are shared with the player analytics: this view writes
@@ -631,6 +633,10 @@ class TeamShapeView {
       notes.push('Formations are recognised from observed positions only, over 15 s windows, and a change must be supported for a sustained stretch. Possession is not known, so attacking and defending shapes are not separated.');
       panel.append(this.lineupForm(d));
     }
+    // The registration behind the team's observed positions in the range (soccer/team_shape.registration_quality): said
+    // when a MEDIUM registration holds most of that time, with the measured share and nothing more.
+    const q = d.quality;
+    if (q && q.mostlyMedium) notes.push(`${pct(q.medium)} of the observed positions' time comes from positions the pitch registration places with only medium confidence (not high), so these measurements are less certain.`);
     if (est) notes.push(`The pitch size was not measured: metres assume a ${d.pitch.length} × ${d.pitch.width} m pitch.`);
     this.setStatus(notes.join(' '));
   }

@@ -453,6 +453,10 @@ def refine(manager, frames, motions, width, height, size=None):
             person.pop(key, None)
 
     def note(frag, text):
+        # Only a fragment that starts at a split has an outcome to record there; one that starts its track has no cut
+        # (a refused same-track continuation of such a fragment crashed the broadcast 42.4-222.4 s run here).
+        if frag.get('cut') is None:
+            return
         for sp in splits:
             if sp['track'] == frag['track'] and abs(sp['time']-frag['cut'][0]) < 1e-6:
                 sp['outcome'].append(text)

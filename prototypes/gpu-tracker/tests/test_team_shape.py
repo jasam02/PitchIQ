@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from soccer import team_shape as ts
+from soccer import pitch_model, team_shape as ts
 import team_shape_synth as syn
 
 L, W = syn.LENGTH, syn.WIDTH
@@ -1051,6 +1051,54 @@ class Robustness(unittest.TestCase):
         s = ts.clean_settings({'direction': {'A': 'left', 'switchAt': 10**400}, 'lineup': {'A': {'outfield': 9, 'from': 10**400}},
                                'formations': [{'team': 'A', 't0': 0, 't1': 10**400, 'formation': '4-4-2'}]})
         self.assertEqual((s['direction'], s['lineup']['A'], s['formations']), ({'A': 'left', 'switchAt': None}, 9, []))
+
+
+class RegistrationLevel(unittest.TestCase):
+    """The samples count a MEDIUM registration (analytics.MIN_PITCH_CONFIDENCE = pitch_model.MEDIUM; a run without
+    keyframes is capped there); no team-shape gate depends on the pitch confidence; the report says how much of the
+    team's observed time rests on a HIGH and on a MEDIUM registration."""
+
+    @staticmethod
+    def match(confidence):
+        times, teams, ends = syn.match('4-4-2', '4-3-3', seconds=40, seed=31)
+        return syn.make_result(times, teams, ends, pitch_confidence=confidence)
+
+    @staticmethod
+    def measurements(rep):
+        return (rep['widthDepth']['width'], rep['widthDepth']['depth'], rep['line']['summary'],
+                [(p['label'], p['t0'], p['t1'], p.get('confidence')) for p in rep['formation']['periods']])
+
+    def test_a_medium_registration_is_measured_like_a_high_one_and_says_medium(self):
+        medium, high = ts.TeamShape(self.match(.4)).report('A'), ts.TeamShape(self.match(.9)).report('A')
+        self.assertEqual(self.measurements(medium), self.measurements(high))
+        self.assertGreater(medium['widthDepth']['width']['reliableShare'], .9)
+        self.assertEqual(medium['formation']['periods'][0]['label'], '4-4-2')
+        self.assertEqual(medium['rules']['minPitchConfidence'], pitch_model.MEDIUM)
+        q = medium['quality']
+        self.assertEqual((q['level'], q['medium'], q['high'], q['mostlyMedium']), ('MEDIUM', 1.0, 0.0, True))
+        self.assertEqual((high['quality']['level'], high['quality']['high'], high['quality']['mostlyMedium']), ('HIGH', 1.0, False))
+        json.dumps(medium)
+
+    def test_a_low_registration_is_not_measured(self):
+        rep = ts.TeamShape(self.match(.3)).report('A')
+        self.assertEqual(rep['widthDepth']['width']['unavailableShare'], 1.0)
+        self.assertGreater(rep['excluded']['lowPitchConfidence'], 0)
+        self.assertEqual((rep['quality']['seconds'], rep['quality']['level'], rep['quality']['mostlyMedium']), (0.0, None, False))
+
+    def test_quality_is_time_weighted_over_the_observed_outfield_players_of_the_range(self):
+        r = self.match(.9)
+        for f in r['frames']:
+            for p in f['people']:
+                if p['team'] == 'A' and f['time'] >= 20:
+                    p['pitchConfidence'] = .4          # team A's registration is MEDIUM from 20 s on (its goalkeeper too)
+        shape = ts.TeamShape(r)
+        q = shape.report('A')['quality']
+        self.assertAlmostEqual(q['medium'], .5, delta=.03)
+        self.assertAlmostEqual(q['high'], .5, delta=.03)
+        self.assertAlmostEqual(q['seconds'], 10*40, delta=10, msg='ten observed outfield players for 40 s, goalkeeper not counted')
+        self.assertEqual((shape.report('A', 25, 40)['quality']['medium'], shape.report('A', 0, 15)['quality']['high']), (1.0, 1.0))
+        self.assertEqual(shape.report('B')['quality']['high'], 1.0)
+        self.assertEqual(shape.report('A', 100, 120)['quality']['seconds'], 0.0, 'a range outside the segment has no observed time')
 
 
 if __name__ == '__main__':

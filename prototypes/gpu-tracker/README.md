@@ -1286,10 +1286,30 @@ identities are not, and a relabelled player keeps only their own identity's
 positions. What counts: an observation of that identity on a frame where the
 person is confirmed, the identity confidence is 0.3 or more, the pitch
 position lies on the pitch (within 2% of the lines; nothing is clamped), the
-registration's confidence at that point is 0.5 or more and the box is not cut
-by the frame edge. Estimates of the timeline (interpolated, predicted) are not
-observations and never count. The samples are smoothed with the 2D view's
+pitch confidence at that point (the frame's registration confidence times how
+precisely that spot projects) is MEDIUM or better (0.35, the pitch model's own
+level `pitch_model.MEDIUM`) and the box is not cut by the frame edge.
+Estimates of the timeline (interpolated, predicted) are not observations and
+never count, and the 2D view's stabilized positions are not used: the analytics
+stay on the raw observations. The samples are smoothed with the 2D view's
 0.14 s centred window (never across a gap).
+
+The registration floor was 0.5 until 2026-10-18. A run without keyframes is
+capped at MEDIUM by design (an automatic midfield anchor without an
+independent painted line, "Pitch without keyframes" above), so on the amateur
+run no observation reached 0.5 (pitch confidence p10/p50/p90 .36/.39/.40)
+and on the Veo run 16% did: the Analytics view showed nothing while the 2D view
+drew the players. The analytics now count what the system itself rates MEDIUM
+or HIGH, as the playable region already does; LOW stays out. MEDIUM positions
+are less certain, so every answer says how much of the selection's observed
+time (time-weighted, like the coverage) rests on a HIGH (0.7 or more) and on a
+MEDIUM registration (`quality`, and `averagesQuality` for the players the
+average tab draws together), and when MEDIUM holds more than half of it the
+status line says that the pitch registration places those positions with only
+medium confidence and they are less certain, with the measured share and
+nothing more (on the average tab, of the drawn players' time).
+On the broadcast run 2.4% of the observations lie between 0.35 and 0.5: its
+analytics barely change.
 
 Time, not frames: a sample stands for half the distance to its neighbours,
 at most 0.25 s a side (and half a frame on an open side), so denser sampling
@@ -1318,7 +1338,12 @@ analytics too. `tests/test_analytics.py` checks the calculations on synthetic
 trajectories: density proportional to observed time, sampling rate without
 effect, absences not counted, ranges, validity rules, the time-weighted mean,
 local tracks combined under one identity, the final roster and corrections,
-trail breaks, and the axis convention.
+trail breaks, the axis convention, and the registration floor (MEDIUM counts,
+LOW does not, a MEDIUM-only run gets its analytics and says MEDIUM, the
+quality shares are time-weighted and pooled for the average tab).
+`tests/test_analytics_panels.py` runs `analytics.js` and `teamshape.js` in
+node on reports made from synthetic results: the medium-registration note
+appears on a MEDIUM run and not on a HIGH one.
 
 `tests/ball_eval.py` renders a panning broadcast sequence with all of these
 distractors — and two scenarios where the ball is hidden at a dribble while a
@@ -1359,8 +1384,15 @@ rather than a boundary sample.
 **One shared timeline.** Everything is computed from the same validated
 samples as the player analytics (`analytics.Samples`: the final roster's
 confirmed team players and goalkeepers, observed, identity confidence 0.3 or
-more, registration confidence 0.5 or more, on the pitch, feet not cut by the
-frame), so identity corrections, exclusions and relabelling apply. On top:
+more, registration confidence MEDIUM or better (0.35, `pitch_model.MEDIUM`; a
+run without keyframes is capped at MEDIUM, see "Player analytics"), on the
+pitch, feet not cut by the frame), so identity corrections, exclusions and
+relabelling apply. No team-shape rule depends on the registration confidence;
+the report says how much of the team's observed outfield time in the range
+rests on a HIGH and on a MEDIUM registration (`quality`), and when MEDIUM holds
+more than half of it the status line says the pitch registration places those
+positions with only medium confidence and the measurements are less certain.
+On top:
 5 samples a second on real frames, each standing for the time to its
 neighbours; positions with a sigma above 3 m dropped; registration glitches
 dropped (a run shorter than 0.5 s that a registration jump separates from the

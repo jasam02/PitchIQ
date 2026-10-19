@@ -490,6 +490,60 @@ class SameTrackContinuationTests(unittest.TestCase):
         self.assertEqual(report['sameTrack'], 0, report)
         self.assertTrue(all(p['id'] is None for p in stretch))
 
+    def track_start_scene(self, refusal):
+        """Track 13 anonymous from its first frame for 2 s (no cut before it: the stretch starts the track), then B-xx, and a
+        TRACK SWITCH at 3.9 s that splits the track. refusal is what stops the continuation of the anonymous start: 'vote'
+        (its kit voted team A), 'elsewhere' (B-xx seen on another track meanwhile) or 'crops' (a team A player's crops)."""
+        d = EncounterDriver()
+        team = team_scene()
+        d.run(5, team)
+        rows = [p for frame in d.people for p in frame if p['track'] == 13]
+        pid = rows[-1]['id']
+        g = d.ids.registry[pid]
+        start, identified = rows[:10], [p for p in rows[10:] if p['time'] < 3.9]
+        for p in start:   # 0.0-1.8 s: the causal pass decided late, these frames carry no identity
+            g.emitted_all.remove(p)
+            g.observations -= 1
+            if refusal == 'vote':
+                p.update(id=None, display='A-?', label='IDENTITY_UNCERTAIN', team='A', role='PLAYER', state='uncertain', identityConfidence=0.0)
+            else:
+                p.update(id=None, display='UNK-13', label='UNKNOWN', team=None, role='UNKNOWN', state='unknown', identityConfidence=0.0,
+                         roleConfidence=0.0, reason='no consistent role or kit after 15 observations')
+        tr = d.ids.tracks[13]
+        tr.switches.append(3.9)
+        frames = [{'time': k*.2, 'people': list(frame)} for k, frame in enumerate(d.people)]
+        if refusal == 'elsewhere':
+            for f in frames[2:8]:   # 0.4-1.4 s: B-xx observed on track 90 while track 13 is anonymous
+                q = {'time': f['time'], 'track': 90, 'box': [round(v, 5) for v in box_at(.9, .8)], 'score': .9, 'cls': 'player', 'zone': 'inside',
+                     'evidence': 'observed', 'id': pid, 'display': pid, 'label': 'PLAYER', 'team': 'B', 'role': 'PLAYER', 'state': 'confirmed',
+                     'identityConfidence': .9, 'roleConfidence': .9}
+                f['people'].append(q)
+                g.emitted_all.append(q)
+                g.observations += 1
+        elif refusal == 'crops':
+            other = Person('A')
+            tr.clean_history = [(p['time'], other.descriptor()) for p in start[:4]]
+        return d.ids, frames, start, identified, pid
+
+    def test_a_refused_continuation_of_the_stretch_that_starts_a_track_leaves_it_unresolved(self):
+        # The broadcast 42.4-222.4 s crash: the refusal of an anonymous stretch with no cut (it starts its track) was looked
+        # up among the splits of a track that has one, by the stretch's missing cut, and refine raised. The stretch stays
+        # anonymous with the refusal in its TRACKLET UNRESOLVED log, the split's log says nothing of it, and the identified
+        # stretch next to it keeps its identity.
+        for refusal, why in (('vote', ' but voted team A'), ('elsewhere', ', who was seen elsewhere meanwhile'), ('crops', ' but the crops contradict it')):
+            with self.subTest(refusal=refusal):
+                manager, frames, start, identified, pid = self.track_start_scene(refusal)
+                first_pass = [dict(p) for p in start+identified]
+                report = tracklets.refine(manager, frames, [(np.eye(3), True, False)]*len(frames), 1280, 720)
+                self.assertEqual((report['splits'], report['sameTrack']), (1, 0), [e['message'][:120] for e in report['events']])
+                self.assertEqual([dict(p) for p in start+identified], first_pass, 'neither stretch is relabelled')
+                self.assertTrue(all(p['id'] is None for p in start) and all(p['id'] == pid for p in identified))
+                unresolved = [e['message'] for e in report['events'] if e['track'] == 13 and e['message'].startswith('TRACKLET UNRESOLVED')]
+                self.assertTrue(unresolved and 'Tracklet 13 (0.00-1.80 s' in unresolved[0] and f'same track as {pid}{why}' in unresolved[0], unresolved)
+                self.assertTrue(all(p in manager.registry[pid].emitted_all for p in identified))
+                split = [e['message'] for e in report['events'] if e['message'].startswith('TRACKLET SPLIT')]
+                self.assertTrue(split and 'not continued' not in split[0], split)
+
     def test_the_track_itself_outranks_another_tracks_appearance_match(self):
         # The amateur case: track 13 is anonymous for 2 s and then carries B-xx (the causal pass decided late); meanwhile
         # another track (70, a look-alike teammate) overlaps those 2 s and would match B-xx by appearance. The continuation

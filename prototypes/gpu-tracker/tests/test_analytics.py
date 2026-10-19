@@ -4,7 +4,7 @@ import math
 import unittest
 
 import scene  # noqa: F401  (adds the prototype directory to sys.path)
-from soccer import analytics
+from soccer import analytics, pitch_model
 
 FPS = 30.0
 
@@ -210,12 +210,93 @@ class RangeAndReportTests(unittest.TestCase):
         s = analytics.Samples(result(frames, players=[entry('B-07'), entry('A-02', 'A')]))
         rep = analytics.report(s, 'B-07', 0, 4, scope='both')
         self.assertEqual(rep['player']['id'], 'B-07')
-        self.assertEqual(set(rep), {'player', 'range', 'rules', 'excluded', 'pitch', 'coverage', 'heatmap', 'average', 'trail', 'averages'})
+        self.assertEqual(set(rep), {'player', 'range', 'rules', 'excluded', 'pitch', 'coverage', 'heatmap', 'average', 'trail', 'averages',
+                                    'quality', 'averagesQuality'})
         self.assertEqual([a['id'] for a in rep['averages']], ['A-02', 'B-07'])
         self.assertEqual(rep['coverage']['samples'], 120)
         none = analytics.report(s, 'B-99', 0, 4)
         self.assertIsNone(none['player'])
         self.assertEqual(none['averages'], [])
+
+
+class RegistrationLevelTests(unittest.TestCase):
+    """The floor is the pitch model's MEDIUM level (a run without keyframes is capped there, as the user's amateur runs
+    are), LOW stays out, and every report says how much of its observed time rests on a HIGH and on a MEDIUM
+    registration."""
+
+    def test_the_floor_is_the_pitch_models_medium_level(self):
+        self.assertEqual(analytics.MIN_PITCH_CONFIDENCE, pitch_model.MEDIUM)
+        self.assertEqual(analytics.HIGH_PITCH_CONFIDENCE, pitch_model.HIGH)
+        frames = regular('B-07', 0, 1, (.5, .5), pitch_conf=pitch_model.MEDIUM) + regular('B-07', 1, 2, (.5, .5), pitch_conf=pitch_model.MEDIUM-.01)
+        s = analytics.Samples(result(frames, players=[entry('B-07')]))
+        self.assertEqual(len(s.tracks['B-07']['t']), 30, 'MEDIUM counts')
+        self.assertEqual(s.excluded['lowPitchConfidence'], 30, 'just below it is LOW: excluded')
+
+    def test_a_medium_confidence_run_gets_player_analytics_and_says_medium(self):
+        # Pitch confidence .4 throughout, as on an amateur run without keyframes (p50 .39): nothing reached the old 0.5.
+        r = result(regular('B-07', 0, 6, lambda t: (.2+.05*t, .5), pitch_conf=.4), players=[entry('B-07')])
+        self.assertEqual(analytics.Samples(r, min_pitch_confidence=.5).tracks, {}, 'the old floor left the panel empty')
+        s = analytics.Samples(r)
+        rep = analytics.report(s, 'B-07', 0, 6, scope='both')
+        self.assertEqual(rep['coverage']['samples'], 180)
+        self.assertAlmostEqual(rep['coverage']['coverage'], 1.0, delta=.02)
+        self.assertAlmostEqual(rep['heatmap']['seconds'], 6.0, delta=.1)
+        self.assertAlmostEqual(rep['average']['position'][0], .35, delta=.01)
+        self.assertEqual(len(rep['trail']['segments']), 1)
+        q = rep['quality']
+        self.assertEqual((q['level'], q['high'], q['medium'], q['low'], q['mostlyMedium']), ('MEDIUM', 0.0, 1.0, 0.0, True))
+        self.assertAlmostEqual(q['mediumSeconds'], 6.0, delta=.1)
+        self.assertEqual(rep['average']['quality'], q)
+        self.assertEqual(rep['averagesQuality'], q, 'the average tab draws only this player')
+        self.assertEqual((rep['rules']['minPitchConfidence'], rep['rules']['highPitchConfidence']), (pitch_model.MEDIUM, pitch_model.HIGH))
+        self.assertEqual(rep['excluded']['lowPitchConfidence'], 0)
+
+    def test_a_low_sample_is_excluded(self):
+        # Every other frame at .3 (LOW): those are left out, the .4 ones count, and none of them is reported as LOW time.
+        frames = regular('B-07', 0, 2, (.5, .5), pitch_conf=.4)
+        frames = [(t, [dict(people[0], pitchConfidence=.3)]) if k % 2 else (t, people) for k, (t, people) in enumerate(frames)]
+        s = analytics.Samples(result(frames, players=[entry('B-07')]))
+        self.assertEqual(s.excluded['lowPitchConfidence'], 30)
+        self.assertEqual(len(s.tracks['B-07']['t']), 30)
+        q = analytics.quality(s, 'B-07', 0, 2)
+        self.assertEqual((q['low'], q['medium'], q['level']), (0.0, 1.0, 'MEDIUM'))
+        # A caller that lowers the floor gets the LOW time reported as such, never as MEDIUM.
+        lowered = analytics.Samples(result(frames, players=[entry('B-07')]), min_pitch_confidence=.2)
+        q = analytics.report(lowered, 'B-07', 0, 2)['quality']
+        self.assertAlmostEqual(q['low'], .5, delta=.02)
+        self.assertAlmostEqual(q['medium'], .5, delta=.02)
+        self.assertEqual(analytics.report(lowered, 'B-07', 0, 2)['rules']['minPitchConfidence'], .2)
+
+    def test_quality_shares_are_time_weighted(self):
+        # 6 s on a HIGH registration at 30 fps, then 2 s on a MEDIUM one at 6 fps: 180 samples against 12, but the time
+        # is three quarters HIGH.
+        frames = regular('B-07', 0, 6, (.3, .5), pitch_conf=.8) + regular('B-07', 6, 8, (.6, .5), fps=6, pitch_conf=.4)
+        s = analytics.Samples(result(frames, players=[entry('B-07')]))
+        q = analytics.quality(s, 'B-07', 0, 8)
+        self.assertAlmostEqual(q['high'], .75, delta=.02)
+        self.assertAlmostEqual(q['medium'], .25, delta=.02)
+        self.assertAlmostEqual(q['highSeconds']+q['mediumSeconds'], q['seconds'], delta=.02)
+        self.assertEqual((q['level'], q['mostlyMedium']), ('HIGH', False))
+        late = analytics.quality(s, 'B-07', 6.5, 8)
+        self.assertEqual((late['level'], late['medium'], late['mostlyMedium']), ('MEDIUM', 1.0, True))
+        self.assertEqual(analytics.quality(s, 'B-07', 20, 30), {'seconds': 0.0, 'highSeconds': 0.0, 'mediumSeconds': 0.0, 'lowSeconds': 0.0,
+                                                                 'high': 0.0, 'medium': 0.0, 'low': 0.0, 'level': None, 'mostlyMedium': False})
+
+    def test_the_average_tab_quality_pools_the_players_it_draws(self):
+        frames = []
+        for k in range(120):
+            t = k/FPS
+            frames.append((t, [person('B-07', t, .3, .4, pitch_conf=.4), person('A-02', t, .6, .6, team='A', pitch_conf=.8),
+                               person('A-03', t, .7, .3, team='A', pitch_conf=.8)]))
+        s = analytics.Samples(result(frames, players=[entry('B-07'), entry('A-02', 'A'), entry('A-03', 'A')]))
+        rep = analytics.report(s, 'B-07', 0, 4, scope='both')
+        self.assertTrue(rep['quality']['mostlyMedium'])
+        pooled = rep['averagesQuality']
+        self.assertAlmostEqual(pooled['medium'], 1/3, delta=.01)
+        self.assertAlmostEqual(pooled['high'], 2/3, delta=.01)
+        self.assertFalse(pooled['mostlyMedium'])
+        self.assertEqual({a['id']: a['quality']['level'] for a in rep['averages']}, {'A-02': 'HIGH', 'A-03': 'HIGH', 'B-07': 'MEDIUM'})
+        self.assertEqual(analytics.report(s, 'B-07', 0, 4, scope='B')['averagesQuality'], rep['quality'])
 
 
 if __name__ == '__main__':

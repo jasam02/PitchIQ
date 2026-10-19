@@ -25,6 +25,11 @@ interpolated and predicted positions (kinds I and P, sigma at most ESTIMATE_MAX_
 silently mixed: every per-sample value carries how many of its players were observed and how many estimated, and a
 value mostly made of estimates is never called complete or reliable. Formation recognition never uses estimated
 positions (the estimate follows the team, so it would confirm the shape it came from).
+
+The samples count a registration the pitch model rates MEDIUM or better (analytics.MIN_PITCH_CONFIDENCE =
+pitch_model.MEDIUM), so a run without keyframes (capped at MEDIUM) is measured too. How certain the registration behind
+a report is, is said: `quality` is the share of the team's observed outfield time on a HIGH and on a MEDIUM registration
+(registration_quality), and the page says when MEDIUM dominates. No gate below depends on the pitch confidence.
 """
 import bisect
 import math
@@ -1317,6 +1322,20 @@ def clean_settings(raw):
     return out
 
 
+def registration_quality(data, team, rows):
+    """How certain the registration behind the team's measured positions over the sample rows is: of the observed
+    outfield time (every observed player of a sample counts the seconds the sample stands for), the seconds and shares
+    whose pitch confidence the pitch model rates HIGH and MEDIUM, as analytics.quality reports them for one player.
+    Estimated positions (kind E) carry no registration of their own and goalkeepers are in no team measurement: neither
+    counts."""
+    d = data.teams[team]
+    if not len(rows) or not len(d['ids']):
+        return analytics.quality_of(0.0, 0.0, 0.0)
+    observed = d['kind'][rows] == 'O'
+    w = np.broadcast_to(data.w[rows][:, None], observed.shape)
+    return analytics.quality_of(*analytics.level_seconds(d['quality'][rows][observed], w[observed]))
+
+
 def _thin(series, limit=CHART_POINTS):
     """At most `limit` rows for a chart, and the step used (1 = every sample)."""
     if len(series) <= limit:
@@ -1432,6 +1451,7 @@ class TeamShape:
                                                                        'observed positional structures over both phases.'},
                           'corrections': [dict(c, applied=ok) for c, ok in zip(team_labels, shape['applied'])]},
             'excluded': excluded,
+            'quality': registration_quality(data, team, rows),
             'rules': {'sampleRate': data.rate, 'reliableMin': RELIABLE_MIN, 'partialMin': PARTIAL_MIN, 'maxSigma': MAX_SIGMA,
                       'duplicateMetres': DUPLICATE_METRES, 'duplicateSamples': DUPLICATE_SAMPLES, 'windowSeconds': WINDOW_SECONDS,
                       'windowStep': WINDOW_STEP, 'formationMaxMissing': FORMATION_MAX_MISSING, 'minPresent': MIN_PRESENT,
@@ -1439,7 +1459,8 @@ class TeamShape:
                       'ambiguousMargin': AMBIGUOUS_MARGIN, 'clearMargin': CLEAR_MARGIN, 'clearIdentity': CLEAR_IDENTITY,
                       'clearRoleStability': CLEAR_ROLE_STABILITY, 'roleHorizon': ROLE_HORIZON, 'roleMemory': ROLE_MEMORY,
                       'lineCoherent': LINE_COHERENT, 'lineDisrupted': LINE_DISRUPTED, 'robustPercentiles': list(ROBUST_PERCENTILES),
-                      'minPitchConfidence': analytics.MIN_PITCH_CONFIDENCE, 'minIdentityConfidence': analytics.MIN_IDENTITY_CONFIDENCE},
+                      'minPitchConfidence': data.samples.min_pitch_confidence, 'minIdentityConfidence': analytics.MIN_IDENTITY_CONFIDENCE,
+                      'highPitchConfidence': analytics.HIGH_PITCH_CONFIDENCE, 'mostlyMediumShare': analytics.MOSTLY_MEDIUM},
             'settings': {'direction': self.settings['direction'], 'lineup': self.settings['lineup']},
         }
 

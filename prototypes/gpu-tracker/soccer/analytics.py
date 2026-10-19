@@ -15,19 +15,38 @@ is never counted as standing still at the last known place. Coverage is the unio
 for over the selected interval, not a frame count.
 
 Excluded, never clamped onto the pitch: positions off the pitch (beyond OUTSIDE), a registration below
-MIN_PITCH_CONFIDENCE, a person whose box is cut by the frame edge (the feet unseen), an identity below
-MIN_IDENTITY_CONFIDENCE or not confirmed on that frame, anyone who is not a confirmed team player or goalkeeper of
-the final roster (referees, staff, excluded, retired, unconfirmed A-? identities), and every estimate (the timeline's
-interpolated and predicted positions are not observations).
+MIN_PITCH_CONFIDENCE (the pitch model's own MEDIUM level: LOW is out), a person whose box is cut by the frame edge (the
+feet unseen), an identity below MIN_IDENTITY_CONFIDENCE or not confirmed on that frame, anyone who is not a confirmed
+team player or goalkeeper of the final roster (referees, staff, excluded, retired, unconfirmed A-? identities), and
+every estimate (the timeline's interpolated and predicted positions are not observations). The positions are the raw
+observations: the 2D view's stabilized stream (soccer/trajectory.py) is not used here.
+
+How certain the counted positions are is reported, not hidden: quality() gives, for a selection, the shares of its
+observed time whose registration the pitch model rates HIGH and MEDIUM, and the page says so when MEDIUM dominates.
 """
 import math
 from bisect import bisect_left, bisect_right
 
 import numpy as np
 
+from . import pitch_model
+
 LENGTH, WIDTH = 105.0, 68.0          # metres; the registration's size is used when the result carries one
 OUTSIDE = .02                        # normalized: a position this far beyond a line is still the pitch (a foot on the touchline)
-MIN_PITCH_CONFIDENCE = .5            # the registration's confidence at the sample, times its local projection certainty
+# A sample's pitch confidence is the frame registration's confidence times its local projection certainty
+# (registration.position). A position counts when that is at the pitch model's MEDIUM level or better
+# (soccer/pitch_model.py: HIGH >= .7, MEDIUM >= .35, LOW below): the analytics trust what the system itself rates
+# MEDIUM or HIGH, as the playable region already does (the pitch model drives it at MEDIUM or better). LOW stays out.
+# Until 2026-10-18 the floor was 0.5, above MEDIUM, and runs without keyframes are capped at MEDIUM by design (an
+# automatic midfield anchor without an independent painted line; pitch_model._lifts_cap): on the user's amateur run
+# (auto-midfield anchor, no keyframes) no observation reached 0.5 (pitch confidence p10/p50/p90 .36/.39/.40), on the
+# Veo run 16% did, and the Analytics view was empty while the 2D view drew the players. On the broadcast run 2.4% of
+# the observations lie between .35 and .5. Because MEDIUM positions are less certain, every report says how much of
+# its observed time rests on a HIGH and on a MEDIUM registration (quality()), and the page says when MEDIUM dominates.
+MIN_PITCH_CONFIDENCE = pitch_model.MEDIUM
+HIGH_PITCH_CONFIDENCE = pitch_model.HIGH   # observed time at or above this is reported as HIGH, from MEDIUM up to it as MEDIUM
+MOSTLY_MEDIUM = .5                   # more than this share of the observed time on a MEDIUM registration: the page says the
+                                     # positions are less certain (a measured share; no number of metres is claimed)
 MIN_IDENTITY_CONFIDENCE = .3
 SMOOTH_WINDOW = .14                  # s: the 2D view's centred window over observed samples
 SAMPLE_CAP = .5                      # s: a gap between consecutive samples up to this is covered (half to each); of a longer gap, a
@@ -55,6 +74,7 @@ class Samples:
         self.start = frames[0]['time'] if frames else 0.0
         self.end = frames[-1]['time'] if frames else 0.0
         self.people = roster(result)
+        self.min_pitch_confidence = min_pitch_confidence
         self.excluded = {'offPitch': 0, 'lowPitchConfidence': 0, 'clipped': 0, 'lowIdentityConfidence': 0, 'notConfirmed': 0, 'notInRoster': 0}
         raw = {pid: ([], [], [], [], [], []) for pid in self.people}   # t, x, y, identity confidence, pitch confidence, sigma (m)
         for f in frames:
@@ -196,6 +216,48 @@ def coverage(samples, pid, t0, t1):
             'samples': int(len(t)), 'low': bool(len(t)) and share < LOW_COVERAGE}
 
 
+def level_seconds(q, w):
+    """(HIGH, MEDIUM, LOW) seconds of samples with pitch confidences q standing for w seconds each, at the pitch model's
+    levels (HIGH_PITCH_CONFIDENCE and pitch_model.MEDIUM). LOW time exists only where a caller lowered the floor."""
+    q, w = np.asarray(q, np.float64), np.asarray(w, np.float64)
+    high = q >= HIGH_PITCH_CONFIDENCE
+    medium = (q >= pitch_model.MEDIUM) & ~high
+    return float(w[high].sum()), float(w[medium].sum()), float(w[~high & ~medium].sum())
+
+
+def quality_of(high, medium, low):
+    """The registration quality of a selection from its (HIGH, MEDIUM, LOW) seconds: the seconds and the shares of its
+    observed time, the level holding most of it (None without any), and `mostlyMedium` when MEDIUM holds more than
+    MOSTLY_MEDIUM of it (the page then says the registration places those positions with only medium confidence)."""
+    total = high+medium+low
+    share = lambda v: round(v/total, 3) if total > 0 else 0.0
+    seconds = {'HIGH': high, 'MEDIUM': medium, 'LOW': low}
+    return {'seconds': round(total, 2), 'highSeconds': round(high, 2), 'mediumSeconds': round(medium, 2), 'lowSeconds': round(low, 2),
+            'high': share(high), 'medium': share(medium), 'low': share(low),
+            'level': max(seconds, key=seconds.get) if total > 0 else None, 'mostlyMedium': bool(total > 0 and medium/total > MOSTLY_MEDIUM)}
+
+
+def _level_seconds_of(samples, pid, t0, t1):
+    tr = samples.tracks.get(pid)
+    if tr is None:
+        return 0.0, 0.0, 0.0
+    a, b = int(np.searchsorted(tr['t'], t0, side='left')), int(np.searchsorted(tr['t'], t1, side='right'))   # as window()
+    return level_seconds(tr['quality'][a:b], tr['w'][a:b])
+
+
+def quality(samples, pid, t0, t1):
+    """How certain the registration behind a player's positions in [t0, t1] is: of the observed time (each sample's
+    seconds, as for the coverage) the shares whose pitch confidence the pitch model rates HIGH and MEDIUM (quality_of).
+    Measured shares only: nothing says by how many metres a MEDIUM position may be off."""
+    return quality_of(*_level_seconds_of(samples, pid, t0, t1))
+
+
+def pooled_quality(samples, pids, t0, t1):
+    """quality() over several players together (their observed seconds added): what the average tab draws."""
+    parts = [_level_seconds_of(samples, pid, t0, t1) for pid in pids]
+    return quality_of(*(sum(p[k] for p in parts) for k in range(3)))
+
+
 def heatmap(samples, pid, t0, t1, cell=HEAT_CELL, sigma=HEAT_SIGMA):
     """Observed time per cell of a metres grid over the pitch, Gaussian-smoothed (seconds per cell; the total stays the
     observed time). {'cols', 'rows', 'cell', 'sigma', 'max', 'seconds', 'grid' (rows of cols, far touchline first)}."""
@@ -224,13 +286,15 @@ def _blur(grid, sigma_cells):
 
 
 def average(samples, pid, t0, t1):
-    """The time-weighted mean of the observed positions in the interval, with its coverage; None when there is none."""
+    """The time-weighted mean of the observed positions in the interval, with its coverage and registration quality;
+    None when there is none."""
     t, x, y, w, _, _ = samples.window(pid, t0, t1)
     cov = coverage(samples, pid, t0, t1)
     info = samples.people.get(pid) or {'id': pid, 'display': pid, 'team': None, 'role': 'PLAYER'}
     if not len(t) or w.sum() <= 0:
-        return dict(info, position=None, **cov)
-    return dict(info, position=[round(float((x*w).sum()/w.sum()), 4), round(float((y*w).sum()/w.sum()), 4)], **cov)
+        return dict(info, position=None, quality=quality(samples, pid, t0, t1), **cov)
+    return dict(info, position=[round(float((x*w).sum()/w.sum()), 4), round(float((y*w).sum()/w.sum()), 4)],
+                quality=quality(samples, pid, t0, t1), **cov)
 
 
 def averages(samples, t0, t1, teams=('A', 'B')):
@@ -287,17 +351,21 @@ def current_block(samples, at, window=CURRENT_WINDOW):
 
 def report(samples, pid, t0, t1, scope='selected'):
     """Everything the page needs for one selection: coverage, heatmap, average (plus the scope's averages) and trail of
-    the player, over [t0, t1]."""
+    the player, over [t0, t1]; the registration quality of the player's observed time (`quality`) and of the players
+    the average tab draws together (`averagesQuality`)."""
     teams = {'selected': (), 'A': ('A',), 'B': ('B',), 'both': ('A', 'B')}.get(scope, ())
     info = samples.people.get(pid)
     out = {'player': info, 'range': {'t0': round(t0, 3), 't1': round(t1, 3), 'segment': [round(samples.start, 3), round(samples.end, 3)]},
-           'rules': {'minPitchConfidence': MIN_PITCH_CONFIDENCE, 'minIdentityConfidence': MIN_IDENTITY_CONFIDENCE, 'sampleCap': samples.cap,
-                     'trailGap': TRAIL_GAP, 'trailMaxSpeed': TRAIL_MAX_SPEED, 'heatSigma': HEAT_SIGMA, 'lowCoverage': LOW_COVERAGE, 'smoothWindow': SMOOTH_WINDOW},
+           'rules': {'minPitchConfidence': samples.min_pitch_confidence, 'minIdentityConfidence': MIN_IDENTITY_CONFIDENCE, 'sampleCap': samples.cap,
+                     'trailGap': TRAIL_GAP, 'trailMaxSpeed': TRAIL_MAX_SPEED, 'heatSigma': HEAT_SIGMA, 'lowCoverage': LOW_COVERAGE, 'smoothWindow': SMOOTH_WINDOW,
+                     'highPitchConfidence': HIGH_PITCH_CONFIDENCE, 'mostlyMediumShare': MOSTLY_MEDIUM},
            'excluded': samples.excluded, 'pitch': {'length': samples.length, 'width': samples.width}}
     if info is not None:
         out['coverage'] = coverage(samples, pid, t0, t1)
         out['heatmap'] = heatmap(samples, pid, t0, t1)
         out['average'] = average(samples, pid, t0, t1)
         out['trail'] = trail(samples, pid, t0, t1)
+        out['quality'] = quality(samples, pid, t0, t1)
     out['averages'] = averages(samples, t0, t1, teams) if teams else ([out['average']] if info is not None and out['average']['position'] else [])
+    out['averagesQuality'] = pooled_quality(samples, [a['id'] for a in out['averages']], t0, t1)
     return out
