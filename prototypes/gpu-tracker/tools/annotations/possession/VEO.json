@@ -1,0 +1,555 @@
+{
+ "clip": "VEO",
+ "labeller": "L1",
+ "videoKey": "f597d73d53f7b1fd",
+ "timeRange": [
+  1.0,
+  30.967
+ ],
+ "mapping": {
+  "A": "black / dark navy shirts and shorts (numbers e.g. #6, #9); their goalkeeper wears light blue and defends the LEFT goal (seen 11-15 s)",
+  "B": "white shirts with light-blue numbers (e.g. #7, #9, #15), black shorts; their goalkeeper wears orange and defends the RIGHT goal (seen 23-31 s)"
+ },
+ "step": 0.5,
+ "method": "frames extracted with cv2 at absolute frame round(t*30); 2-4x zoom strips at 0.1-0.2 s steps around every duel, frame-by-frame (0.033 s) at the duels of 2.7, 4.8, 7.0-8.1, 21.5-22.5, 24.5-26.6; result.json used only for team letters on people[] boxes (frames 1.0, 11.0, 21.0, 30.97) and the time range; audio spectrogram checked for a whistle (none distinguishable from shouting)",
+ "points": [
+  {
+   "t": 1.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A dribbling leftward on the far side just left of the centre circle",
+   "carrier": "A outfield (dark kit), far side"
+  },
+  {
+   "t": 1.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A dribbler; a B player closing from the left",
+   "carrier": "same A dribbler"
+  },
+  {
+   "t": 2.0,
+   "team": "A",
+   "conf": 2,
+   "note": "duel: two B players close in on the A dribbler, ball loose between their feet, no B control"
+  },
+  {
+   "t": 2.5,
+   "team": "A",
+   "conf": 2,
+   "note": "duel continues, ball hidden in the tangle; at 2.73 it is back at the A player's feet"
+  },
+  {
+   "t": 3.0,
+   "team": "A",
+   "conf": 2,
+   "note": "ball pushed out of the duel at ~2.8 and rolling right past the referee toward an A team-mate; no B touch seen"
+  },
+  {
+   "t": 3.5,
+   "team": "A",
+   "conf": 2,
+   "note": "ball rolling across the halfway line to an A player, who collects it at ~3.8"
+  },
+  {
+   "t": 4.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A player receives and turns, right of the halfway line",
+   "carrier": "A outfield, far side right of halfway"
+  },
+  {
+   "t": 4.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling leftward; B player approaching",
+   "carrier": "same A player"
+  },
+  {
+   "t": 5.0,
+   "team": "A",
+   "conf": 2,
+   "note": "challenge at ~4.85: ball squirts left past the B player's legs (moving in the A dribbler's direction), loose; no B control"
+  },
+  {
+   "t": 5.5,
+   "team": "A",
+   "conf": 2,
+   "note": "loose ball rolling left; nearest player is A, B runner coming from the left"
+  },
+  {
+   "t": 6.0,
+   "team": "A",
+   "conf": 2,
+   "note": "A player about to collect the loose ball (first touch ~6.15), B chasing"
+  },
+  {
+   "t": 6.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #6 dribbling rightward",
+   "carrier": "A #6"
+  },
+  {
+   "t": 7.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A #6 dribbling, B player alongside",
+   "carrier": "A #6"
+  },
+  {
+   "t": 7.5,
+   "team": "A",
+   "conf": 2,
+   "note": "shoulder-to-shoulder with B; ball between their feet, A #6's foot on it",
+   "carrier": "A #6"
+  },
+  {
+   "t": 8.0,
+   "team": "A",
+   "conf": 2,
+   "note": "A #6 still shielding; turns back with the ball at ~8.2",
+   "carrier": "A #6"
+  },
+  {
+   "t": 8.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #6 chasing her own knock back to the left, ahead of the B player",
+   "carrier": "A #6"
+  },
+  {
+   "t": 9.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A #6 on the ball",
+   "carrier": "A #6"
+  },
+  {
+   "t": 9.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #6 reaches the ball; passes left at ~9.7",
+   "carrier": "A #6"
+  },
+  {
+   "t": 10.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass rolling slowly toward the A players on the left; only A players near"
+  },
+  {
+   "t": 10.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass still rolling; only A players near"
+  },
+  {
+   "t": 11.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass still rolling toward an A player"
+  },
+  {
+   "t": 11.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A player waiting for the slow pass"
+  },
+  {
+   "t": 12.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A player receives (~11.9) and dribbles; A keeper (light blue) behind her",
+   "carrier": "A outfield, far side left half"
+  },
+  {
+   "t": 12.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling, no B near",
+   "carrier": "same A player"
+  },
+  {
+   "t": 13.0,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling",
+   "carrier": "same A player"
+  },
+  {
+   "t": 13.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling toward the near side",
+   "carrier": "same A player"
+  },
+  {
+   "t": 14.0,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling",
+   "carrier": "same A player"
+  },
+  {
+   "t": 14.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling",
+   "carrier": "same A player"
+  },
+  {
+   "t": 15.0,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling toward the centre circle",
+   "carrier": "same A player"
+  },
+  {
+   "t": 15.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player dribbling",
+   "carrier": "same A player"
+  },
+  {
+   "t": 16.0,
+   "team": "A",
+   "conf": 3,
+   "note": "same A player; passes to A #9 at ~16.3",
+   "carrier": "same A player"
+  },
+  {
+   "t": 16.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass rolling to A #9 on the near side"
+  },
+  {
+   "t": 17.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass arriving at A #9 (first touch ~17.3)"
+  },
+  {
+   "t": 17.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling rightward, near side",
+   "carrier": "A #9"
+  },
+  {
+   "t": 18.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling",
+   "carrier": "A #9"
+  },
+  {
+   "t": 18.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling",
+   "carrier": "A #9"
+  },
+  {
+   "t": 19.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling, B players chasing",
+   "carrier": "A #9"
+  },
+  {
+   "t": 19.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling toward the right, near the near touchline",
+   "carrier": "A #9"
+  },
+  {
+   "t": 20.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling, B #9 alongside",
+   "carrier": "A #9"
+  },
+  {
+   "t": 20.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A #9 dribbling, B #9 alongside",
+   "carrier": "A #9"
+  },
+  {
+   "t": 21.0,
+   "team": "A",
+   "conf": 2,
+   "note": "A #9 shielding the ball from B #9",
+   "carrier": "A #9"
+  },
+  {
+   "t": 21.5,
+   "team": "A",
+   "conf": 2,
+   "note": "A #9 shielding, ball hidden by the two bodies",
+   "carrier": "A #9"
+  },
+  {
+   "t": 22.0,
+   "team": "A",
+   "conf": 2,
+   "note": "ball pops up in the air between A #9 and B #9, no control by either; an A team-mate collects at ~22.3"
+  },
+  {
+   "t": 22.5,
+   "team": "A",
+   "conf": 3,
+   "note": "A team-mate dribbling toward the right goal",
+   "carrier": "A outfield (second attacker)"
+  },
+  {
+   "t": 23.0,
+   "team": "A",
+   "conf": 3,
+   "note": "same A attacker dribbling, two B defenders goal-side",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 23.5,
+   "team": "A",
+   "conf": 3,
+   "note": "same A attacker dribbling",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 24.0,
+   "team": "A",
+   "conf": 2,
+   "note": "same A attacker running between B #7 and B #15, ball partly hidden",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 24.5,
+   "team": "A",
+   "conf": 2,
+   "note": "ball between the A attacker and B #15's feet, contested",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 25.0,
+   "team": "A",
+   "conf": 2,
+   "note": "three players running together, ball hidden; ends up with the A attacker",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 25.5,
+   "team": "A",
+   "conf": 2,
+   "note": "ball knocked on past B #15; the A attacker collects it again at ~25.7",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 26.0,
+   "team": "A",
+   "conf": 3,
+   "note": "A attacker dribbling along the right goal line toward the corner",
+   "carrier": "same A attacker"
+  },
+  {
+   "t": 26.5,
+   "team": "unclear",
+   "conf": 1,
+   "note": "B #15 pokes the ball at ~26.3; it rolls slowly ON/along the goal line; cannot tell if still in play (would be A, no B control) or already out"
+  },
+  {
+   "t": 27.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "ball on/over the goal line; assistant referee stopped at the corner (~26.8) and starts the goal-kick signal at 27.1"
+  },
+  {
+   "t": 27.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "AR flag held horizontal toward the goal area (goal kick); players walking"
+  },
+  {
+   "t": 28.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "goal-kick signal held; ball lying on the goal line"
+  },
+  {
+   "t": 28.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "goal-kick signal held"
+  },
+  {
+   "t": 29.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "goal-kick signal held"
+  },
+  {
+   "t": 29.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "goal-kick signal held"
+  },
+  {
+   "t": 30.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "goal-kick signal held; B keeper (orange) walking out"
+  },
+  {
+   "t": 30.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "B keeper walking to the ball for the goal kick; restart after the clip end"
+  }
+ ],
+ "changes": [
+  {
+   "lostAt": 26.25,
+   "wonAt": null,
+   "fromTeam": "A",
+   "toTeam": "B",
+   "cause": "out_of_play",
+   "conf": 2,
+   "deadFrom": 27.0,
+   "deadFromRange": [
+    26.4,
+    27.1
+   ],
+   "note": "A attacker loses the ball in a tangle with B #15 near the right goal line (B poke ~26.3, no B control); the ball rolls slowly along the goal line and is out by ~27.0 (AR goal-kick signal from 27.1, B keeper walks to the ball at 30.5). Officials gave a goal kick, so they judged A touched last; by eye the last touch looked like B's poke. Restart (B goal kick) is after the clip end (30.97), so wonAt is null.",
+   "adjudicatorNote": "confirmed (veo_255.jpg, veo_26.jpg, veo_27.jpg): A attacker dribbles to ~26.2, white #15 pokes it at ~26.25-26.3, it rolls slowly left along the goal line; AR flag horizontal toward the goal (goal kick) from ~27.2; orange B keeper walks to the ball at 30.5. In/out at 26.5 not decidable (unclear kept)",
+   "raw": {
+    "L1": [
+     26.25,
+     null
+    ]
+   }
+  }
+ ],
+ "summary": {
+  "counts": {
+   "A": 51,
+   "unclear": 1,
+   "dead": 8
+  },
+  "possessionChanges": 1
+ },
+ "split": "heldout",
+ "range": [
+  1.0,
+  30.967
+ ],
+ "adjudicated": [
+  "Team letters (A dark, B white) confirmed with people[] letters drawn on the sampled frames (veo_s1/veo_s2); the orange keeper is at the goal A attacks, so orange = B keeper."
+ ],
+ "agreement": {
+  "labellers": [
+   "L1"
+  ],
+  "method": "adjudicator re-labelled a seeded random 20% of the points (random.Random(20261023).sample) and every change from video frames",
+  "recheckedPoints": 12,
+  "recheckAgree": 12,
+  "recheckAgreeRate": 1.0,
+  "recheckTeamPoints": 11,
+  "recheckTeamAgree": 11,
+  "weakEvidence": 0,
+  "rechecked": [
+   {
+    "t": 1.5,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: dark A dribbler with the ball at her foot"
+   },
+   {
+    "t": 3.0,
+    "label": "A",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: ball rolling right past the referee out of the duel, no white touch seen"
+   },
+   {
+    "t": 7.0,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: A #6 dribbling with a white alongside"
+   },
+   {
+    "t": 8.5,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: loose ball ahead of A #6, white behind her (A by convention)"
+   },
+   {
+    "t": 9.0,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: ball ahead of A #6, white trailing"
+   },
+   {
+    "t": 12.0,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: A player dribbling, nobody near"
+   },
+   {
+    "t": 12.5,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: same A player dribbling"
+   },
+   {
+    "t": 14.0,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: same A player dribbling"
+   },
+   {
+    "t": 18.0,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: A #9 dribbling"
+   },
+   {
+    "t": 19.0,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: A #9 dribbling, whites chasing"
+   },
+   {
+    "t": 25.5,
+    "label": "A",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: ball knocked past the whites, the dark A attacker collects it at ~25.6 (veo_255.jpg)"
+   },
+   {
+    "t": 30.5,
+    "label": "dead",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: orange B keeper walking to the ball for the goal kick; AR flag horizontal toward the goal from 27.2"
+   }
+  ],
+  "changesRechecked": 1
+ },
+ "sources": [
+  "labels/raw/VEO-L1.json"
+ ]
+}

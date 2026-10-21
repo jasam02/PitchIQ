@@ -1339,3 +1339,230 @@ event log byte-identical. The stabilizer never mixes identities.
 - The amateur run's A-03 is split at 160.37 s, where the raw identity jumps 18 m (a tracker identity switch, left to
   the tracker).
 - Tests: 653 pass (1 skipped). Nothing committed.
+
+## Possession tracking: who has the ball, and when it was lost (2026-10-19/20)
+
+**The request.** Possession tracking from the 2D view, judging as accurately as possible who has the ball and when it
+was lost, so that a later change to the coaching report can tell when either team is attacking or defending.
+
+**Plan first.** The data roles, the conventions, the metrics and the targets were written down before any engine code
+(PREDECLARED, 2026-10-19). TUNE: Metrica sample game 1, with a possession truth derived from its events, on full
+tracking and through a simulated broadcast camera. DEV: hand labels of broadcast 0-60 s (120 points every 0.5 s).
+HELD OUT, read once after the freeze: Metrica game 2, and adjudicated hand labels of broadcast 42.4-222.4 s (two
+labellers, 360 points), amateur 3 (118.2-182 s) and Veo (1-31 s). Convention: a team keeps possession from its control
+through its passes, shots, clearances and loose balls until the other team controls the ball or the ball goes out of
+play; a change is timed at lostAt (the loser's last touch) and wonAt (the winner's first control).
+
+**The truth** (scratch, not in the repository). The Metrica events give the possession on every frame: the ball is a
+median 0.11 m from the event player (91.6% of 2513 events within 1 m), 99.4% of game 1's 320 changes follow a losing
+action, and untracked ball frames match the truth's dead spells (99.1% of them are dead). 79 of the 320 changes go into
+a one-touch possession (a first-time interception Metrica codes as a gain), so changes are scored with and without
+them. The camera simulator was fitted to the ball audit of the broadcast run (tracked / missing .57 / .42 against
+.56-.64 / .36-.44, pitch-vs-image agreement .94 / .88 against .92 / .87, player errors median 0.74 m); it has no
+identity errors, replays or registration collapses, and nothing like the amateur or Veo clips.
+
+**Stage A** (game 1 only): evidence that a team is at the ball (near on the pitch and in the image), a two-state
+Viterbi with a 0.15 s cost per change and its posterior as the operating point (named where >= 0.8), restarts after
+out of play, still balls, long unseen stretches. Two first ideas were measured and replaced: no evidence on fast
+balls (accuracy .961 against .972, F1 .640 against .692) and control spans with hysteresis and a minimum hold
+(F1 .612 / .571 on full tracking / the camera against .692 / .609; a draft measurement the final bench no longer
+reproduces).
+
+**Stage B** (the DEV labels and the runs' own data only): nearTrack is evidence only where the ball tracker's first
+pass followed the same ball (the nearTrack person stood more than 2 m from the final ball on 50-66% of the broadcast's
+interpolated frames); the carrier must be one player near on both metrics (BC60's 14 labelled carries: one carrier in
+13, stage A 8; 16 of 16 random control frames right on the video); a person without a team is evidence for nobody; a
+goalkeeper without a team takes the goal on his side; a camera cut is a gap. Game 1's headline numbers unchanged to
+three decimals. Frozen (sha256 d95f29e1..., version possession-2) before any held-out label was read.
+
+**Held out** (scored once with the frozen engine and settings=None):
+
+| target | measured | verdict |
+|---|---|---|
+| Metrica full tracking: accuracy >= .95 at coverage >= .85 | .968 at .931 | met |
+| Metrica full tracking: changes F1 >= .80 within 2 s | .685 (P .905, R .551); .773 without one-touch | missed |
+| simulated camera: accuracy >= .90 at coverage >= .65 | .962 at .886 (seed 1 .968 at .888) | met |
+| simulated camera: changes F1 >= .65 | .582; .628 without one-touch (seed 1 .605 / .654) | missed |
+| broadcast 42-222 s: accuracy >= .90 at coverage >= .60 | .965 at .912 (.961 at .908 without the 42-60 s overlap) | met |
+| broadcast 42-222 s: change precision >= .70 | .30 (3 of 10) | missed |
+| amateur 3, Veo: >= .80 where named, else abstain | both abstain (small scene on 60% / 61% of frames) | met |
+
+The 42-222 s labellers agree on 315 of 316 team points, and always answering the clip's main team scores .820. All 10
+engine changes on it were checked on the video: 3 right, 1 more than 2 s off (a goal kick dated 3 s early), 6 wrong.
+The causes: the ball path on an object beyond the touchline next to a steward (93.6-103.8 s, a false out-of-play spell
+and a false pair of changes), the interpolated ball drawn at a defender's feet in a dribble (139.4 s, a false pair),
+and a foul stoppage with the ball left rolling read as live play (199.45-213.77 s, two false changes). Dead balls: 0 of
+41 dead points found. With its gates off amateur 3 would have scored .544 against the .567 of a constant answer.
+
+**Integration** (this entry's last step; the engine was not changed: its sha256 still matches the freeze note).
+- The record of every run was checked against the output contract and against what the page assumes (time-ordered
+  contiguous runs whose t0/t1 are the times of f0/f1, changes[].frame = the frame of wonAt, internal ids only, plain
+  JSON): all four runs pass. On scratch server roots (copies of the page files and of the four results, the worktree's
+  server.py, the real videos read-only) /api/possession returned compute() byte for byte for all four, the cached
+  answer again on the second request, 409 for another run, 403 for a foreign Host or Origin, and 503 on this route
+  only with the engine made unimportable (the page, the board and /api/result still answered).
+- In the browser: the strip, the shares and the live line during playback on broadcast 0-60 s and 42-222 s; a marker
+  click pauses on the won frame + 0.2 frame (139.4067 s for the 139.4 s change); the ring on the board (a pixel diff
+  around the carrier's marker) and the ellipse at the carrier's feet on the tracking video (Player boxes on); a team
+  correction of the carrier B-08 at 140 s recomputed the record (the false 139.4 / 140.53 s pair disappeared, the run
+  became team A with the new identity as carrier) and removing it gave back the record byte for byte; the one-line
+  reason on amateur 3 and Veo; a 375 px wide page without horizontal scroll; no console error; Analytics, the
+  Coaching report (a report generated, its Show on 2D jump) and the tracking overlay as before.
+- Glue fixed in possession.js (the engine's output differed from what the page assumed):
+  1. Right at a change the posterior is usually under the operating point: 9 of the 10 won frames on 42-222 s are in
+     an 'unknown' run, so a click on "Team B won the ball" showed "Possession unknown" and no ring. On the won frame
+     the line now names the change ("Team B won the ball · B-08 won it") and the ring marks the winner, dashed.
+  2. The engine's unknown runs are always 'low' and often 'estimated'; the line said "Possession unknown · estimated ·
+     low confidence". It now says "Possession unknown".
+  3. Two changes 1.1-1.2 s apart are 3-4 px apart on a 640 px strip; the later 14 px marker covered the earlier one's
+     centre (3-4 px of it clickable). Close markers now share the space between them (9-10 px each there), each
+     triangle staying on its own time.
+- compute() on 42-222 s: 0.42 s for 5400 frames (features 0.37 s, decoding 0.05 s); the server's first request 1.52 s
+  (reading the 111 MB result 0.98 s), the cached one 0.03 s. Broadcast 0-60 s 0.14 s, amateur 3 0.10 s, Veo 0.04 s.
+- README: a "Possession" section (method, conventions, the record, abstention, every measured number, what it cannot
+  do), cross-references in Coaching report, Evaluation tools, Tests and Limits.
+- Tests: 1068 pass (4 skipped): test_possession.py 16, test_possession_server.py 7, test_possession_panel.py 19 (two
+  new: the won frame, close markers).
+
+**Open.** Change detection on real footage (two of the three failure causes above come from the final ball path: an
+off-pitch object and an interpolated ball drifting to a defender; the third, stoppages with the ball in view, from the
+dead-ball rules); dead balls with the ball in view; a keeper holding the ball; the coaching report does not read the record yet; the
+Metrica truth, the simulator and the hand labels are in scratch, not in the repository, so the bench needs them
+supplied. Nothing committed.
+
+### Round 3: possession-3, the verifiers' findings (2026-10-20)
+
+**What changed.** Six rules, each measured alone on the dev data (game 1, BC60 and now BC180, whose labels were read at
+the possession-2 test): a change starts only on a run of one player's evidence with an observed sighting on both
+metrics; a ball beyond a line is out of play only if it got there plausibly and no other ball is in play (the steward's
+ball of 93.6-103.8 s); a stoppage is also both teams slowing down (the 75th percentile of the players' speeds under
+2.2 m/s for 3 s) while the ball is unseen, still or unplayed; the winner is the new team's player with the most evidence
+over 0.5 s; changes are rated high / medium / low (back-and-forth pairs low); one-touch possessions are reported under
+both conventions. Frozen as possession-3 (sha256 c5ea6461...).
+
+| | possession-2 | possession-3 |
+|---|---|---|
+| game 1 full tracking (tuned): accuracy / coverage, F1 +-2 s | .972 / .928, .692 | .972 / .924, .689 |
+| game 1 camera (tuned) | .961 / .887, .609 | .968 / .871, .607 |
+| game 1 dead recall, full / camera | .43 / .71 | .93 / .87 |
+| broadcast 42-222 s (dev from here on) | .965 at .912; 3 of 10 changes right; 0 of 41 dead points | .977 at .975; 4 of 6; 9 of 41 |
+| game 2 (read once after the freeze: seen from here on), full / camera F1 | .685 / .582 | .685 / .577; dead recall full .278 -> .828 |
+
+The page hid the low changes by default ("Show uncertain changes", hollow when shown), gained the key row and reserved
+110 / 46 px under the board. The critic then found that results of 30 frames or fewer raised (np.convolve 'same'),
+that the docs still described possession-2, that the coaching report says the tracking does not record who had the
+ball while the 2D view now shows it, that out of play had never been checked on a real ball over a line in PitchIQ
+footage, and that results without ball.origin got no changes; on game 2, medium and low were equally precise (camera .62
+against .64), so hiding low changes hid real ones. Tests: 1080 pass (4 skipped).
+
+### Round 4: possession-4, frozen and tested on held-out data (2026-10-20/21)
+
+**Plan** (PREDECLARED_v4, before any change). Dev: game 1, BC60, BC180, AM, VEO. Seen: game 2, read once more after the
+freeze as a regression check. Held out: Metrica sample game 3 (downloaded 2026-10-20, Metrica's EPTS release, never
+looked at by anyone) and a new blind-labelled PitchIQ run of La Liga 03:42-05:03 (BC303). Targets unchanged. A rule
+must be general and must not make game 1 worse.
+
+**Ten fixes** (each can be switched off; with all of them off the records equal possession-3's on the four run copies
+and the 120 game-1 windows, version aside). Before -> after on dev data:
+
+| fix | possession-3 | possession-4 |
+|---|---|---|
+| 1 short results | 1-30 frames raised ValueError | a valid record; 31+ frames byte-identical |
+| 2 a ball held in play is no stoppage | game 1 in-play time called dead 86.6 / 81.6 s (full / camera); 26 of 54 synthetic holds dead | 37.6 / 48.2 s; none (set pieces at a clip's start still dead); dead recall full .934 -> .929 |
+| 3 a keeper's hands (synthetic) | change dated at the release (10.0 s), the hold dead or the shooting team's | change at the catch (3.9 s), his team throughout |
+| 4 a ball knocked past a defender | 6 of 60 synthetic dribbles with 6 false changes each | 0 of 60; game 1 full F1 .6885 -> .6911 |
+| 5 no ball.origin (BC180 with the field removed) | 0 changes, coverage .743 | 6 changes (4 right), .908, a note |
+| 6 first-pass check, image rows doubled (synthetic ball boy 3-4.5 m beyond the line) | a false 7.7-7.9 s dead spell | none |
+| 7 a goal kick after 3 s unseen (synthetic) | no dead ball | dead 0.3-5.5 s; camera dead recall .869 -> .876 |
+| 8 a 6 s replay between two cuts (synthetic) | named for the other team, 2 false changes | unknown, no change |
+| 9 an identity on another team's player (synthetic) | no change found | both changes found |
+| 10 change confidence | high / medium / low (medium 67%, low 74% right: not ordered) | high / uncertain |
+
+The UI default changed with fix 10: every change is shown, the uncertain ones hollow (hiding them would hide about 4 in
+10 of the right changes on game 1). Fix 9 reads only a frame's own team: the identity tracker's per-frame kit readings
+looked like swaps on BC60 / BC180, but on the video (93.0, 121.5, 198.5 s) the identities were right and the readings
+misreads at crossings; PitchIQ never writes a frame team against the roster, so the rule is inert on real runs. Frozen
+as possession-4 (sha256 75b65939...).
+
+**Game 3's truth** was built before the freeze with counts and consistency checks only (no engine output). New readers
+for the EPTS format (metadata XML with the players' frame ranges, one tracking line per frame, JSON events); they refuse
+a document type declaration, another frame rate or pitch, a first column that is not the goalkeeper, an unknown player.
+The tracking has Player6 and Player13 swapped over the whole second half (all 187 of their tracked second-half events
+sit at the other one's column, a median 0.03 m from the ball against 18.99 m); EPTS_SWAPS corrects it. Checks, game 1 in
+brackets: ball within 1 m of the coded player 91.5% (91.6%), changes preceded by a losing action 98.6% (99.4%),
+untracked ball frames dead 99.3% (99.1%). 367 changes, 101 one-touch possessions, 67.9% in play. Games 1-2's truth and
+simulations are byte-identical to before (270 sha256s).
+
+**Held out, scored once each with the frozen engine:**
+
+| target | game 3 | BC303 (broadcast 222-303 s) | verdict |
+|---|---|---|---|
+| accuracy at coverage (full .95 at .85; camera .90 at .65; broadcast .90 at .60) | full .964 at .942; camera .956 at .881, seed 1 .959 at .883 | .949 at .924 | met |
+| changes (F1 .80 full, .65 camera; broadcast precision .70) | F1 .687 (95% .637-.739); .615 (.569-.666), .586 (.530-.646) | precision .50 (1 of 2), recall .25 (1 of 4) | missed |
+| dead ball | recall / precision .897 / .965 full, .880 / .954 and .864 / .955 camera | 28 of 55 dead points, 28 of 30 engine-dead points right | (no target) |
+
+- Confidence on game 3: 'high' 489 of 564 right (.867; .83-.92 per variant) against 444 of 474 (.937) on game 1, so
+  game 1's "94%" overstated it; 'uncertain' 452 of 643 (.703), as on games 1-2. The two levels are ordered.
+- possession-4 against possession-3 on game 3 (the bench's ablations, same run): F1 +.001 to +.007 (below the noise);
+  in-play time called dead 85.4 -> 60.1 s (full), 91.6 -> 78.0 s (camera). Who lost the ball on the camera is .717,
+  below possession-2's .741, as on game 2.
+- Game 2 (seen): within .012 of possession-3 everywhere (full F1 .681, camera .581 / .617); but dead-ball errors rose on
+  full tracking (+4.2 s) and with the ball shown (+23.9 s), so "they fall on every variant" holds on games 1 and 3 only.
+- BC303 measures possession-3's rules: none of the ten fixes fires there (no keeper's hands, knock-past, kit frame or
+  cut). Every engine output was checked on the video: the B->A change at 247.93 s is right (0.14 s early); the A->B
+  change at 265.43 s is false, inside the throw-in stoppage 253.02-273.7 s, after the path left the real ball (in a
+  player's hands behind the far touchline) for stray detections on the pitch; the out-of-play spell 253.07-262.17 s ends
+  11.5 s early because an interpolated ball within 1 m of the line counts as back in play; the stoppage 268.97-274.6 s
+  names the wrong restart team (from a weak detection at a Barcelona player's feet); the stoppage 283.15-290.4 s is
+  missed: the path followed the real ball 1-8.7 m beyond the far touchline (286.43-288.67 s) but the excursion check
+  threw it out (the first pass more than 2 m away on 94% of its frames).
+
+**Verification.** Every frozen number reproduces exactly (five bench JSONs, 0 differences in 9,320 values), and the
+logs show no engine or bench run on game 3 before FROZEN_v4 existed. Adversarial synthetic scenes broke four fixes
+(each confirmed by switching the rule off): fix 2, the fouling team holding the ball until the free kick (two false
+high changes, no dead ball) and team-mates passing during a stoppage; fix 7, a ball unseen 1-3 s after a reception with
+the players walking (a false 3.7-5.2 s stoppage); fix 3, a cross along the keeper's image column at 8-12 m/s or an
+attacker holding the ball 1.5-3.5 m behind him (a false pair); fix 8, a replay during an out-of-play stoppage with the
+live ball beyond the line afterwards (a false high change). Fragile: fix 6 (a first pass 1.1-2 image metres off on a
+real out of play turns it into a stoppage 0.5 s later) and fix 9 (a 0.7 s kit misread gives a false pair). Engine
+mutants: 47 of 111 caught (42 of the survivors change some record: test gaps, most in fixes 2-4 and possession-3's
+stoppage and abstention rules); server mutants 7 of 10.
+
+**Docs and polish** (the last step; the engine is unchanged, sha256 still 75b65939...):
+- tests/test_possession_panel.py: the four tests that asserted possession-3's hidden-by-default UI now assert the v4
+  default (every change shown, uncertain ones hollow, unticking hides them, ticking shows them again); a new test
+  draws a possession-4 record ('uncertain' hollow, its tooltip and won line saying so). 24 tests; 8 of 8 UI mutants are caught,
+  among them the two the verifier found uncaught ('uncertain' drawn solid, the tooltip word gone) and the old hidden
+  default.
+- possession.js: the header's numbers (5 of the 6 won frames of 42-222 s in an unknown run under possession-4, not 9 of
+  10; game 3's 87% / 70% beside game 1's; the held-out broadcast's 1 of 2), and two code comments with the same stale
+  figures. index.html: the option's tooltip ("untick to hide them").
+- tools/annotations/possession/*.json: a final CRLF (the JSON is identical).
+- README: the Possession section describes possession-4 with the dev, seen and held-out numbers, the confidence, what
+  it cannot do and how to reproduce; Tests and Limits updated.
+
+**Phases for the coaching report** (the v3 critic's rules on possession-4; game 1 in 180 s windows, games 2-3 from the
+test role's captured records in 300 s windows; BC303 is spent, descriptive only). R2 = every named frame minus
+[min(lostAt, wonAt - 2 s), wonAt + 2 s] around every engine change:
+
+| | every named frame (R0) | R2 |
+|---|---|---|
+| game 1 full / camera / seed 1 (dev) | .972 at .941 / .969 at .882 / .968 at .882 | .977 at .740 / .977 at .730 / .979 at .724 |
+| game 2 full / camera / seed 1 (seen) | .968 at .933 / .965 at .888 / .972 at .884 | .974 at .756 / .979 at .744 / .984 at .751 |
+| game 3 full / camera / seed 1 (held out) | .964 at .942 / .956 at .881 / .959 at .883 | .975 at .738 / .976 at .722 / .977 at .730 |
+| BC180 (dev) | .977 at .975 | .996 at .874 |
+| BC303 (held out, spent) | .949 at .924 | .956 at .857 |
+
+Dead points named as a team's possession: BC180 11 of 41 (R2 8), BC303 26 of 55 (R2 17).
+
+**Open** (in the frozen engine; a new version would need its own freeze and a new held-out test): the out-of-play veto
+of a real ball beyond the line when the first pass is elsewhere (BC303 286.4-288.7 s; about 20% of BC303's 0.5 s windows
+of tracked ball have the first pass more than 2 m away); an out-of-play spell ended by interpolated frames; the restart
+team from a weak detection; the four adversarial failures above; the engine docstring's lines that are now out of date (out
+of play "never checked on a real ball", game 3 "held out", knock_past()'s "the next touch must be the other team's"
+where the code takes any touch of the other team within pass_after); a frame with a NaN time making a run out of time order; --heldout accepting any
+existing note. The change targets are missed on three games and three versions; the coaching report still says the
+tracking does not record who had the ball.
+
+Tests: 1103 pass (6 skipped; test_possession.py 35, test_possession_panel.py 24, test_possession_truth.py 11, its 2
+real-data tests skipped without the Metrica folders). Nothing committed; the demo checkout untouched.

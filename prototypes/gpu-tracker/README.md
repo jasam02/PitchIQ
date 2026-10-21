@@ -1557,6 +1557,339 @@ sample games have no expert labels. `tools/team_shape_bench.py` runs the whole
 analysis on the Metrica games (with `--camera WIDTH` for a simulated broadcast
 camera and the errors by status against full coverage).
 
+## Possession
+
+The **2D match** view shows which team has the ball, who carries it and where it
+changed hands (`soccer/possession.py`, `possession.js`, `GET /api/possession?run=<run>`):
+a strip under the board in the board's team colours (solid while a player controls
+the ball, fainter while the team's pass travels or the ball is loose, hatched where
+the ball is interpolated, grey where nothing is named, dark while the ball is out of
+play), a triangle for every change of possession (solid for a `high` change, hollow
+for an `uncertain` one; untick **Show uncertain changes** to hide the hollow ones), a
+one-line key saying that every change is an estimate, a live line for the moment
+shown ("Team A in possession · A-03 on the ball", "· ball in flight", "Loose ball",
+"Ball out of play · Team B to restart", "Possession unknown"), each team's share of
+the time a team is named with the coverage, and a ring around the carrier on the
+board (a thin ellipse at his feet on the tracking video when **Player boxes** is on).
+A marker's tooltip names who lost and who won the ball, both times, the cause and the
+confidence; a click pauses on the frame the ball was won, where the line names the
+winner and the ring marks him. A click on the strip seeks there. The page reserves
+110 px under the board for the panel (46 px for its one-line message), so the board
+is smaller on this view (445 x 301 px instead of 608 x 411 at 1440 x 900).
+
+**It is an estimate**, judged from the 2D positions of the players and the ball, not
+a record of the match: the page says "estimated", "uncertain" and "unknown" where the
+engine does, and a run it cannot judge says why in one line. Where it names a team it
+was right 95-96% of the time on data nobody had tuned on (Metrica game 3 and a fresh
+broadcast segment, below). When the ball changed hands is an approximate boundary
+between attack and defence, not a counted turnover.
+
+**Method.** Nothing here runs a model or reads the video. On every frame a team is
+*at the ball* when one of its players is near it on the pitch (full evidence within
+0.7 m, none from 1.5 m) and in the image (the `ball_path.within_reach` geometry,
+1.0-2.0 m); the same player must be near on both, so a carrier is named only where
+the two agree. A ball between two opponents, or at a person who has no team yet, is
+evidence for nobody; referees and staff are neither at the ball nor in the way; a
+goalkeeper the tracking has not given a team plays for the goal on his side
+(`goalEnds`), and a ball in a goalkeeper's hands in his penalty area (its centre above
+his lower body in his box) is his. An interpolated ball counts half, with its
+`nearTrack` player only where the ball tracker's first pass followed the same ball,
+within 2 m of the final one (on the broadcast's interpolated frames the nearTrack
+person stood more than 2 m from the final ball on 50-66% of them, every time the
+first pass had followed something else). A fast ball counts only where its path
+bends (a touch), so a pass flying past a player is nobody's, and a ball knocked past
+a defender is not his. A two-state decoder (Viterbi) then picks the possession
+sequence: a change costs 0.15 s of evidence and can only start on a run of one
+player's evidence that holds an observed sighting of the ball on both metrics, so it
+lands on the winner's first control, and a deflection or a challenge that does not
+keep the ball is no change. The winner is the new team's player with the most
+evidence over the next 0.5 s. The decoder's forward-backward posterior says how sure
+each frame is, and a team is named only where it is at least 0.8 (on Metrica game 1
+naming every frame would give .949 at .986 coverage on full tracking instead of .973
+at .940, and .928 instead of .969 on the camera).
+
+Possession restarts after a dead ball, an unusable ball for 1.5 s or more and a
+camera cut (then from the first observed control). *Out of play* is the ball seen
+1 m beyond a line for 0.2 s and not back within 1 s, if it got there plausibly: from
+the pitch at no more than 40 m/s, with the ball tracker's first pass not following
+another ball and no other ball in play on the pitch on most of those frames;
+otherwise that stretch is no ball (possession is carried over it, never dead). *A
+stoppage* is the ball still for 4 s, or both teams slowed down (the 75th percentile
+of the players' speeds under 2.2 m/s for 3 s) while the ball is unseen, still or
+unplayed; a ball that a player got in play and keeps is never a stoppage. A stretch
+between two camera cuts that shows another moment (the ball's pitch position jumps
+at both cuts) is a possible replay and shows no ball. The restart belongs to the
+team of the player who takes it. A result without `ball.origin` (runs from before
+2026-10-15) takes every tracked ball as observed, and the record says so in a note.
+
+**Conventions** (fixed before any engine code, with the metrics and the targets).
+Team possession persists from a team's control through its passes, shots,
+clearances and loose balls until the other team controls the ball (a change) or the
+ball goes out of play (dead until the restart, which belongs to the restarting
+team). A change is timed twice: `lostAt`, the losing team's last touch, and `wonAt`,
+the winning team's first control. Timeline states are `control` (with the carrier),
+`flight`, `loose`, `contested`, `dead` and `unknown`. Every time is absolute source
+seconds, every frame an absolute index and every player an internal id; the page
+shows the display labels of the result as it is now, so a correction relabels the
+tooltips. The record (`compute(result)`, plain JSON, `version` `possession-4`):
+`version`, `fps`, `t0`, `t1`, `available`, `reason`, `quality` (`level` good /
+limited / unavailable, `coverage` = the share of the live frames with a team named,
+`notes`), `shares` (seconds of A, B, dead, unknown), `timeline` (runs of constant
+team, state and carrier: `t0`, `t1`, `f0`, `f1`, `team`, `state`, `carrier`,
+`estimated`, `confidence` high / medium / low), `changes` (`id`
+`pc-<won frame>-<team>`, `lostAt`, `wonAt`, `frame`, `fromTeam`, `toTeam`, `lostBy`,
+`wonBy`, `cause` tackle_or_duel / interception / out_of_play / unclear, `confidence`
+high / uncertain) and `deadSpells` (`t0`, `t1`, `reason` out_of_play / stoppage,
+`restartTeam`). Right at a change the posterior is usually under 0.8 (5 of the 6 won
+frames of the broadcast run 42-222 s are in an `unknown` run), which is why the page
+names the winner on the won frame from the change itself. Any result gives a record,
+a single frame included.
+
+**Confidence.** A change is `high` when it is not undone within 2 s (and does not undo
+one), the new team has 0.3 s of evidence over the next 2 s, the loser's last touch is
+at most 5 s before and the new possession lasts 2 s; every other change is
+`uncertain` (back-and-forth pairs, changes with little evidence, restarts after a
+dead ball, changes across a gap or a cut, changes whose loss nobody saw).
+possession-3 rated them `medium` and `low`; the two were merged because they were not
+ordered (Metrica game 1, within 2 s: medium 67%, low 74%), and the page still draws a
+possession-3 `low` change hollow and a `medium` one solid. Right within 2 s, pooled
+over full tracking and four simulated cameras:
+
+| change confidence | Metrica game 1 (tuned) | game 2 (seen) | game 3 (held out) | broadcast |
+|---|---|---|---|---|
+| high | 444 of 474 (.937) | 394 of 439 (.897) | 489 of 564 (.867; .83-.92 per variant) | 2 of 2 (42-222 s, dev); 1 of 1 (222-303 s, held out) |
+| uncertain | 325 of 462 (.703) | 323 of 467 (.692) | 452 of 643 (.703) | 2 of 4; 0 of 1 |
+
+So on data like Metrica's a `high` change is right about 85-90% of the time and an
+`uncertain` one about 70%. Hiding the uncertain ones would hide 4 to 5 in 10 of the
+right changes (game 1: 325 of 769; game 3: 452 of 941), which is why every change is
+shown by default. A timeline run's confidence (`high`, `medium`, `low`) is how sure
+the decoder is of that run's team. A run's `quality` is `limited` under 60% coverage
+or under 85% agreement (below); on Metrica game 3 the `limited` windows were only
+.004-.022 less accurate than the `good` ones, so it is a caution, not a measured
+threshold.
+
+**When it says nothing.** A run is not judged when half or more of its frames are a
+small, far scene (amateur and wide cameras), when the ball is placed on under 20% of
+the frames, when no team player is tracked near the ball, or when the pitch and the
+image agree on the team at the ball on under 65% of the frames where one of them
+puts one team near it (over at least 150 frames). The test runs fall clearly on
+either side: broadcast 0-60 s and 42-222 s are a small scene on 0% and 0.9% of their
+frames with agreement .877 and .869 (222-303 s: .81); amateur 3 and the Veo clip on
+60% and 61% (agreement .277 and .571), and both abstain.
+
+**Measured.** The data roles were declared before each round: *tuned* or *dev* data
+chose the rules and constants, *seen* data had been read after an earlier freeze, and
+*held-out* data was scored once with the engine frozen and is spent now. The truth of
+Metrica sample games 1-3 is derived from their events (`tools/possession_truth.py`),
+and the games are turned into PitchIQ results under full tracking or through a
+simulated broadcast camera (`tools/possession_sim.py`, fitted to the ball audit of the
+broadcast run, two seeds), in windows of 300 s, each a separate result. The broadcast
+segments of the La Liga run have blind, adjudicated hand labels (two labellers, a
+point every 0.5 s). Changes are matched on `wonAt` within 2 s with the same new team;
+"without one-touch" leaves out Metrica's one-touch possessions (a first-time
+interception or clearance that Metrica codes as a gain and the convention absorbs as
+a deflection). possession-4, frozen on 2026-10-20, with the default settings:
+
+| data (role) | which team: accuracy at coverage | when it changed hands: changes within 2 s | dead ball: recall / precision |
+|---|---|---|---|
+| Metrica game 3, full tracking (held out) | .964 at .942 | F1 .687 (precision .848, recall .578); .718 without one-touch | .897 / .965 |
+| Metrica game 3, simulated camera, seed 0 / 1 (held out) | .956 at .881 / .959 at .883 | F1 .615 / .586 (precision .776 / .747); .636 / .609 without one-touch | .880 / .954, .864 / .955 |
+| broadcast 222-303 s, 162 points (held out) | .949 at .924 (92 of 97 named team points right) | precision .50 (1 of 2 reported), recall .25 (1 of 4) | 28 of 55 dead points called dead; 28 of the engine's 30 dead points truly dead |
+| Metrica game 2, full tracking (seen) | .968 at .933 | F1 .681; .767 without one-touch | .816 / .976 (.915 without its one abstaining window) |
+| Metrica game 2, simulated camera, seed 0 / 1 (seen) | .965 at .888 / .972 at .884 | F1 .581 / .617; .644 / .665 without one-touch | .890 / .973, .906 / .973 |
+| Metrica game 1, full tracking (tuned) | .973 at .940 | F1 .691 (precision .904, recall .559); .758 without one-touch | .929 / .985 |
+| Metrica game 1, simulated camera, seed 0 / 1 (tuned) | .969 at .881 / .968 at .883 | F1 .607 / .571 (precision .840 on seed 0); .678 / .622 without one-touch | .872 / .979, .857 / .978 |
+| broadcast 0-60 s, 120 points (dev) | 117 of 117 named team points right (coverage .992) | the clip has no change; none reported | 2 of 2 dead points |
+| broadcast 42-222 s, 360 points (dev) | .977 at .975 | precision .667 (4 of 6 reported), recall .667; 2 of 6 within 1 s | 9 of 41 dead points; 9 of 9 |
+| amateur 3 and Veo (dev) | abstain: no frame named | none | none |
+
+Against the pre-declared targets (unchanged since possession-2), every accuracy and
+coverage target is met on held-out data (full tracking .95 at .85, camera .90 at .65,
+broadcast .90 at .60), and the amateur and Veo clips (dev data since possession-3)
+abstain as they must; no change target is met (F1 .80 on full tracking: .687; .65 on
+the camera: .615 and .586; precision .70 on the broadcast: .50). Resampling game 3's twenty windows puts full-tracking F1 within
+.637-.739 (95%), and the change F1 has stayed at about .69 (full) and .60 (camera) on
+three games and three engine versions, which suggests that the targets are out of
+reach of this design rather than of its tuning. Who lost / who won the ball on the matched changes:
+game 3 .854 / .883 on full tracking, .717 / .733 on the camera (seed 1 .735 / .740);
+game 2 .894 / .856 and .710 / .703. Loose balls are the weakest frames: on game 3
+.755 right on full tracking and .665-.687 on the camera, against .985 and .980 on
+the other frames. For the broadcast numbers: always answering the main team scores
+.810 on 222-303 s and .820 on 42-222 s, and the labellers agree on the team on 96%
+and 315 of 316 of the points. None of possession-4's new rules fires on 222-303 s
+(its record equals possession-3's apart from the confidence names), so that segment
+measures the rules of possession-3.
+
+**What it cannot do (yet).**
+- *When the ball changed hands* is not reliable enough to count turnovers or to say
+  who lost the ball: on held-out Metrica the change F1 is .69 (full tracking) and
+  .59-.62 (camera), and on the fresh broadcast segment 1 of the 2 reported changes
+  was right and 3 of the 4 real ones were missed. The false one (265.43 s) fell
+  inside a throw-in stoppage, after an out-of-play spell had ended too early.
+- *Timing.* On Metrica the matched changes are a median 0.03 s (won) / 0.08 s (lost)
+  off on full tracking and 0.19 / 0.32 s on the camera, but within 1 s the F1 falls
+  to .642 (full) and .49-.50 (camera). On the broadcast the ball is often hidden or
+  misplaced at the duel: on 42-222 s the four right changes were 0.7-1.9 s off
+  (median 1.05 s at the win), 2 of the 6 within 1 s.
+- *One-touch and short possessions* are absorbed: a first-time interception or
+  clearance, and possessions shorter than about 1-1.5 s (game 3, full tracking: 28 of
+  the 101 changes into a one-touch possession found, 158 of the 190 changes outside
+  them).
+- *Dead balls on broadcast footage*: 28 of 55 dead points found on 222-303 s, 9 of 41
+  on 42-222 s. 222-303 s has the first balls tracked over a line in PitchIQ footage
+  that were checked: one became an out-of-play spell, the other (286.4-288.7 s) was
+  thrown out as not the ball in play because the ball tracker's first pass was more
+  than 2 m away (the check that keeps a steward's ball off the pitch). An out-of-play
+  spell ends as soon as an interpolated ball comes back within 1 m of the line
+  (253.07-262.17 s ended 11.5 s early); the restart team can come from a weak
+  detection at a player's feet (274.6 s, the wrong team); a foul stoppage with the
+  ball left rolling is missed (42-222 s). Dead time the engine misses is often named
+  as a team's possession: 26 of the 55 dead points on 222-303 s (nearly all of those
+  it missed) and 11 of 41 on 42-222 s. Restarts and set pieces should not be taken
+  from it on broadcast footage yet.
+- *A goalkeeper holding the ball*: the hands rule has never fired on a PitchIQ run
+  (no ball in a keeper's box on the five runs checked) and the simulator never puts
+  the ball in his hands, so its precision on real footage is unmeasured. On synthetic
+  scenes a cross passing along the keeper's image column, or an attacker holding the
+  ball just behind him as the camera sees it, gives a false change and change back. A
+  hold the ball tracker does not see is still a stoppage or a gap.
+- *Replays*: a replay is recognised only when the ball's pitch position jumps at both
+  camera cuts; a replay of the same place is read as live play, and on a synthetic
+  scene a replay shown during an out-of-play stoppage, with the live ball beyond the
+  line afterwards, gave a false high-confidence change. PitchIQ set no camera cut on
+  any of the runs checked, so none of this has been seen on real footage.
+- *A ball held in play* is no stoppage since possession-4 (on held-out game 3 the
+  in-play time called dead fell from 85.4 to 60.1 s on full tracking and from 91.6 to
+  78.0 s on the camera), which costs .005-.020 of dead recall (on game 1, keepers
+  fetching the ball for a goal kick look like a catch). On a synthetic scene where
+  the fouling team stops the ball at the whistle and holds it until the free kick
+  there is no dead ball and two false high-confidence changes. A ball unseen for
+  1-3 s just after a reception, with the players walking, can become a false
+  stoppage.
+- Identity and team errors of the tracking become possession errors: an identity
+  plays for its roster team (a frame's own team would override it, but PitchIQ never
+  writes one that contradicts the roster). Correct them (`Correcting who someone
+  is`): the record is computed again from the corrected result.
+- Amateur and Veo footage get no possession, by design: with the gates switched off
+  amateur 3 would have scored .544, below always answering its commoner team (.567).
+
+**Speed.** On broadcast 42-222 s (5400 frames) the features take 0.66 s and the
+decisions 0.09 s, after 1.05 s of reading the 111 MB result (peak memory 51 MB); on
+the server the first request after the result changes takes 2.65 s and later ones
+0.012 s from the cache (one record per run, kept until `result.json` changes). A
+missing or failing engine answers 503 on this route only and the page says so in
+one line; the other views never notice.
+
+**Reproduce.** The Metrica sample data are downloaded files, not in the repository,
+so the tools read them only under `python -I -B` (games 1-2: the tracking CSVs and
+the events CSV; game 3: Metrica's EPTS release, the metadata XML, the tracking text
+and the JSON events in one folder, passed as both `--tracking` and `--events`):
+
+```bat
+.venv\Scripts\python.exe -I -B tools\possession_bench.py --tracking DIR --events DIR [--json out.json]
+.venv\Scripts\python.exe -I -B tools\possession_bench.py --tracking DIR --events DIR --heldout --frozen NOTE
+.venv\Scripts\python.exe -I -B tools\possession_bench.py --tracking G3 --events G3 --heldout --game 3 --frozen NOTE
+.venv\Scripts\python.exe -I -B tools\possession_bench.py --labels tools\annotations\possession --run BC180=<run>\result.json
+```
+
+The first prints every game-1 number (about 7 minutes; `--quick` gives the main
+table), the second game 2 and the third game 3 (`--heldout` refuses to run unless
+the freeze note named by `--frozen` exists; it does not check what the note says).
+The truth is derived on the fly by `tools/possession_truth.py` (game 3's tracking
+has Player6 and Player13 swapped over the second half: `EPTS_SWAPS` corrects it) and
+the results are simulated by `tools/possession_sim.py`. `--labels` scores a run
+against the hand labels of `tools/annotations/possession/` (broadcast 0-60 s and
+42-222 s, amateur 3, Veo; its README says how they were made); the labels of
+broadcast 222-303 s are kept with the freeze notes, outside the repository, in the
+same format.
+
+## Coaching report
+
+The **Coaching report** tab (`coaching.js`, `soccer/coaching/`, `GET /api/coaching`,
+`POST /api/coaching/build`) turns a finished run into a report for one team over
+the analysed segment or a custom range (source-video time): strengths, areas to
+improve, moments worth reviewing, a breakdown by area, at most three priorities
+with drills, the confidence and limitations, and the evidence of each finding
+(the exact frame, an overlay, a top-down diagram, a jump to the video or the 2D
+view). EXPORT PDF saves the same report (`pitchiq-coaching-<video>-<run>-<team>-<level>.pdf`).
+The context level (development, competitive, advanced) changes the words only.
+It is a read-only layer: it never changes the tracking, the result or the
+analytics; it measures from the same validated samples and team-shape readings
+as Analytics.
+
+**What it can say.** Only what the tracking measured: team width, length and
+area, the gaps between the units, back-line evenness and height, the sideways
+shift of back line and midfield, players' distance to their nearest teammate,
+the formation reading and where the ball was. The report does not read the
+possession record (Possession, above) yet, so nothing is said about passes,
+pressing or phases of play; compactness
+and spacing findings say that they matter most without the ball and point to the
+moments to check. Players are named by their internal id and shown with the
+labels of the result as it is now (an excluded identity shows as "excluded (was
+A-03)").
+
+**Compared with professional play.** Every number is set against the
+professional reference `soccer/coaching/reference.json`, measured on Metrica
+Sports sample game 1 (both teams, dead ball included, like a PitchIQ run) by
+`tools/coaching_bench.py`, per pitch third, back-line size or unit:
+- a **strength** needs at least max(30 s, min(60 s, 0.8 x the range)) measured,
+  a median on the favourable side of the professional median and an 80% upper
+  bound of the time beyond the professional upper quarter below the
+  professional 25%;
+- an **area to improve** needs at least 2 spells and more of them than 99% of
+  professional stretches of the same measured length in the same context
+  (both professional teams; a context with one team's data cannot give one);
+  a **high-confidence concern** also needs high confidence, 3 minutes measured
+  and a count of at least 1.5 times that level, beyond every professional stretch;
+- formation readings, block height and ball location are descriptions; a
+  player's support distance is at most a role check; anything measured under
+  20 s, or with low confidence, is listed as not assessed, never as a strength
+  or a weakness. A run shorter than 3 minutes never claims a recurring pattern.
+
+The reference was checked once on the held-out Metrica game 2 with every
+threshold frozen (2026-10-19, `validation` in the file, verdict PASS): the
+detectors run on game 2 as PitchIQ-shaped results found 0.00 / 0.05 / 0.00 /
+0.11 improvement findings per 10 team-minutes with 1-, 3-, 10-minute and
+whole-half windows on the full tracking and 0.00 / 0.05 / 0.00 / 0.05 through a
+simulated 60 m broadcast camera with correlated position noise, no
+high-confidence concern (the pre-declared limit was 0.2; the first detectors
+found 1.31 and 0.44 with 10-minute windows). Game 2's back-line height and its
+forwards' distance to teammates did not carry over (more spells than game 1 in
+long windows); neither can give an area to improve.
+
+**Stored and stale.** Reports are cached under
+`runs/<video>/<run>/coaching/report-<team>-<fp16>.json` with a fingerprint of
+the result, the team-shape settings, the options, the coaching code, the
+reference and the drill library; after a correction or a settings change the
+tab says the report is out of date and why, and REGENERATE builds it again.
+Screenshots are cached under `runs/<video>/coaching/frames/`. A coach's verdict
+on a finding (correct, partially correct, incorrect, not enough evidence, with a
+note) is kept in `runs/<video>/coaching_feedback.json`, apart from the report:
+it stays on its finding in its own run, and verdicts of earlier runs are listed
+apart (team letters are assigned per run).
+
+**Footage.** Broadcast footage gives the most. On amateur footage (small
+players, no keyframes) many measurements are not assessed: the report says
+once why and what would help (2-3 pitch keyframes, a spell with both lines in
+view, a higher camera); support distances and ball location are measured on
+broadcast-style footage only. On a camera that shows a few players per team
+(the Veo clip: 2.0 and 2.6 on average) team analysis is not possible, and the
+report says so instead of guessing.
+
+From the command line (no server needed):
+
+```bat
+.venv\Scripts\python.exe tools\coaching_report.py runs\<video>\<run>\result.json --team A --context competitive ^
+    --out report.json --pdf report.pdf --video uploads\<video>.mp4
+.venv\Scripts\python.exe -I -B tools\coaching_bench.py --data DIR --game 1 --out soccer\coaching\reference.json
+```
+
+The bench reads the downloaded Metrica files only under `python -I -B`, builds
+the reference from game 1 only, and reads game 2 only with `--validate`
+(`--record` writes the result into the file's `validation` block and nothing
+else).
+
 ## Debug view (how to test)
 
 - **Identity debug** labels every tracked person, e.g. `A-07 · Track 91 · Team A ·
@@ -2136,7 +2469,8 @@ inspection with a stated uncertainty) with the counts: a recall proxy by frame
 and overall, the small people among them, over-counts. `tools/diagnose.py`,
 `tools/check_ball_truth.py` and `tools/check_pitch_truth.py` (the hand-marked
 ball and pitch references of the amateur window) are described under
-"Amateur footage" → "Measuring". `PROGRESS.md` records
+"Amateur footage" → "Measuring". `tools/possession_bench.py` scores the
+possession engine on the Metrica truth ("Possession" → "Reproduce"). `PROGRESS.md` records
 the runs and numbers of every phase.
 
 ## Tests
@@ -2207,6 +2541,37 @@ duplicates, a departed player's identity on his substitute, split-identity
 estimates, short periods and short labels, more players than the lineup).
 These are synthetic checks of the logic, not accuracy measurements on real
 footage.
+
+Possession is covered by `test_possession.py` (the engine on synthetic results: a
+pass between teammates keeps possession, an interception changes it once, a
+deflection and a half-second duel flicker do not, a ball out of play is dead until
+the other team's restart, a missing ball is unknown, the carrier is near on both
+metrics, the nearTrack check, a person without a team and a goalkeeper without a
+team, a camera cut, the small-scene abstention, an empty result, stable change ids,
+a team correction moving the carrier's team, the record's contract as plain JSON;
+a change resting on an observed control, an image-only spell starting none, an
+excursion reached by a jump or with another ball in play being no ball out of play,
+a stoppage with the ball in view, who won the ball, back-and-forth pairs, player
+speeds through the camera motion; results of 1 to 30 frames, a ball held in play
+being no stoppage while a placed ball stays dead, a keeper's hands from the catch, a
+ball knocked past a defender, a result without `ball.origin`, the first-pass check
+with the image rows doubled, a ball placed after an unseen stretch, a replay between
+two cuts, an identity on another team's player, high / uncertain changes),
+`test_possession_server.py`
+(the route: the record served byte for byte, cached per result version and computed
+again after a correction, one computation at a time, 404 / 409 / 503 and the local
+checks), `test_possession_panel.py` (`possession.js` in node with the real
+`tactical.js` board: the live line, the shares, the strip and its colours, the
+markers, their tooltips and seeking, the won frame, the rings, every change shown by
+default with the uncertain ones hollow (possession-4's `uncertain`, possession-3's
+`low`) and hidden when the option is unticked, labels after a correction, the
+one-line unavailable and failed states, the page's fence) and
+`test_possession_truth.py` (the Metrica truth tool on both of Metrica's formats: a
+synthetic game written as CSV and as EPTS gives the same truth byte for byte, the
+EPTS reader's substitutions, identity swap and refusals; with the Metrica data on
+the machine, `PITCHIQ_METRICA_TRACKING`, `PITCHIQ_METRICA_EVENTS` and
+`PITCHIQ_METRICA_GAME3`, also games 1-2's truth and simulation byte for byte as
+before game 3 was added and game 3's truth as built).
 
 The amateur-footage work ("Amateur footage" above) is covered by `test_midfield.py` (the pinhole midfield
 solve on rendered pole and broadcast views, the mirror camera, capped anchors), `test_tracker.py` (the
@@ -2286,6 +2651,11 @@ No global Python packages are changed.
   a player needs the local tracker's person boxes; white boots on a player the
   ball has not passed yet are told apart mainly by their short history. No ball
   accuracy is claimed on real footage; the evaluation is synthetic.
+- Possession is an estimate from the 2D tracking ("Possession" above): which team
+  has the ball is right 95-96% of the time where it names one on held-out data, but
+  the changes of possession reach an F1 of only .59-.69 on held-out Metrica games, on
+  a fresh broadcast segment 1 of the 2 reported changes was right and half of the
+  dead time was missed, and amateur and Veo footage get no possession at all.
 
 The server binds only to loopback. Environments, downloaded weights, settings,
 uploaded videos and generated runs are ignored by Git.

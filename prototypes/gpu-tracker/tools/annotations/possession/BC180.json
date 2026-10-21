@@ -1,0 +1,2898 @@
+{
+ "clip": "BC180",
+ "video": "2bac432528d0e568.mp4",
+ "split": "heldout",
+ "range": [
+  42.433,
+  222.4
+ ],
+ "step": 0.5,
+ "timeBase": "absolute source seconds (video.currentTime); grid 42.5..222.0",
+ "mapping": {
+  "A": "Barcelona: garnet/blue (blaugrana) striped shirts, dark shorts; GK orange; defends the LEFT goal on screen, attacks right",
+  "B": "Espanyol: yellow shirts (away kit); GK teal/green; defends the RIGHT goal on screen, attacks left"
+ },
+ "mappingCheck": "result.json people[] boxes at 50/100/150/200 s: B boxes 31 of 40 mostly yellow pixels, A boxes dark; A goalkeeper orange",
+ "conventions": "team keeps possession through its passes, shots, clearances and loose balls until the other team controls; dead from the ball leaving play / the stoppage until the restart touch; conf 3 sure, 2 likely, 1 weak",
+ "overlapWithBC60": [
+  42.433,
+  60.0
+ ],
+ "points": [
+  {
+   "t": 42.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 43.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 43.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 44.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 44.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 45.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 45.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 46.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 46.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca left CB carries out from the left of his own half",
+   "note2": "Barca LCB holds/carries in own half near halfway"
+  },
+  {
+   "t": 47.0,
+   "team": "A",
+   "conf": 3,
+   "note": "CB pass to a Barca midfielder near the far lane",
+   "note2": "LCB -> far-side midfielder -> back to LCB"
+  },
+  {
+   "t": 47.5,
+   "team": "A",
+   "conf": 3,
+   "note": "CB pass to a Barca midfielder near the far lane",
+   "note2": "LCB -> far-side midfielder -> back to LCB"
+  },
+  {
+   "t": 48.0,
+   "team": "A",
+   "conf": 3,
+   "note": "CB pass to a Barca midfielder near the far lane",
+   "note2": "LCB -> far-side midfielder -> back to LCB"
+  },
+  {
+   "t": 48.5,
+   "team": "A",
+   "conf": 3,
+   "note": "CB pass to a Barca midfielder near the far lane",
+   "note2": "LCB -> far-side midfielder -> back to LCB"
+  },
+  {
+   "t": 49.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder carries near the centre circle",
+   "note2": "LCB -> far-side midfielder -> back to LCB"
+  },
+  {
+   "t": 49.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder carries near the centre circle",
+   "note2": "Barca LCB holds"
+  },
+  {
+   "t": 50.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder carries near the centre circle",
+   "note2": "Barca LCB holds"
+  },
+  {
+   "t": 50.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder carries near the centre circle",
+   "note2": "Barca LCB holds"
+  },
+  {
+   "t": 51.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder carries near the centre circle",
+   "note2": "Barca LCB holds"
+  },
+  {
+   "t": 51.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder carries near the centre circle",
+   "note2": "Barca LCB holds"
+  },
+  {
+   "t": 52.0,
+   "team": "A",
+   "conf": 2,
+   "note": "short Barca passes on the left half / far lane",
+   "note2": "LCB pass to far side in transit"
+  },
+  {
+   "t": 52.5,
+   "team": "A",
+   "conf": 2,
+   "note": "short Barca passes on the left half / far lane",
+   "note2": "LCB pass to far side in transit"
+  },
+  {
+   "t": 53.0,
+   "team": "A",
+   "conf": 2,
+   "note": "short Barca passes on the left half / far lane",
+   "note2": "LCB pass to far side in transit"
+  },
+  {
+   "t": 53.5,
+   "team": "A",
+   "conf": 2,
+   "note": "short Barca passes on the left half / far lane",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 54.0,
+   "team": "A",
+   "conf": 2,
+   "note": "short Barca passes on the left half / far lane",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 54.5,
+   "team": "A",
+   "conf": 2,
+   "note": "short Barca passes on the left half / far lane",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 55.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 55.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 56.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 56.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 57.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 57.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 58.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca players at far touchline near halfway keep it under Espanyol press (small, far side)"
+  },
+  {
+   "t": 58.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 59.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 59.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulate near the far touchline, yellow pressing, no loss",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 60.0,
+   "team": "A",
+   "conf": 3,
+   "note": "ball back to a Barca player in the centre circle",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 60.5,
+   "team": "A",
+   "conf": 3,
+   "note": "ball back to a Barca player in the centre circle",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 61.0,
+   "team": "A",
+   "conf": 3,
+   "note": "ball back to a Barca player in the centre circle",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 61.5,
+   "team": "A",
+   "conf": 3,
+   "note": "ball back to a Barca player in the centre circle",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 62.0,
+   "team": "A",
+   "conf": 3,
+   "note": "ball back to a Barca player in the centre circle",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 62.5,
+   "team": "A",
+   "conf": 3,
+   "note": "ball back to a Barca player in the centre circle",
+   "note2": "Barca LCB, left side build-up"
+  },
+  {
+   "t": 63.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB #4 carries along the halfway line",
+   "note2": "pass to Barca RB, RB dribbles"
+  },
+  {
+   "t": 63.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB #4 carries along the halfway line",
+   "note2": "pass to Barca RB, RB dribbles"
+  },
+  {
+   "t": 64.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB #4 carries along the halfway line",
+   "note2": "pass to Barca RB, RB dribbles"
+  },
+  {
+   "t": 64.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB #4 carries along the halfway line",
+   "note2": "pass to Barca RB, RB dribbles"
+  },
+  {
+   "t": 65.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB #4 carries along the halfway line",
+   "note2": "pass to Barca RB, RB dribbles"
+  },
+  {
+   "t": 65.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB #4 carries along the halfway line",
+   "note2": "pass to Barca RB, RB dribbles"
+  },
+  {
+   "t": 66.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 66.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 67.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 67.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 68.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 68.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 69.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 69.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "back to Barca LCB"
+  },
+  {
+   "t": 70.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "pass to far-side Barca midfielder, he carries"
+  },
+  {
+   "t": 70.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation: left CB, far lane, switch right (receiver 70.3)",
+   "note2": "pass to far-side Barca midfielder, he carries"
+  },
+  {
+   "t": 71.0,
+   "team": "A",
+   "conf": 2,
+   "note": "ball in flight: the Barca dribbler pushed it at ~70.75 straight into the yellow, who stops it with his body at ~71.15-71.2 and lays it to a team-mate at ~71.4 (frame-by-frame bc_71f.jpg); by convention A until the yellow's first touch. L1 B(2) / L2 A(2) -> A",
+   "adjudicated": true,
+   "raw": {
+    "L1": "B",
+    "L2": "A"
+   }
+  },
+  {
+   "t": 71.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow interception at 71.45"
+  },
+  {
+   "t": 72.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow dribbles left under Barca pressure"
+  },
+  {
+   "t": 72.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow dribbles left under Barca pressure"
+  },
+  {
+   "t": 73.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow dribbles left under Barca pressure"
+  },
+  {
+   "t": 73.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow dribbles left under Barca pressure"
+  },
+  {
+   "t": 74.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "crowd around the yellow carrier, ball hidden"
+  },
+  {
+   "t": 74.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "crowd around the yellow carrier, ball hidden"
+  },
+  {
+   "t": 75.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow carries"
+  },
+  {
+   "t": 75.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow carries"
+  },
+  {
+   "t": 76.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow carries"
+  },
+  {
+   "t": 76.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow carries"
+  },
+  {
+   "t": 77.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow shields/dribbles back along the far touchline under Barca pressure (duel at 74.0 kept)",
+   "note2": "yellow carries"
+  },
+  {
+   "t": 77.5,
+   "team": "B",
+   "conf": 2,
+   "note": "ball knocked loose from the yellow/Barca pair, rolls free; no Barca control; another yellow collects 78.7",
+   "note2": "yellow pass right toward far touchline, in transit / receiver arriving"
+  },
+  {
+   "t": 78.0,
+   "team": "B",
+   "conf": 2,
+   "note": "ball knocked loose from the yellow/Barca pair, rolls free; no Barca control; another yellow collects 78.7",
+   "note2": "yellow pass right toward far touchline, in transit / receiver arriving"
+  },
+  {
+   "t": 78.5,
+   "team": "B",
+   "conf": 2,
+   "note": "ball knocked loose from the yellow/Barca pair, rolls free; no Barca control; another yellow collects 78.7",
+   "note2": "yellow pass right toward far touchline, in transit / receiver arriving"
+  },
+  {
+   "t": 79.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles at the far touchline",
+   "note2": "yellow receiver dribbles at far touchline"
+  },
+  {
+   "t": 79.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles at the far touchline",
+   "note2": "yellow receiver dribbles at far touchline"
+  },
+  {
+   "t": 80.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow lofted clearance (79.8) down the far line, in the air; lands at a yellow/Barca grapple near halfway ~81.5",
+   "note2": "yellow at halfway keeps ball while a Barca player slides/dives in; both on the ground"
+  },
+  {
+   "t": 80.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow lofted clearance (79.8) down the far line, in the air; lands at a yellow/Barca grapple near halfway ~81.5",
+   "note2": "yellow at halfway keeps ball while a Barca player slides/dives in; both on the ground"
+  },
+  {
+   "t": 81.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow lofted clearance (79.8) down the far line, in the air; lands at a yellow/Barca grapple near halfway ~81.5",
+   "note2": "yellow at halfway keeps ball while a Barca player slides/dives in; both on the ground"
+  },
+  {
+   "t": 81.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow lofted clearance (79.8) down the far line, in the air; lands at a yellow/Barca grapple near halfway ~81.5",
+   "note2": "yellow dribbles with Barca player challenging"
+  },
+  {
+   "t": 82.0,
+   "team": "B",
+   "conf": 2,
+   "note": "loose ball: B's long ball came down at the yellow/Barca grapple near halfway, the yellow touched it at ~81.6 and it rolled right to a Barca player who stopped it at ~82.4 (bc_81z.jpg, bc_816.jpg); no A control before 82.4, so B by convention whoever touched last. L1 unclear(1) / L2 B(1) -> B",
+   "adjudicated": true,
+   "raw": {
+    "L1": "unclear",
+    "L2": "B"
+   }
+  },
+  {
+   "t": 82.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca player far side right of halfway has just collected",
+   "note2": "Barca player at far touchline received at ~82.4"
+  },
+  {
+   "t": 83.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca pass back left and circulate at the far touchline",
+   "note2": "Barca player kicks the ball in a duel near a yellow"
+  },
+  {
+   "t": 83.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back left and circulate at the far touchline",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 84.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back left and circulate at the far touchline",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 84.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back left and circulate at the far touchline",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 85.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 85.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 86.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 86.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 87.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 87.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 88.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "Barca player carries back left along far touchline"
+  },
+  {
+   "t": 88.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "pass back into Barca half"
+  },
+  {
+   "t": 89.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player dribbles back along the far touchline, passes inside to the CB (89.0 ball in flight)",
+   "note2": "pass back into Barca half"
+  },
+  {
+   "t": 89.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 90.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 90.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 91.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 91.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 92.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 92.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 93.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 93.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 94.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 94.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 95.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 95.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 96.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 96.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 97.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 97.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 98.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca CBs / LCB circulate near centre circle left side"
+  },
+  {
+   "t": 98.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca midfield passing near halfway far side"
+  },
+  {
+   "t": 99.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca midfield passing near halfway far side"
+  },
+  {
+   "t": 99.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB top-left of the centre circle carries slowly; yellows hold a block",
+   "note2": "Barca midfield passing near halfway far side"
+  },
+  {
+   "t": 100.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player top-left near halfway; pass 101.3, Barca receives 102.2",
+   "note2": "Barca midfield passing near halfway far side"
+  },
+  {
+   "t": 100.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player top-left near halfway; pass 101.3, Barca receives 102.2",
+   "note2": "Barca midfield passing near halfway far side"
+  },
+  {
+   "t": 101.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player top-left near halfway; pass 101.3, Barca receives 102.2",
+   "note2": "Barca player dribbles far side at halfway, passes to Barca"
+  },
+  {
+   "t": 101.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player top-left near halfway; pass 101.3, Barca receives 102.2",
+   "note2": "Barca player dribbles far side at halfway, passes to Barca"
+  },
+  {
+   "t": 102.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player top-left near halfway; pass 101.3, Barca receives 102.2",
+   "note2": "Barca player dribbles far side at halfway, passes to Barca"
+  },
+  {
+   "t": 102.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player top-left near halfway; pass 101.3, Barca receives 102.2",
+   "note2": "Barca player dribbles far side at halfway, passes to Barca"
+  },
+  {
+   "t": 103.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca player dribbles far side at halfway, passes to Barca"
+  },
+  {
+   "t": 103.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca player dribbles far side at halfway, passes to Barca"
+  },
+  {
+   "t": 104.0,
+   "team": "A",
+   "conf": 2,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca back pass goes past a yellow untouched"
+  },
+  {
+   "t": 104.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 105.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 105.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 106.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 106.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 107.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 107.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 108.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 108.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 109.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 109.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 110.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 110.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 111.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 111.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 112.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 112.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 113.0,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 113.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca CBs / LB circulate at halfway"
+  },
+  {
+   "t": 114.0,
+   "team": "A",
+   "conf": 2,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca pass right past referee/yellow (untouched or brushed), reaches Barca 115.3"
+  },
+  {
+   "t": 114.5,
+   "team": "A",
+   "conf": 2,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca pass right past referee/yellow (untouched or brushed), reaches Barca 115.3"
+  },
+  {
+   "t": 115.0,
+   "team": "A",
+   "conf": 2,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca pass right past referee/yellow (untouched or brushed), reaches Barca 115.3"
+  },
+  {
+   "t": 115.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long Barca circulation: CB #4 bottom-left carries 107-110, switch to the right 113.5-115.5",
+   "note2": "Barca pass toward right winger"
+  },
+  {
+   "t": 116.0,
+   "team": "A",
+   "conf": 2,
+   "note": "right-flank Barca winger area, ball back to a Barca midfielder",
+   "note2": "yellow first-time redirect at 116.2 (no control), Barca midfielder receives 116.7"
+  },
+  {
+   "t": 116.5,
+   "team": "A",
+   "conf": 2,
+   "note": "right-flank Barca winger area, ball back to a Barca midfielder",
+   "note2": "yellow first-time redirect at 116.2 (no control), Barca midfielder receives 116.7"
+  },
+  {
+   "t": 117.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow stole it at the Barca midfielder's feet (116.9), dribbles toward halfway",
+   "note2": "yellow tackles the Barca midfielder at 116.85-117.0 and knocks on"
+  },
+  {
+   "t": 117.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow stole it at the Barca midfielder's feet (116.9), dribbles toward halfway",
+   "note2": "yellow knock-on dribble toward Barca half"
+  },
+  {
+   "t": 118.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow still dribbling just before the duel (Barca wins it 118.3)",
+   "note2": "yellow knock-on dribble toward Barca half"
+  },
+  {
+   "t": 118.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca player (#24?) runs right with the ball after winning the duel",
+   "note2": "Barca defender tackles at 118.3, controls 118.5"
+  },
+  {
+   "t": 119.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca player (#24?) runs right with the ball after winning the duel",
+   "note2": "Barca carries, plays right; right-side Barca player receives"
+  },
+  {
+   "t": 119.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca short passes right-centre (#24 at 120.3); ball hard to see 120.5-121.0, play static",
+   "note2": "Barca carries, plays right; right-side Barca player receives"
+  },
+  {
+   "t": 120.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca short passes right-centre (#24 at 120.3); ball hard to see 120.5-121.0, play static",
+   "note2": "lofted Barca pass back left passes over/at a yellow head (no control)"
+  },
+  {
+   "t": 120.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca short passes right-centre (#24 at 120.3); ball hard to see 120.5-121.0, play static",
+   "note2": "Barca #24 receives, ball hidden at his feet (seen with him at 121.4)"
+  },
+  {
+   "t": 121.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca short passes right-centre (#24 at 120.3); ball hard to see 120.5-121.0, play static",
+   "note2": "Barca #24 receives, ball hidden at his feet (seen with him at 121.4)"
+  },
+  {
+   "t": 121.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 122.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 122.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 123.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 123.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 124.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 124.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 125.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 125.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 126.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 126.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 127.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 127.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 128.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 128.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 129.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 129.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 130.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 130.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 131.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 131.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 132.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 132.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 133.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 133.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 134.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 134.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 135.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca circulation centre-left (CBs, LCB, LB)"
+  },
+  {
+   "t": 135.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca LCB carries, long pass right at 136.5"
+  },
+  {
+   "t": 136.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca circulation in own half/centre; CB bottom-left of the circle carries 133-136",
+   "note2": "Barca LCB carries, long pass right at 136.5"
+  },
+  {
+   "t": 136.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long diagonal to Barca #10 on the right flank",
+   "note2": "Barca LCB carries, long pass right at 136.5"
+  },
+  {
+   "t": 137.0,
+   "team": "A",
+   "conf": 2,
+   "note": "long diagonal to Barca #10 on the right flank",
+   "note2": "long pass in transit to Barca right winger"
+  },
+  {
+   "t": 137.5,
+   "team": "A",
+   "conf": 3,
+   "note": "long diagonal to Barca #10 on the right flank",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 138.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 138.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 139.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 139.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 140.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 140.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 141.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 141.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 142.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "Barca right winger dribbles against two yellows near the box-right touchline"
+  },
+  {
+   "t": 142.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca #10 dribbles against two yellows, keeps it (duel 140.1-140.3)",
+   "note2": "winger duel with yellow, ball squirts back loose to Barca #4 (no yellow control)"
+  },
+  {
+   "t": 143.0,
+   "team": "A",
+   "conf": 2,
+   "note": "#10 passes back to Barca #4",
+   "note2": "winger duel with yellow, ball squirts back loose to Barca #4 (no yellow control)"
+  },
+  {
+   "t": 143.5,
+   "team": "A",
+   "conf": 3,
+   "note": "#10 passes back to Barca #4",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 144.0,
+   "team": "A",
+   "conf": 3,
+   "note": "#10 passes back to Barca #4",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 144.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 145.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 145.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 146.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 146.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 147.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 147.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 148.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 148.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 149.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 149.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 150.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 150.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 151.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca #4 then CB/LCB circulation in own half"
+  },
+  {
+   "t": 151.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca long pass to far-left touchline in transit / being received"
+  },
+  {
+   "t": 152.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca long pass to far-left touchline in transit / being received"
+  },
+  {
+   "t": 152.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca far-left player dribbles"
+  },
+  {
+   "t": 153.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB carries near halfway, long pass to the far touchline (151.5-152.5)",
+   "note2": "Barca far-left player dribbles"
+  },
+  {
+   "t": 153.5,
+   "team": "A",
+   "conf": 2,
+   "note": "pass inside bounces off a yellow/Barca pair back to Barca; no yellow control",
+   "note2": "Barca far-left player dribbles"
+  },
+  {
+   "t": 154.0,
+   "team": "A",
+   "conf": 2,
+   "note": "pass inside bounces off a yellow/Barca pair back to Barca; no yellow control",
+   "note2": "pass into a crowd at far left, yellow and Barca contest, ball rolls to Barca 155.4"
+  },
+  {
+   "t": 154.5,
+   "team": "A",
+   "conf": 2,
+   "note": "pass inside bounces off a yellow/Barca pair back to Barca; no yellow control",
+   "note2": "pass into a crowd at far left, yellow and Barca contest, ball rolls to Barca 155.4"
+  },
+  {
+   "t": 155.0,
+   "team": "A",
+   "conf": 2,
+   "note": "pass inside bounces off a yellow/Barca pair back to Barca; no yellow control",
+   "note2": "pass into a crowd at far left, yellow and Barca contest, ball rolls to Barca 155.4"
+  },
+  {
+   "t": 155.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 156.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 156.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 157.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 157.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 158.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 158.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca pass back to a player in own half left of halfway",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 159.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 159.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 160.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 160.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 161.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 161.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 162.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 162.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 163.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 163.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 164.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 164.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 165.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 165.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 166.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 166.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 167.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 167.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 168.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 168.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 169.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 169.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 170.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca far-left player / LCB / CBs circulate"
+  },
+  {
+   "t": 170.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca CB left of halfway carries forward unpressed; forward pass 170.6",
+   "note2": "Barca pass right through yellows (possible yellow leg touch 171.2), reaches Barca 171.6"
+  },
+  {
+   "t": 171.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca midfielder receives centre and dribbles past yellows; pass right 173.2",
+   "note2": "Barca pass right through yellows (possible yellow leg touch 171.2), reaches Barca 171.6"
+  },
+  {
+   "t": 171.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca midfielder receives centre and dribbles past yellows; pass right 173.2",
+   "note2": "Barca pass right through yellows (possible yellow leg touch 171.2), reaches Barca 171.6"
+  },
+  {
+   "t": 172.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder receives centre and dribbles past yellows; pass right 173.2",
+   "note2": "Barca dribbles into Espanyol half, attack at the edge of the Espanyol box"
+  },
+  {
+   "t": 172.5,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder receives centre and dribbles past yellows; pass right 173.2",
+   "note2": "Barca dribbles into Espanyol half, attack at the edge of the Espanyol box"
+  },
+  {
+   "t": 173.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca midfielder receives centre and dribbles past yellows; pass right 173.2",
+   "note2": "Barca dribbles into Espanyol half, attack at the edge of the Espanyol box"
+  },
+  {
+   "t": 173.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca around the edge of the Espanyol box",
+   "note2": "ball bouncing among Barca and yellows near the D after a Barca pass/shot; Barca keeps it"
+  },
+  {
+   "t": 174.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca around the edge of the Espanyol box",
+   "note2": "ball bouncing among Barca and yellows near the D after a Barca pass/shot; Barca keeps it"
+  },
+  {
+   "t": 174.5,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca around the edge of the Espanyol box",
+   "note2": "ball bouncing among Barca and yellows near the D after a Barca pass/shot; Barca keeps it"
+  },
+  {
+   "t": 175.0,
+   "team": "A",
+   "conf": 3,
+   "note": "Barca around the edge of the Espanyol box",
+   "note2": "Barca player on the ball at the box edge"
+  },
+  {
+   "t": 175.5,
+   "team": "A",
+   "conf": 1,
+   "note": "Barca cross/pass in the air (175.4); yellow defensive header 176.0 is not control; loose ball",
+   "note2": "ball in the air after a touch at 175.4 (yellow poke or Barca pass); no yellow control yet"
+  },
+  {
+   "t": 176.0,
+   "team": "unclear",
+   "conf": 1,
+   "note": "yellow header at 176.0 intercepting Barca's chip (175.37); the header loops ~1 s over a Barca player (ball passes his head at 176.82, a graze cannot be excluded) to a yellow who controls at 176.95. If the header counts as control this point is B, otherwise A: excluded. L1 A(2) / L2 unclear(1) -> unclear",
+   "adjudicated": true,
+   "raw": {
+    "L1": "A",
+    "L2": "unclear"
+   }
+  },
+  {
+   "t": 176.5,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball in the air from the yellow header (176.0) to the yellow receiver (176.95); same ambiguity as 176.0. L1 A(2) / L2 unclear(1) -> unclear",
+   "adjudicated": true,
+   "raw": {
+    "L1": "A",
+    "L2": "unclear"
+   }
+  },
+  {
+   "t": 177.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow has just controlled the loose ball at the centre-circle edge",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 177.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 178.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 178.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 179.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 179.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 180.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 180.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow dribbles through midfield, Barca chasing (tackle attempt 179.0, kept)",
+   "note2": "yellow carries through the centre circle, Barca chasing"
+  },
+  {
+   "t": 181.0,
+   "team": "B",
+   "conf": 2,
+   "note": "Barca slide tackle 180.6 knocks the ball straight to a second yellow, who dribbles",
+   "note2": "Barca slide tackle at 180.6, ball squirts to a second yellow who controls at 181.0"
+  },
+  {
+   "t": 181.5,
+   "team": "B",
+   "conf": 3,
+   "note": "Barca slide tackle 180.6 knocks the ball straight to a second yellow, who dribbles",
+   "note2": "second yellow dribbles"
+  },
+  {
+   "t": 182.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow pass left to a third yellow (receives 182.6)",
+   "note2": "Barca challenge, ball squirts loose, yellow keeps it"
+  },
+  {
+   "t": 182.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow pass left to a third yellow (receives 182.6)",
+   "note2": "yellow pushes past Barca and dribbles toward Barca box"
+  },
+  {
+   "t": 183.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow carries forward through midfield",
+   "note2": "yellow pushes past Barca and dribbles toward Barca box"
+  },
+  {
+   "t": 183.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow carries forward through midfield",
+   "note2": "yellow pushes past Barca and dribbles toward Barca box"
+  },
+  {
+   "t": 184.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow carries forward through midfield",
+   "note2": "yellow pushes past Barca and dribbles toward Barca box"
+  },
+  {
+   "t": 184.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow carries forward through midfield",
+   "note2": "yellow pushes past Barca and dribbles toward Barca box"
+  },
+  {
+   "t": 185.0,
+   "team": "B",
+   "conf": 2,
+   "note": "long yellow pass (184.7) toward the far corner of the Barca half, in flight / rolling",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 185.5,
+   "team": "B",
+   "conf": 2,
+   "note": "long yellow pass (184.7) toward the far corner of the Barca half, in flight / rolling",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 186.0,
+   "team": "B",
+   "conf": 2,
+   "note": "long yellow pass (184.7) toward the far corner of the Barca half, in flight / rolling",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 186.5,
+   "team": "B",
+   "conf": 2,
+   "note": "long yellow pass (184.7) toward the far corner of the Barca half, in flight / rolling",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 187.0,
+   "team": "B",
+   "conf": 2,
+   "note": "long yellow pass (184.7) toward the far corner of the Barca half, in flight / rolling",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 187.5,
+   "team": "B",
+   "conf": 2,
+   "note": "long yellow pass (184.7) toward the far corner of the Barca half, in flight / rolling",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 188.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "after a duel at 184.9 the ball travels to the far side (yellow diagonal or poke), far-side yellow collects 188.3"
+  },
+  {
+   "t": 188.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "far-side yellow holds at far touchline beside Barca box corner"
+  },
+  {
+   "t": 189.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "far-side yellow holds at far touchline beside Barca box corner"
+  },
+  {
+   "t": 189.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "far-side yellow holds at far touchline beside Barca box corner"
+  },
+  {
+   "t": 190.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "far-side yellow holds at far touchline beside Barca box corner"
+  },
+  {
+   "t": 190.5,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "far-side yellow holds at far touchline beside Barca box corner"
+  },
+  {
+   "t": 191.0,
+   "team": "B",
+   "conf": 3,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "far-side yellow holds at far touchline beside Barca box corner"
+  },
+  {
+   "t": 191.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow collects at the far touchline (~188.3), dribbles into the Barca left corner, cuts in",
+   "note2": "yellow cross into Barca box, aerial duel at 192.5"
+  },
+  {
+   "t": 192.0,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow cut-back across the box (191.7), yellow header at the near post ~192.4, ball in the air",
+   "note2": "yellow cross into Barca box, aerial duel at 192.5"
+  },
+  {
+   "t": 192.5,
+   "team": "B",
+   "conf": 2,
+   "note": "yellow cut-back across the box (191.7), yellow header at the near post ~192.4, ball in the air",
+   "note2": "yellow cross into Barca box, aerial duel at 192.5"
+  },
+  {
+   "t": 193.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "ball over Barca goal line ~192.8-192.9 after the header duel"
+  },
+  {
+   "t": 193.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 194.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 194.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 195.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 195.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 196.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 196.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 197.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 197.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 198.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 198.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "ball over the byline (~192.8); goal kick for Barca, GK fetches and places the ball",
+   "note2": "goal kick being set up in the Barca 6-yard box"
+  },
+  {
+   "t": 199.0,
+   "team": "A",
+   "conf": 2,
+   "note": "Barca goal kick (198.75) played short, ball travelling to the Barca receiver",
+   "note2": "Barca GK goal kick taken 198.65, ball in flight to a Barca player"
+  },
+  {
+   "t": 199.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 200.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 200.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 201.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 201.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 202.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 202.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 203.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 203.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 204.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 204.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 205.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 205.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 206.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 206.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 207.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 207.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 208.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 208.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 209.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 209.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 210.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 210.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "play stopped (inferred): yellow jumped into the Barca receiver at 199.4 inside the Barca box; players stop, referee points back at 202.6-203.6, yellow pushes ball away 205.4, Barca player chips it out 208.7"
+  },
+  {
+   "t": 211.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "match ball over the far touchline since ~210.7; Barca GK preparing restart with another ball"
+  },
+  {
+   "t": 211.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "match ball over the far touchline since ~210.7; Barca GK preparing restart with another ball"
+  },
+  {
+   "t": 212.0,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "match ball over the far touchline since ~210.7; Barca GK preparing restart with another ball"
+  },
+  {
+   "t": 212.5,
+   "team": "dead",
+   "conf": 2,
+   "note": "play stopped: yellow jumps into the Barca receiver inside the box (199.4); players and referee jog after the rolling ball, referee points 202.6-203.4, a Barca player boots the old ball off the pitch (208.7, out ~210.8), new ball to the GK",
+   "note2": "match ball over the far touchline since ~210.7; Barca GK preparing restart with another ball"
+  },
+  {
+   "t": 213.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "Barca GK stands in his goal area with the ball at his foot 212.8-213.7 and kicks at 213.77 (ball moves at frame 6414, bc_213z.jpg); still dead. L1 dead(2) / L2 A(2) -> dead",
+   "adjudicated": true,
+   "raw": {
+    "L1": "dead",
+    "L2": "A"
+   }
+  },
+  {
+   "t": 213.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "same: GK over the stationary ball, restart kick at 213.77. L1 dead(2) / L2 A(3) -> dead",
+   "adjudicated": true,
+   "raw": {
+    "L1": "dead",
+    "L2": "A"
+   }
+  },
+  {
+   "t": 214.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "GK pass rolling to Barca LCB, received 214.6"
+  },
+  {
+   "t": 214.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "GK pass rolling to Barca LCB, received 214.6"
+  },
+  {
+   "t": 215.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 215.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 216.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 216.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 217.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 217.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 218.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 218.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 219.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 219.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 220.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 220.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 221.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 221.5,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  },
+  {
+   "t": 222.0,
+   "team": "A",
+   "conf": 3,
+   "note": "GK restarts to the CB (213.75); Barca CB carries out from the back, slow build-up to the end",
+   "note2": "Barca LCB walks the ball out of his box, Espanyol in a mid block"
+  }
+ ],
+ "changes": [
+  {
+   "lostAt": 70.75,
+   "wonAt": 71.2,
+   "fromTeam": "A",
+   "toTeam": "B",
+   "cause": "interception",
+   "conf": 3,
+   "note": "far-side Barca dribbler pushes the ball (leaves his foot ~70.73-70.77) into the yellow facing him; the yellow stops it with his body ~71.15-71.2 and lays it to a yellow team-mate ~71.4; yellow dribbles away",
+   "raw": {
+    "L1": [
+     70.85,
+     71.0
+    ],
+    "L2": [
+     71.05,
+     71.45
+    ]
+   }
+  },
+  {
+   "lostAt": 81.6,
+   "wonAt": 82.4,
+   "fromTeam": "B",
+   "toTeam": "A",
+   "cause": "tackle_or_duel",
+   "conf": 2,
+   "note": "yellow long ball down the far line (79.85) comes down at a yellow/Barca grapple near halfway (~81.5); the yellow's touch at ~81.6 squirts it right and a Barca player stops it ~82.4 (ball reverses direction between 82.40 and 82.47)",
+   "alternatives": {
+    "lostAt": 79.8,
+    "why": "if the 81.6 touch was the Barca player's (he is behind the yellow; the ball leaves on the yellow's side, so the yellow is likelier)"
+   },
+   "raw": {
+    "L1": [
+     79.8,
+     82.35
+    ],
+    "L2": [
+     81.8,
+     82.4
+    ]
+   }
+  },
+  {
+   "lostAt": 116.78,
+   "wonAt": 116.95,
+   "fromTeam": "A",
+   "toTeam": "B",
+   "cause": "tackle_or_duel",
+   "conf": 2,
+   "note": "yellow takes the ball off the Barca midfielder who had just received (labellers agree within 0.15 s; times are their means)",
+   "raw": {
+    "L1": [
+     116.7,
+     116.9
+    ],
+    "L2": [
+     116.85,
+     117.0
+    ]
+   }
+  },
+  {
+   "lostAt": 118.1,
+   "wonAt": 118.4,
+   "fromTeam": "B",
+   "toTeam": "A",
+   "cause": "tackle_or_duel",
+   "conf": 2,
+   "note": "Barca player wins the duel with the dribbling yellow right-centre (labellers agree within 0.2 s; means)",
+   "raw": {
+    "L1": [
+     118.0,
+     118.3
+    ],
+    "L2": [
+     118.2,
+     118.5
+    ]
+   }
+  },
+  {
+   "lostAt": 175.37,
+   "wonAt": 176.95,
+   "fromTeam": "A",
+   "toTeam": "B",
+   "cause": "interception",
+   "conf": 2,
+   "note": "Barca #7 at the Espanyol box edge chips the ball up-left under a yellow challenge (175.37, his foot); a yellow heads it at 176.0; the header loops over a Barca player (ball at his head 176.82, possible graze) to a yellow who chests it ~176.95 and carries from 177.0",
+   "alternatives": {
+    "wonAt": 176.0,
+    "lostAt_if_graze": 176.82,
+    "why": "176.0 if the interception header (which did reach a team-mate) counts as control"
+   },
+   "raw": {
+    "L1": [
+     175.4,
+     177.0
+    ],
+    "L2": [
+     175.35,
+     176.9
+    ]
+   }
+  },
+  {
+   "lostAt": 192.55,
+   "wonAt": 198.7,
+   "fromTeam": "B",
+   "toTeam": "A",
+   "cause": "out_of_play",
+   "conf": 2,
+   "note": "yellow cross / near-post aerial duel, ball over the Barca goal line ~192.85; Barca goal kick 198.7 (labellers agree within 0.1 s; means)",
+   "raw": {
+    "L1": [
+     192.5,
+     198.75
+    ],
+    "L2": [
+     192.6,
+     198.65
+    ]
+   }
+  }
+ ],
+ "deadSpells": [
+  {
+   "from": 192.85,
+   "to": 198.7,
+   "restartTeam": "A",
+   "kind": "goal_kick",
+   "conf": 3
+  },
+  {
+   "from": 199.45,
+   "to": 213.77,
+   "restartTeam": "A",
+   "kind": "stoppage (inferred foul by B on the goal-kick receiver inside the Barca box at 199.4); restart by the Barca GK from his goal area with a new ball",
+   "conf": 2,
+   "evidence": "both labellers independently; adjudicator saw the yellow jump into the receiver at 199.4, then the ball rolling free 16 m from goal with the yellow jogging beside it untouched 199.6-200.6 (bc_1994.jpg) and the GK restarting from a stationary ball at 213.77 (bc_213z.jpg)",
+   "alternative": "if play was NOT stopped: A->B wonAt 199.4, B->A lostAt 205.35 wonAt 208.3, dead 210.7-213.77 (L2's alternative reading); not adopted"
+  }
+ ],
+ "summary": {
+  "counts": {
+   "A": 260,
+   "B": 57,
+   "unclear": 2,
+   "dead": 41
+  },
+  "possessionChanges": 6
+ },
+ "adjudicated": [
+  "6 point disagreements (71.0, 82.0, 176.0, 176.5, 213.0, 213.5) resolved from frames; see the points' notes.",
+  "All 6 changes were listed by both labellers and matched within +-0.5 s on wonAt; wonAt/lostAt re-timed from frames where they differed by more than 0.25 s (71, 82, 176) and averaged otherwise.",
+  "71: the labellers split the same event (L1 interception at 71.0, L2 at 71.45); frames show the yellow's first touch at ~71.15-71.2.",
+  "82: lostAt was 79.8 (L1) vs 81.8 (L2); frames show B's last touch at ~81.6 (the yellow at the grapple).",
+  "176: the 176.0 header is an interception that did reach a yellow team-mate, but a Barca head graze at 176.82 cannot be excluded; wonAt kept at the yellow's control (176.95) with 176.0 as the alternative, and the two points in between excluded as unclear.",
+  "213: L2 timed the GK restart at 213.0; frames show the GK standing over the ball until 213.77 (L1 213.75).",
+  "199.45-213.77 stoppage: agreed by both labellers (inferred, no whistle visible); adjudicator checked the 199.4 contact and the untouched rolling ball after it and keeps it."
+ ],
+ "agreement": {
+  "labellers": [
+   "L1",
+   "L2"
+  ],
+  "points": {
+   "points": 360,
+   "exactLabelAgreement": 354,
+   "exactLabelRate": 0.9833,
+   "bothNamedTeam": 316,
+   "teamAgree": 315,
+   "teamAgreementRate": 0.9968,
+   "teamKappa": 0.9892,
+   "atLeastOneNamedTeam": 321,
+   "sameTeamWhereEitherNamedTeam": 315,
+   "labelKappaAllCategories": 0.9617,
+   "disagreements": [
+    {
+     "t": 71.0,
+     "L1": "B",
+     "L1conf": 2,
+     "L2": "A",
+     "L2conf": 2
+    },
+    {
+     "t": 82.0,
+     "L1": "unclear",
+     "L1conf": 1,
+     "L2": "B",
+     "L2conf": 1
+    },
+    {
+     "t": 176.0,
+     "L1": "A",
+     "L1conf": 2,
+     "L2": "unclear",
+     "L2conf": 1
+    },
+    {
+     "t": 176.5,
+     "L1": "A",
+     "L1conf": 2,
+     "L2": "unclear",
+     "L2conf": 1
+    },
+    {
+     "t": 213.0,
+     "L1": "dead",
+     "L1conf": 2,
+     "L2": "A",
+     "L2conf": 2
+    },
+    {
+     "t": 213.5,
+     "L1": "dead",
+     "L1conf": 2,
+     "L2": "A",
+     "L2conf": 3
+    }
+   ]
+  },
+  "pointsWithoutBC60Overlap": {
+   "points": 325,
+   "exactLabelAgreement": 319,
+   "exactLabelRate": 0.9815,
+   "bothNamedTeam": 281,
+   "teamAgree": 280,
+   "teamAgreementRate": 0.9964,
+   "teamKappa": 0.9889,
+   "atLeastOneNamedTeam": 286,
+   "sameTeamWhereEitherNamedTeam": 280,
+   "labelKappaAllCategories": 0.9606
+  },
+  "changes": {
+   "L1changes": 6,
+   "L2changes": 6,
+   "matchedWonAtPm1s": 6,
+   "matchedWonAtPm2s": 6,
+   "wonAtAbsDiff": {
+    "median": 0.1,
+    "max": 0.45
+   },
+   "lostAtAbsDiff": {
+    "median": 0.175,
+    "max": 2.0
+   },
+   "pairs": [
+    {
+     "L1wonAt": 71.0,
+     "L2wonAt": 71.45,
+     "L1lostAt": 70.85,
+     "L2lostAt": 71.05,
+     "from": "A",
+     "to": "B"
+    },
+    {
+     "L1wonAt": 82.35,
+     "L2wonAt": 82.4,
+     "L1lostAt": 79.8,
+     "L2lostAt": 81.8,
+     "from": "B",
+     "to": "A"
+    },
+    {
+     "L1wonAt": 116.9,
+     "L2wonAt": 117.0,
+     "L1lostAt": 116.7,
+     "L2lostAt": 116.85,
+     "from": "A",
+     "to": "B"
+    },
+    {
+     "L1wonAt": 118.3,
+     "L2wonAt": 118.5,
+     "L1lostAt": 118.0,
+     "L2lostAt": 118.2,
+     "from": "B",
+     "to": "A"
+    },
+    {
+     "L1wonAt": 177.0,
+     "L2wonAt": 176.9,
+     "L1lostAt": 175.4,
+     "L2lostAt": 175.35,
+     "from": "A",
+     "to": "B"
+    },
+    {
+     "L1wonAt": 198.75,
+     "L2wonAt": 198.65,
+     "L1lostAt": 192.5,
+     "L2lostAt": 192.6,
+     "from": "B",
+     "to": "A"
+    }
+   ],
+   "unmatched": 0
+  },
+  "L1vsFinal": {
+   "exactLabel": "356/360",
+   "teamVsTeam": "315/316",
+   "teamVsTeamRate": 0.9968
+  },
+  "L2vsFinal": {
+   "exactLabel": "358/360",
+   "teamVsTeam": "317/317",
+   "teamVsTeamRate": 1.0
+  },
+  "restartTiming": {
+   "goalKick": {
+    "L1": 198.75,
+    "L2": 198.65,
+    "final": 198.7
+   },
+   "gkRestartAfterStoppage": {
+    "L1": 213.75,
+    "L2": 213.0,
+    "final": 213.77
+   }
+  },
+  "caveat": "A (Barcelona) holds the ball on ~82% of in-play points; a constant-A answer would score ~82% here.",
+  "overlapWithBC60": {
+   "points": 35,
+   "consistentAfterLetterSwap": 35
+  }
+ },
+ "sources": [
+  "labels/raw/BC180-L1.json",
+  "labels/raw/BC180-L2.json"
+ ]
+}

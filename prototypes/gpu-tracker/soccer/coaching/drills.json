@@ -1,0 +1,302 @@
+{
+  "version": 1,
+  "notes": "Training exercises the coaching report links to its findings (soccer/coaching/drills.py validates this file). Every exercise is a conventional session format of the kind taught on national-association coaching courses (small-sided games with a zone condition, unit shifting against servers, back-line stepping and dropping, rondo-style keep-ball, shadow play, unit pattern play), described in general terms; none is a specialised or invented drill. Each names its equipment, area, regressions and a success criterion in the exercise and back in the coaching report's own measurement. Plain ASCII only (the PDF writer uses base-14 Helvetica). Names and purposes carry no digits, so a finding that quotes them stays checkable against its facts. Areas, numbers and times are starting points to adapt to the players' age, level and fitness.",
+  "drills": [
+    {
+      "id": "defensive_compactness",
+      "name": "Compact shape small-sided game",
+      "purpose": "Keep the distances between team-mates and between the lines short, so the team defends as one compact group.",
+      "tacticalIssue": "Large spaces between the back line and midfield, or a team shape that stretches wide or long.",
+      "recommendationKeys": ["compact_lines", "compact_shape"],
+      "patterns": ["space_between_defence_and_midfield", "team_width", "team_depth", "team_area"],
+      "players": {"min": 8, "max": 18, "note": "Two teams of 4 to 9 (4 v 4 or 5 v 5 at development level), with or without goalkeepers."},
+      "durationMinutes": {"min": 15, "max": 20, "note": "Four blocks of 4 minutes with 1 to 2 minutes of rest; feedback in the rests."},
+      "area": "About 50 x 40 m for 7 v 7 or 8 v 8, about 35 x 25 m for 4 v 4 or 5 v 5, split lengthways into three equal zones.",
+      "equipment": ["Flat markers for the zone lines and the area", "Two goals with goalkeepers, or four small goals", "Bibs in two colours", "Spare balls around the area"],
+      "setup": "Mark the area (see Area) split lengthways into three equal zones with flat markers. A goal at each end with goalkeepers, or two small goals at each end. Bibs for both teams and spare balls around the area.",
+      "instructions": [
+        "Play a normal small-sided game; keep the first block at walking or jogging pace.",
+        "Condition: the team without the ball keeps all its outfield players inside two neighbouring zones.",
+        "When the condition is broken the coach may freeze play, let the players check their distances and restart with a ball from the coach.",
+        "Each team sets up in two lines (for example 2 and 2 in a 4 v 4, 3 and 3, or 4 and 3) so that the distance between the lines can be seen.",
+        "Change ends and teams every block so that every player defends in the compact shape."
+      ],
+      "coachingPoints": [
+        "Short distances between team-mates and between the lines; look across and behind before the ball arrives.",
+        "The whole group moves when the ball moves: towards the ball side, and up or back together.",
+        "One organiser at the back calls the distances and the others pass the call on.",
+        "Stay compact first, then win the ball; nobody leaves the shape to chase alone."
+      ],
+      "progressions": [
+        "Narrow the allowed zones or shorten the area to raise the challenge.",
+        "Give the team with the ball a bonus point for a pass that is received between the opponents' lines.",
+        "Remove the freezes so that the players correct their distances themselves in live play."
+      ],
+      "regressions": [
+        "Play at walking pace with the coach moving the ball by hand between the zones.",
+        "Widen the allowed area to all three zones for the team without the ball, then narrow it again.",
+        "Make the area smaller and the teams smaller (3 v 3) so each player sees the distances to the nearest team-mates."
+      ],
+      "successCriteria": [
+        "In the game: at the coach's freezes, the team without the ball has every outfield player inside two neighbouring zones in at least 4 of 5 freezes.",
+        "Back in the match: the next PitchIQ coaching report shows the team's width, length and area, and the distance between the back line and midfield, at or below the professional median it states for the team's third."
+      ],
+      "variations": {
+        "development": "Play 4 v 4 or 5 v 5 in the smaller area with more freezes; focus on staying close to the nearest team-mate.",
+        "competitive": "Play 7 v 7 or 8 v 8 with two clear lines and at most one freeze per block.",
+        "advanced": "Add a target player between the lines for the team with the ball; the defending lines keep that space closed."
+      },
+      "safety": [
+        "Warm up before the first block and raise the intensity gradually.",
+        "Use flat markers in the playing area and keep a clear run-off around it.",
+        "Adapt the area, block length and rest to the players' age and fitness, with drinks breaks."
+      ],
+      "source": "Conventional small-sided game with a zone condition."
+    },
+    {
+      "id": "lateral_shifting",
+      "name": "Shifting as a unit",
+      "purpose": "Move the back line and midfield across the pitch together as the ball moves from one side to the other.",
+      "tacticalIssue": "The back line and midfield shifting across at different times, leaving gaps between and within the lines on the ball side.",
+      "recommendationKeys": ["lateral_shift", "compact_shape"],
+      "patterns": ["lateral_lag", "team_width"],
+      "players": {"min": 8, "max": 16, "note": "Two defending lines (a back line of 3 to 5 and a midfield of 3 to 5) and 2 to 6 servers or attackers; at development level two lines of 3 with 2 servers."},
+      "durationMinutes": {"min": 15, "max": 20, "note": "Three or four phases of about 5 minutes."},
+      "area": "Half a pitch, the full width; the servers stand on a line across the pitch about 35 to 40 m from goal.",
+      "equipment": ["Flat markers for the servers' line and the halfway line", "A ball for each server and spare balls behind them", "Bibs for the servers or attackers", "Two small goals on the halfway line for the last phase"],
+      "setup": "Use half a pitch. Place two to four servers with balls on a line across the pitch about 35 to 40 m from goal, spread from touchline to touchline. The defending players start in two lines in front of the goal; a goalkeeper is optional.",
+      "instructions": [
+        "Phase one, at walking pace: the coach points to a server, the server holds the ball, and both lines slide towards that side while keeping their distances.",
+        "Phase two: the servers move the ball between them and the lines shift with every movement of the ball.",
+        "Phase three: a server may dribble forward or play to an attacker; the nearest defender closes the ball while the others keep the shape.",
+        "Phase four: play live; the defending team scores on small goals or by dribbling over the halfway line when it wins the ball."
+      ],
+      "coachingPoints": [
+        "The players nearest the ball move first; the others follow at the same time and keep the same distances.",
+        "Far-side players narrow towards the ball side; nobody needs to stay on the far touchline when the ball is on the other side.",
+        "Keep the distance between the back line and midfield short while shifting.",
+        "The organiser calls the direction of the shift."
+      ],
+      "progressions": [
+        "Speed up the movement of the ball between the servers.",
+        "Add one or two attackers between the lines whom the defenders keep track of."
+      ],
+      "regressions": [
+        "Walk through every shift with the coach calling the side before the ball moves.",
+        "Use one line only, then join the second line once the first slides together.",
+        "Use two servers close together so the shifts are shorter."
+      ],
+      "successCriteria": [
+        "In the exercise: when the ball reaches a new server, both lines have finished shifting to the ball side at about the same moment, judged by the coach or on video, in at least 4 of 5 repetitions.",
+        "Back in the match: the coaching report's sideways shift of back line and midfield reads at about the same time, or a delay below the professional level it states."
+      ],
+      "variations": {
+        "development": "Use two lines of 3 with 2 servers and walk through each shift before playing at speed.",
+        "competitive": "Use the team's own back line and midfield, with the servers moving the ball at match tempo.",
+        "advanced": "Add switch-of-play calls from the coach and judge the timing of the shift and of the far-side narrowing."
+      },
+      "safety": [
+        "Warm up before the first phase and raise the intensity gradually.",
+        "Keep the servers' balls and spare balls out of the shifting players' path.",
+        "Adapt the area, phase length and rest to the players' age and fitness, with drinks breaks."
+      ],
+      "source": "Conventional unit-shifting exercise against servers."
+    },
+    {
+      "id": "back_line_coordination",
+      "name": "Back-line stepping and dropping",
+      "purpose": "Keep the defenders level and moving together, stepping up and dropping as one line.",
+      "tacticalIssue": "An uneven back line, with single defenders clearly deeper or higher than the rest, or a high line with a large gap to midfield.",
+      "recommendationKeys": ["back_line_coordination", "line_height_gap"],
+      "patterns": ["uneven_back_line", "high_line_with_gap"],
+      "players": {"min": 6, "max": 10, "note": "A back line of 3 to 5, a goalkeeper and 2 to 4 attackers or servers."},
+      "durationMinutes": {"min": 15, "max": 20, "note": "Repetitions of 1 to 2 minutes with rest in between."},
+      "area": "The width between the penalty-area lines extended to about 40 m, from the goal line to about 35 m out.",
+      "equipment": ["Flat markers for three reference lines across the area", "A goal and a goalkeeper", "Bibs for the attackers or servers", "Balls with the coach and the servers"],
+      "setup": "Mark three lines across the area with flat markers as reference heights. The coach or the servers start with the ball about 30 m from goal.",
+      "instructions": [
+        "Unopposed first: when the coach holds the ball with nobody near it the line drops together; when a server closes the coach down the line steps up together.",
+        "Add servers who move the ball; the line keeps its shape and height on the organiser's calls.",
+        "Add two attackers who try to run in behind; the line holds or drops together.",
+        "Finish with a live 4 v 3 or 4 v 4 towards the goal; the defenders score by dribbling over a target line."
+      ],
+      "coachingPoints": [
+        "Look across and stay level with the defender next to you.",
+        "One organiser calls step and drop; the whole line moves on the call.",
+        "Stand side-on, ready to move forwards or backwards.",
+        "Keep a short distance to the midfield in front when the line steps up."
+      ],
+      "progressions": [
+        "Remove the reference markers.",
+        "Add a midfield line of 2 or 3 in front of the defenders so that the back line also keeps its distance to them."
+      ],
+      "regressions": [
+        "Walk through the calls without a ball, holding hands or a rope between the defenders to feel the line.",
+        "Use a line of 2 or 3 before the full back line.",
+        "Keep the reference markers and let the defenders stop on them after every call."
+      ],
+      "successCriteria": [
+        "In the exercise: on each call the whole line steps or drops together and stays level, with no defender more than about 2 m out of line, in at least 4 of 5 repetitions.",
+        "Back in the match: the coaching report's back-line spread stays at or below the professional median it states, with no spell beyond its upper level."
+      ],
+      "variations": {
+        "development": "Use a line of 3, walk through the calls and keep the reference markers throughout.",
+        "competitive": "Use the team's own back line and goalkeeper; the goalkeeper helps the organiser with the calls.",
+        "advanced": "Work on the cues for stepping and dropping (pressure on the ball or none, the direction of the ball) at match tempo."
+      },
+      "safety": [
+        "Warm up before the first repetition and raise the intensity gradually.",
+        "Keep the area behind the defenders clear of balls and markers, because they move backwards.",
+        "Adapt the repetitions and rest to the players' age and fitness, with drinks breaks."
+      ],
+      "source": "Conventional back-line unit exercise (stepping and dropping on calls)."
+    },
+    {
+      "id": "support_angles",
+      "name": "Support angles possession game",
+      "purpose": "Offer a nearby team-mate an option at a good angle and distance, and adjust it as the ball moves.",
+      "tacticalIssue": "Players left far from their nearest team-mates, with nobody close enough to help.",
+      "recommendationKeys": ["support_distances"],
+      "patterns": ["player_isolation"],
+      "players": {"min": 5, "max": 14, "note": "Start with 4 v 2 or 5 v 2 in a square (4 v 1 or 5 v 1 at development level); progress to 4 v 4 with 3 neutral players; a larger squad works in two groups."},
+      "durationMinutes": {"min": 15, "max": 20, "note": "Blocks of 2 to 3 minutes; change the defenders often."},
+      "area": "A square of about 12 x 12 m for the first stage (about 15 x 15 m at development level) and about 30 x 25 m for the second stage.",
+      "equipment": ["Flat markers or cones for the square and the larger area", "Bibs in three colours (two teams and the neutral players)", "Balls around the outside"],
+      "setup": "Mark the square for the first stage and the larger area for the second stage (see Area). Bibs for both teams and for the neutral players; balls around the outside.",
+      "instructions": [
+        "Stage one: 4 v 2 (or 5 v 2) keep-ball in the square. The players with the ball keep it away from the 2 defenders; a defender who wins it swaps with the player who lost it.",
+        "Stage two: 4 v 4 with 3 neutral players who play for the team with the ball, in the larger area.",
+        "A set number of passes in a row (for example 8) scores a point.",
+        "If needed, limit the players to two touches so that the players without the ball have to move to help."
+      ],
+      "coachingPoints": [
+        "Angle: move so that no defender stands between you and the ball.",
+        "Distance: close enough for a safe pass, far enough to have time and space.",
+        "Open body shape, ready to play forward or to switch the play.",
+        "Check around you before receiving, and move again after passing."
+      ],
+      "progressions": [
+        "Make the area smaller or reduce the touches allowed.",
+        "Add target players at each end so that support also has to create forward options."
+      ],
+      "regressions": [
+        "Play 4 v 1 or 5 v 1 with unlimited touches in a bigger square.",
+        "Let the defender only intercept, not tackle, so the players have time to adjust their angles.",
+        "Freeze after each pass and let the players check that they can see the ball past the defenders."
+      ],
+      "successCriteria": [
+        "In the game: the team with the ball reaches the passes-in-a-row target (for example 8) at least once in each block of 2 to 3 minutes, with a supporting player available at an angle on at least 4 of 5 passes.",
+        "Back in the match: the coaching report shows no player with more spells far from the nearest team-mate than professional players of the same unit."
+      ],
+      "variations": {
+        "development": "Start with 4 v 1 or 5 v 1 in the bigger square with unlimited touches.",
+        "competitive": "Play 4 v 4 with 3 neutral players, two touches and a passes-in-a-row target.",
+        "advanced": "Add directional targets so that the support angles also open forward options."
+      },
+      "safety": [
+        "Warm up before the first block and raise the intensity gradually.",
+        "Keep spare balls outside the square and stop play when a loose ball enters it.",
+        "Adapt the area, block length and rest to the players' age and fitness, with drinks breaks."
+      ],
+      "source": "Conventional rondo-style keep-ball progressing to a possession game with neutral players."
+    },
+    {
+      "id": "formation_shadow_play",
+      "name": "Formation shadow play with conditioned opposition",
+      "purpose": "Rehearse the team's shape and each player's position relative to the ball and to team-mates, first without and then with opponents.",
+      "tacticalIssue": "A team shape that is hard to read or changes without a plan, with unclear positions and responsibilities.",
+      "recommendationKeys": ["formation_organisation", "compact_shape"],
+      "patterns": ["formation_change", "formation_ambiguous"],
+      "players": {"min": 7, "max": 22, "note": "The team in its match format (from 7-a-side at development level), plus opponents or servers for the later stages."},
+      "durationMinutes": {"min": 20, "max": 25, "note": "About 8 minutes of shadow play, then 12 to 15 minutes against conditioned opposition."},
+      "area": "Half to three quarters of a pitch for the team's match format.",
+      "equipment": ["Flat markers for reference points of the lines", "Balls with the coach at the side", "Bibs for the opponents or servers", "A goal with a goalkeeper"],
+      "setup": "Use half to three quarters of a pitch with the team set up in its match formation. The coach keeps balls at the side; flat markers can show reference points for the lines.",
+      "instructions": [
+        "Shadow play without opponents: the coach places or plays a ball into an area of the pitch and every player adjusts their position to the ball while keeping their distances.",
+        "Move the ball around the pitch (wide, central, deep and high) and freeze to check each player's position.",
+        "Add a few opponents or servers with restrictions (for example two touches, or only some of them may move) so the shape is tested at low intensity.",
+        "Finish with a conditioned game against full opposition, with one freeze per block to review the shape."
+      ],
+      "coachingPoints": [
+        "Every player knows their position relative to the ball, the nearest team-mates and the goal.",
+        "The lines keep their distances and move together.",
+        "When players swap positions, the nearest player fills the space and calls it.",
+        "The organisers at the back and in midfield keep the shape with clear calls."
+      ],
+      "progressions": [
+        "Let the coach call a change to the team's second shape and check how quickly the players reorganise.",
+        "Remove the restrictions on the opponents step by step."
+      ],
+      "regressions": [
+        "Walk through the positions with markers on each player's reference point.",
+        "Rehearse one line at a time, then two, then the whole team.",
+        "Keep the ball still in each area until every player has found their position."
+      ],
+      "successCriteria": [
+        "In the exercise: at each freeze every player stands in the planned position relative to the ball and team-mates in at least 4 of 5 freezes.",
+        "Back in the match: the coaching report reads the shape as the planned formation, and most players keep one role at least three quarters of the time."
+      ],
+      "variations": {
+        "development": "Use the team's small-sided format and a simple shape, walk through the positions and use markers as reference points.",
+        "competitive": "Rehearse the team's main formation and the change to its alternative shape on the coach's call.",
+        "advanced": "Rehearse planned rotations and their triggers, and check that cover and balance are kept."
+      },
+      "safety": [
+        "Shadow play is contact-free; keep the opposed stages at a controlled intensity.",
+        "Warm up before the session and raise the intensity gradually.",
+        "Adapt the duration and rest to the players' age and fitness, with drinks breaks."
+      ],
+      "source": "Conventional shadow play followed by a conditioned game."
+    },
+    {
+      "id": "off_ball_movement",
+      "name": "Position-specific off-ball movement",
+      "purpose": "Practise the movements each position makes without the ball to stay connected to team-mates and to offer support between and behind the lines.",
+      "tacticalIssue": "A large distance between midfield and the front line, or players separated from their team-mates.",
+      "recommendationKeys": ["support_distances", "compact_lines"],
+      "patterns": ["space_between_midfield_and_forwards", "player_isolation"],
+      "players": {"min": 5, "max": 12, "note": "Groups by position (for example 2 midfielders and 2 forwards) with a server, then passive defenders."},
+      "durationMinutes": {"min": 15, "max": 20, "note": "Pattern repetitions of 1 to 2 minutes per group, changing positions."},
+      "area": "A third of a pitch, the full width, with a goal at one end.",
+      "equipment": ["Mannequins or flat markers standing in for opponents", "Balls with the servers near the halfway line", "Bibs for the passive defenders", "A goal with a goalkeeper"],
+      "setup": "Use a third of a pitch with mannequins or flat markers standing in for opponents. Servers with balls start near the halfway line.",
+      "instructions": [
+        "Unopposed patterns: a server plays to a midfielder; one forward comes short to support and the other runs in behind, and the midfielders adjust their distance.",
+        "Repeat on both sides and through the middle, changing which player comes short and which runs.",
+        "Add passive defenders, then active defenders, so that the timing of the movements is tested.",
+        "Finish with a small game in which a goal counts double when it follows a supporting movement between the lines."
+      ],
+      "coachingPoints": [
+        "Timing: move when the team-mate on the ball can see you and is ready to play.",
+        "Check over your shoulder before moving, then move away from opponents into space.",
+        "Stay connected: forwards and midfielders stay close enough to help each other.",
+        "Make the movement clear with a call or a gesture."
+      ],
+      "progressions": [
+        "Let the defenders choose where to stand so that the players read which movement is on.",
+        "Limit the touches of the players receiving between the lines."
+      ],
+      "regressions": [
+        "Walk through each pattern with the coach naming who comes short and who runs.",
+        "Use one forward and one midfielder before adding the second pair.",
+        "Keep the mannequins in fixed places until the timing is right."
+      ],
+      "successCriteria": [
+        "In the exercise: the supporting player is open and in view of the team-mate on the ball when the ball is played, in at least 4 of 5 repetitions.",
+        "Back in the match: the coaching report's distance from midfield to the front line stays at or below the professional median it states."
+      ],
+      "variations": {
+        "development": "Keep the patterns simple (one player comes short, one runs) and unopposed for longer.",
+        "competitive": "Use the team's own positions and patterns at match tempo with passive defenders.",
+        "advanced": "Add opposition cues (where the defenders stand and how high their line is) that decide which movement to make."
+      },
+      "safety": [
+        "Warm up before the first pattern and raise the intensity gradually.",
+        "Use soft mannequins or flat markers as opponents and keep them clear of the running lines.",
+        "Adapt the repetitions and rest to the players' age and fitness, with drinks breaks."
+      ],
+      "source": "Conventional unit pattern play progressing from unopposed to opposed."
+    }
+  ]
+}

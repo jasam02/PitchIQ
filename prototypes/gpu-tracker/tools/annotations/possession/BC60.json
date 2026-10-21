@@ -1,0 +1,967 @@
+{
+ "clip": "BC60",
+ "video": "2bac432528d0e568.mp4",
+ "split": "dev",
+ "range": [
+  0.0,
+  59.967
+ ],
+ "step": 0.5,
+ "timeBase": "absolute source seconds (video.currentTime); grid 0.0..59.5",
+ "mapping": {
+  "A": "yellow (fluorescent) shirts, shorts and socks - RCD Espanyol on the scoreboard; their goalkeeper wears light blue/cyan; A defends the right-hand goal in this clip",
+  "B": "blue-and-garnet striped (blaugrana) shirts, dark shorts - FC Barcelona on the scoreboard; B attacks the right-hand goal"
+ },
+ "mappingSource": "team letters of result.json people[] boxes drawn on frames 0 and 900 (only team/role read)",
+ "conventions": "possession persists through passes, shots, clearances and loose balls until the other team controls; dead from the ball leaving play / the stoppage until the restart touch; conf 3 sure, 2 likely, 1 weak",
+ "points": [
+  {
+   "t": 0.0,
+   "team": "dead",
+   "conf": 3,
+   "note": "before kick-off: ball still on the centre spot, B kick-off taker standing over it",
+   "note2": "kick-off pending: Barcelona player standing over the ball on the centre spot, all players in own halves"
+  },
+  {
+   "t": 0.5,
+   "team": "dead",
+   "conf": 3,
+   "note": "before kick-off: ball still on the centre spot, B kick-off taker standing over it",
+   "note2": "kick-off pending: Barcelona player standing over the ball on the centre spot, all players in own halves"
+  },
+  {
+   "t": 1.0,
+   "team": "B",
+   "conf": 2,
+   "note": "kick-off taken ~0.90 s by B player on the centre spot; ball at his foot",
+   "note2": "kick-off restart touch at ~0.97 s (frame 29) by the Barcelona player on the centre spot; borderline with dead"
+  },
+  {
+   "t": 1.5,
+   "team": "B",
+   "conf": 3,
+   "note": "kick-off back pass (~1.25 s) rolling to B left centre-back",
+   "note2": "kick-off ball rolling back into the Barcelona half"
+  },
+  {
+   "t": 2.0,
+   "team": "B",
+   "conf": 3,
+   "note": "kick-off back pass (~1.25 s) rolling to B left centre-back",
+   "note2": "ball rolling to Barcelona left centre-back"
+  },
+  {
+   "t": 2.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B centre-back (left of centre circle) receives ~2.6 s and carries",
+   "note2": "Barcelona centre-back carrying in own half, no opponent near"
+  },
+  {
+   "t": 3.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B centre-back (left of centre circle) receives ~2.6 s and carries",
+   "note2": "Barcelona centre-back carrying in own half, no opponent near"
+  },
+  {
+   "t": 3.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B centre-back (left of centre circle) receives ~2.6 s and carries",
+   "note2": "Barcelona centre-back carrying in own half, no opponent near"
+  },
+  {
+   "t": 4.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B centre-back (left of centre circle) receives ~2.6 s and carries",
+   "note2": "Barcelona centre-back carrying in own half, no opponent near"
+  },
+  {
+   "t": 4.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~4.4 s from B centre-back to B player on the far-left side, received ~5.4 s",
+   "note2": "Barcelona centre-back passing to the other centre-back"
+  },
+  {
+   "t": 5.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~4.4 s from B centre-back to B player on the far-left side, received ~5.4 s",
+   "note2": "pass in flight between Barcelona centre-backs"
+  },
+  {
+   "t": 5.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 6.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 6.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 7.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 7.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 8.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 8.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "Barcelona centre-back (far side) carrying forward"
+  },
+  {
+   "t": 9.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-side left player carrying in own half",
+   "note2": "pass in flight between Barcelona defenders"
+  },
+  {
+   "t": 9.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~9.2 s to B midfielder near centre circle, received ~10.1 s",
+   "note2": "pass in flight between Barcelona defenders"
+  },
+  {
+   "t": 10.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 10.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 11.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 11.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 12.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 12.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 13.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 13.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 14.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 14.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona defender carrying into the centre circle / midfield"
+  },
+  {
+   "t": 15.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B midfielder carries through the centre circle and over halfway",
+   "note2": "Barcelona forward pass in flight / being received by far-side Barcelona midfielder"
+  },
+  {
+   "t": 15.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~15.2 s to B player in A half (received ~15.7 s); A player closes him",
+   "note2": "Barcelona forward pass in flight / being received by far-side Barcelona midfielder"
+  },
+  {
+   "t": 16.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~15.2 s to B player in A half (received ~15.7 s); A player closes him",
+   "note2": "Barcelona far-side midfielder on the ball, yellow player closing"
+  },
+  {
+   "t": 16.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~15.2 s to B player in A half (received ~15.7 s); A player closes him",
+   "note2": "Barcelona far-side midfielder on the ball, yellow player closing"
+  },
+  {
+   "t": 17.0,
+   "team": "B",
+   "conf": 3,
+   "note": "back pass ~16.8 s to B player near halfway, received ~17.5 s",
+   "note2": "back pass in flight under pressure to a Barcelona player"
+  },
+  {
+   "t": 17.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player near halfway carrying",
+   "note2": "Barcelona player receiving and carrying"
+  },
+  {
+   "t": 18.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player near halfway carrying",
+   "note2": "Barcelona player receiving and carrying"
+  },
+  {
+   "t": 18.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player near halfway carrying",
+   "note2": "Barcelona player receiving and carrying"
+  },
+  {
+   "t": 19.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player near halfway carrying",
+   "note2": "pass in flight to Barcelona near-side centre-back (no. 4)"
+  },
+  {
+   "t": 19.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~19.1 s to B shirt-4 player below centre circle, received ~19.9 s",
+   "note2": "pass in flight to Barcelona near-side centre-back (no. 4)"
+  },
+  {
+   "t": 20.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 player carrying along the halfway line (near side)",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 20.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 player carrying along the halfway line (near side)",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 21.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 player carrying along the halfway line (near side)",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 21.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 player carrying along the halfway line (near side)",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 22.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 player carrying along the halfway line (near side)",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 22.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 player carrying along the halfway line (near side)",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 23.0,
+   "team": "B",
+   "conf": 2,
+   "note": "ball hidden by B shirt-4 body / in the air at his feet 22.6-23.4 s; no A player within ~10 m",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 23.5,
+   "team": "B",
+   "conf": 3,
+   "note": "ball visible again at B shirt-4 feet; chip pass ~24.2 s",
+   "note2": "Barcelona no. 4 dribbling near the halfway line"
+  },
+  {
+   "t": 24.0,
+   "team": "B",
+   "conf": 3,
+   "note": "ball visible again at B shirt-4 feet; chip pass ~24.2 s",
+   "note2": "Barcelona no. 4 passes; ball in flight to Barcelona midfielder"
+  },
+  {
+   "t": 24.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass to B player in the centre circle, received ~24.9 s",
+   "note2": "Barcelona no. 4 passes; ball in flight to Barcelona midfielder"
+  },
+  {
+   "t": 25.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona midfielder receiving and carrying at the centre-circle edge"
+  },
+  {
+   "t": 25.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona midfielder receiving and carrying at the centre-circle edge"
+  },
+  {
+   "t": 26.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona midfielder receiving and carrying at the centre-circle edge"
+  },
+  {
+   "t": 26.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona forward pass in flight to far-side midfielder"
+  },
+  {
+   "t": 27.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~26.6 s forward-right to B player in A half, received ~27.6 s",
+   "note2": "Barcelona forward pass in flight to far-side midfielder"
+  },
+  {
+   "t": 27.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~26.6 s forward-right to B player in A half, received ~27.6 s",
+   "note2": "Barcelona far-side midfielder on the ball, yellow player closing"
+  },
+  {
+   "t": 28.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player in A half with ball, A player arriving from his right",
+   "note2": "Barcelona far-side midfielder on the ball, yellow player closing"
+  },
+  {
+   "t": 28.5,
+   "team": "B",
+   "conf": 2,
+   "note": "duel B dribbler vs A player 28.4-28.9 s; ball squirts out ~28.9 s (A touch possible, no A control) toward B far-touchline player",
+   "note2": "duel: ball hidden between Barcelona midfielder and yellow challenger (28.3-28.8); ball comes out at 28.9 toward a Barcelona player"
+  },
+  {
+   "t": 29.0,
+   "team": "B",
+   "conf": 2,
+   "note": "duel B dribbler vs A player 28.4-28.9 s; ball squirts out ~28.9 s (A touch possible, no A control) toward B far-touchline player",
+   "note2": "ball squirting out of the duel toward Barcelona player at the far touchline"
+  },
+  {
+   "t": 29.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-touchline player receives ~29.5 s and carries along the far touchline",
+   "note2": "Barcelona player at the far touchline dribbling"
+  },
+  {
+   "t": 30.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-touchline player receives ~29.5 s and carries along the far touchline",
+   "note2": "Barcelona player at the far touchline dribbling"
+  },
+  {
+   "t": 30.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-touchline player receives ~29.5 s and carries along the far touchline",
+   "note2": "Barcelona player at the far touchline dribbling"
+  },
+  {
+   "t": 31.0,
+   "team": "B",
+   "conf": 2,
+   "note": "pass ~30.8 s inside from far touchline; A player lunges at it ~31.0-31.1 s (maybe a deflection, no control); B player collects ~31.4 s",
+   "note2": "Barcelona pass infield touched/deflected by a stretching yellow player (30.9-31.1) and runs on to a Barcelona player; no yellow control"
+  },
+  {
+   "t": 31.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in A half",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 32.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in A half",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 32.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in A half",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 33.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in A half",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 33.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in A half",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 34.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player passes back ~34.0 s",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 34.5,
+   "team": "B",
+   "conf": 3,
+   "note": "back pass rolling to B shirt-4 near halfway, received ~35.2 s",
+   "note2": "Barcelona players circulating on the left of midfield"
+  },
+  {
+   "t": 35.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "pass in flight to Barcelona near-side player"
+  },
+  {
+   "t": 35.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona near-side player carrying"
+  },
+  {
+   "t": 36.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona near-side player carrying"
+  },
+  {
+   "t": 36.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona near-side player carrying"
+  },
+  {
+   "t": 37.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona near-side player carrying"
+  },
+  {
+   "t": 37.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona near-side player carrying"
+  },
+  {
+   "t": 38.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona player (blond) carrying with a yellow player chasing shoulder to shoulder"
+  },
+  {
+   "t": 38.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B shirt-4 carries forward then turns back under pressure from an A player",
+   "note2": "Barcelona player (blond) carrying with a yellow player chasing shoulder to shoulder"
+  },
+  {
+   "t": 39.0,
+   "team": "B",
+   "conf": 2,
+   "note": "B shirt-4 pushes ball back toward his half with A player shoulder to shoulder; ball 1-2 m ahead of him, nobody else on it",
+   "note2": "Barcelona player (blond) carrying with a yellow player chasing shoulder to shoulder"
+  },
+  {
+   "t": 39.5,
+   "team": "B",
+   "conf": 2,
+   "note": "B shirt-4 pushes ball back toward his half with A player shoulder to shoulder; ball 1-2 m ahead of him, nobody else on it",
+   "note2": "Barcelona player (blond) carrying with a yellow player chasing shoulder to shoulder"
+  },
+  {
+   "t": 40.0,
+   "team": "B",
+   "conf": 2,
+   "note": "B shirt-4 pushes ball back toward his half with A player shoulder to shoulder; ball 1-2 m ahead of him, nobody else on it",
+   "note2": "Barcelona player (blond) carrying with a yellow player chasing shoulder to shoulder"
+  },
+  {
+   "t": 40.5,
+   "team": "B",
+   "conf": 2,
+   "note": "B shirt-4 pushes ball back toward his half with A player shoulder to shoulder; ball 1-2 m ahead of him, nobody else on it",
+   "note2": "Barcelona blond player has just passed back under the challenge (pass at ~40.45 s); ball in flight"
+  },
+  {
+   "t": 41.0,
+   "team": "B",
+   "conf": 3,
+   "note": "back pass ~40.7 s to B player running back in own half, collected ~42.2 s",
+   "note2": "back pass in flight to Barcelona centre-back"
+  },
+  {
+   "t": 41.5,
+   "team": "B",
+   "conf": 3,
+   "note": "back pass ~40.7 s to B player running back in own half, collected ~42.2 s",
+   "note2": "back pass in flight to Barcelona centre-back"
+  },
+  {
+   "t": 42.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 42.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 43.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 43.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 44.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 44.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 45.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 45.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona centre-back carrying in own half (Barcelona keeper in orange at left)"
+  },
+  {
+   "t": 46.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 46.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in own half / centre circle, no pressure",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 47.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~46.9 s up-right to B player just inside A half, received ~48.2 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 47.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~46.9 s up-right to B player just inside A half, received ~48.2 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 48.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~46.9 s up-right to B player just inside A half, received ~48.2 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 48.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player in A half turns back",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 49.0,
+   "team": "B",
+   "conf": 3,
+   "note": "back pass ~48.7 s to B player at top of centre circle, received ~49.6 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 49.5,
+   "team": "B",
+   "conf": 3,
+   "note": "back pass ~48.7 s to B player at top of centre circle, received ~49.6 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 50.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 50.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 51.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 51.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying in the centre circle",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 52.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~51.9 s to B player at halfway, received ~52.5 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 52.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying into A half",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 53.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying into A half",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 53.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying into A half",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 54.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying into A half",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 54.5,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~54.4 s to B player on far touchline, received ~55.3 s",
+   "note2": "Barcelona circulation in midfield, Espanyol in a mid block"
+  },
+  {
+   "t": 55.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~54.4 s to B player on far touchline, received ~55.3 s",
+   "note2": "Barcelona passes near the far touchline"
+  },
+  {
+   "t": 55.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-touchline player carrying",
+   "note2": "Barcelona passes near the far touchline"
+  },
+  {
+   "t": 56.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-touchline player carrying",
+   "note2": "Barcelona passes near the far touchline"
+  },
+  {
+   "t": 56.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B far-touchline player carrying",
+   "note2": "Barcelona passes near the far touchline"
+  },
+  {
+   "t": 57.0,
+   "team": "B",
+   "conf": 3,
+   "note": "pass ~56.7 s to second B player just inside, received ~56.95 s",
+   "note2": "Barcelona player dribbling near the far touchline under pressure from two yellow players, keeps the ball"
+  },
+  {
+   "t": 57.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying, two A players close; turns back toward halfway with ball",
+   "note2": "Barcelona player dribbling near the far touchline under pressure from two yellow players, keeps the ball"
+  },
+  {
+   "t": 58.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying, two A players close; turns back toward halfway with ball",
+   "note2": "Barcelona player dribbling near the far touchline under pressure from two yellow players, keeps the ball"
+  },
+  {
+   "t": 58.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying, two A players close; turns back toward halfway with ball",
+   "note2": "Barcelona player dribbling near the far touchline under pressure from two yellow players, keeps the ball"
+  },
+  {
+   "t": 59.0,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying, two A players close; turns back toward halfway with ball",
+   "note2": "Barcelona player dribbling near the far touchline under pressure from two yellow players, keeps the ball"
+  },
+  {
+   "t": 59.5,
+   "team": "B",
+   "conf": 3,
+   "note": "B player carrying, two A players close; turns back toward halfway with ball",
+   "note2": "Barcelona player dribbling near the far touchline under pressure from two yellow players, keeps the ball"
+  }
+ ],
+ "changes": [],
+ "restarts": [
+  {
+   "kind": "kick_off",
+   "team": "B",
+   "deadFrom": 0.0,
+   "restartAt": 0.93,
+   "conf": 3,
+   "note": "kick-off touch between frames 28 and 29 (ball leaves the centre spot at 0.93-0.97 s); not a possession change (no prior possession in the clip)"
+  }
+ ],
+ "contestedNoChange": [
+  {
+   "t0": 16.6,
+   "t1": 16.9,
+   "note": "A player arrives on the B receiver; B passes back at ~16.8 s before any A touch",
+   "conf": 3
+  },
+  {
+   "t0": 28.4,
+   "t1": 29.5,
+   "note": "B dribbler vs A player tangle; ball squirts out ~28.9 s up-right and the B far-touchline player collects ~29.5 s; an A touch is possible but A never controls",
+   "conf": 2
+  },
+  {
+   "t0": 30.8,
+   "t1": 31.4,
+   "note": "A player lunges at a B inside pass ~31.0-31.1 s; ball keeps its line to a B player (deflection at most)",
+   "conf": 2
+  },
+  {
+   "t0": 38.5,
+   "t1": 40.5,
+   "note": "A player shoulder to shoulder with the B shirt-4 carrier; B keeps it and plays back at ~40.7 s",
+   "conf": 3
+  },
+  {
+   "t0": 58.6,
+   "t1": 59.4,
+   "note": "two A players close the B carrier; he turns and carries back, no A touch",
+   "conf": 3
+  }
+ ],
+ "summary": {
+  "counts": {
+   "dead": 2,
+   "B": 118
+  },
+  "possessionChanges": 0
+ },
+ "adjudicated": [
+  "L1 and L2 agree on all 120 points (2 dead, 118 B) and on the empty change list; nothing to resolve.",
+  "Kick-off timing checked frame by frame (bc60_ko.jpg): ball still on the spot at frame 28 (0.933 s), moved at frame 29 (0.967 s); restartAt set to 0.93 (L1 0.90, L2 0.97). Point t=1.0 is B either way.",
+  "Overlap with BC180 (42.5-59.5 s): BC60 B == BC180 A (letters swapped between the two runs); the adjudicated files agree on all 35 overlap points (checked by this script)."
+ ],
+ "agreement": {
+  "labellers": [
+   "L1",
+   "L2"
+  ],
+  "points": {
+   "points": 120,
+   "exactLabelAgreement": 120,
+   "exactLabelRate": 1.0,
+   "bothNamedTeam": 118,
+   "teamAgree": 118,
+   "teamAgreementRate": 1.0,
+   "teamKappa": null,
+   "atLeastOneNamedTeam": 118,
+   "sameTeamWhereEitherNamedTeam": 118,
+   "labelKappaAllCategories": 1.0,
+   "disagreements": []
+  },
+  "changes": {
+   "L1changes": 0,
+   "L2changes": 0,
+   "matchedWonAtPm1s": 0,
+   "matchedWonAtPm2s": 0,
+   "wonAtAbsDiff": null,
+   "lostAtAbsDiff": null,
+   "pairs": [],
+   "unmatched": 0
+  },
+  "restartTiming": {
+   "L1kickOff": 0.9,
+   "L2kickOff": 0.97,
+   "adjudicated": 0.93
+  },
+  "L1vsFinal": {
+   "exactLabel": "120/120",
+   "teamVsTeam": "118/118",
+   "teamVsTeamRate": 1.0
+  },
+  "L2vsFinal": {
+   "exactLabel": "120/120",
+   "teamVsTeam": "118/118",
+   "teamVsTeamRate": 1.0
+  },
+  "caveat": "BC60 contains no possession change: every live point is B, so an always-B answer scores 100% on it; it can test holding a team through passes and pressure, not change detection.",
+  "overlapWithBC180": {
+   "points": 35,
+   "consistentAfterLetterSwap": 35
+  }
+ },
+ "sources": [
+  "labels/raw/BC60-L1.json",
+  "labels/raw/BC60-L2.json"
+ ]
+}

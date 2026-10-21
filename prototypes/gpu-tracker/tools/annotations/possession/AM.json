@@ -1,0 +1,1131 @@
+{
+ "clip": "AM",
+ "videoKey": "6dfdc88ec6f2d100",
+ "range": [
+  118.2,
+  182.0
+ ],
+ "labeller": "L1",
+ "mapping": {
+  "A": "white shirts, navy/striped shorts; keeper yellow; defends the LEFT goal in this clip (attacks right)",
+  "B": "royal/light blue shirts and shorts; keeper lime green; defends the RIGHT goal (attacks left)"
+ },
+ "mappingSource": "team letters of people[] boxes drawn on frames 122.0/150.0/175.0; keeper sides from the video (B keeper punt at 131.2 lands on B players; A keeper collects a B attack at 153.35 and plays to A)",
+ "step": 0.5,
+ "timeBase": "absolute source seconds (frame/30)",
+ "points": [
+  {
+   "t": 118.2,
+   "team": "dead",
+   "conf": 3,
+   "note": "B throw-in being prepared at the near (camera-side) touchline, right half"
+  },
+  {
+   "t": 118.7,
+   "team": "dead",
+   "conf": 3,
+   "note": "B thrower arms overhead; release ~118.87"
+  },
+  {
+   "t": 119.2,
+   "team": "B",
+   "conf": 3,
+   "note": "throw-in in flight"
+  },
+  {
+   "t": 119.7,
+   "team": "B",
+   "conf": 2,
+   "note": "throw arrives at chest height; A player brushes it (no control); B receiver controls ~119.87"
+  },
+  {
+   "t": 120.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B receiver pushes ball back toward the thrower"
+  },
+  {
+   "t": 120.7,
+   "team": "B",
+   "conf": 3,
+   "note": "ball rolling to B thrower at the touchline"
+  },
+  {
+   "t": 121.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B thrower dribbling at the touchline"
+  },
+  {
+   "t": 121.7,
+   "team": "B",
+   "conf": 3,
+   "note": "lofted B ball (back-pass/clearance) in the air toward the B goal (right)"
+  },
+  {
+   "t": 122.2,
+   "team": "B",
+   "conf": 3,
+   "note": "lofted B ball (back-pass/clearance) in the air toward the B goal (right)"
+  },
+  {
+   "t": 122.7,
+   "team": "B",
+   "conf": 3,
+   "note": "lofted B ball (back-pass/clearance) in the air toward the B goal (right)"
+  },
+  {
+   "t": 123.2,
+   "team": "B",
+   "conf": 3,
+   "note": "ball descending to B keeper (lime)"
+  },
+  {
+   "t": 123.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper catching ~123.8"
+  },
+  {
+   "t": 124.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball"
+  },
+  {
+   "t": 124.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper has ball at feet / dribbling"
+  },
+  {
+   "t": 125.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper has ball at feet / dribbling"
+  },
+  {
+   "t": 125.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper dribbling, A forward closing in"
+  },
+  {
+   "t": 126.2,
+   "team": "B",
+   "conf": 2,
+   "note": "A forward presses B keeper, ball loose in a scramble 125.9-126.3; no A control"
+  },
+  {
+   "t": 126.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper has dived on the ball"
+  },
+  {
+   "t": 127.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 127.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 128.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 128.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 129.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 129.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 130.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 130.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper holds ball / walks"
+  },
+  {
+   "t": 131.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper punts (~131.2)"
+  },
+  {
+   "t": 131.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper punt in the air toward centre circle"
+  },
+  {
+   "t": 132.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper punt in the air toward centre circle"
+  },
+  {
+   "t": 132.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B keeper punt in the air toward centre circle"
+  },
+  {
+   "t": 133.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B player chest-controls ~133.0, lays to teammate who flicks it on ~133.3"
+  },
+  {
+   "t": 133.7,
+   "team": "B",
+   "conf": 2,
+   "note": "loose ball after B flick-on, bouncing toward A; no A control yet"
+  },
+  {
+   "t": 134.2,
+   "team": "B",
+   "conf": 2,
+   "note": "loose ball after B flick-on, bouncing toward A; no A control yet"
+  },
+  {
+   "t": 134.7,
+   "team": "B",
+   "conf": 1,
+   "note": "loose ball arriving at A player near referee; A control ~134.8"
+  },
+  {
+   "t": 135.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A player juggling/controlling near referee"
+  },
+  {
+   "t": 135.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A player dribbling slowly, right half"
+  },
+  {
+   "t": 136.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A player dribbling slowly, right half"
+  },
+  {
+   "t": 136.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A player dribbling slowly, right half"
+  },
+  {
+   "t": 137.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A player dribbling slowly, right half"
+  },
+  {
+   "t": 137.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A player dribbling slowly, right half"
+  },
+  {
+   "t": 138.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass rolling right"
+  },
+  {
+   "t": 138.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass rolling right"
+  },
+  {
+   "t": 139.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass reaching A receiver (~139.4)"
+  },
+  {
+   "t": 139.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver dribbling right"
+  },
+  {
+   "t": 140.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver dribbling right"
+  },
+  {
+   "t": 140.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver dribbling right"
+  },
+  {
+   "t": 141.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver dribbling right"
+  },
+  {
+   "t": 141.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver dribbling right"
+  },
+  {
+   "t": 142.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver dribbling right"
+  },
+  {
+   "t": 142.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A carrier with ball beside B #13"
+  },
+  {
+   "t": 143.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A carrier passes back-left past B #13 (~143.37)"
+  },
+  {
+   "t": 143.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass rolling left"
+  },
+  {
+   "t": 144.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A pass rolling left"
+  },
+  {
+   "t": 144.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A receiver controls ~144.6, dribbling"
+  },
+  {
+   "t": 145.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A carrier dribbling with B player alongside"
+  },
+  {
+   "t": 145.7,
+   "team": "A",
+   "conf": 2,
+   "note": "B challenge on A carrier 145.7-145.9"
+  },
+  {
+   "t": 146.2,
+   "team": "A",
+   "conf": 2,
+   "note": "ball squirted loose after the challenge; not yet controlled by B"
+  },
+  {
+   "t": 146.7,
+   "team": "B",
+   "conf": 2,
+   "note": "B #11 reached loose ball ~146.3; shielding against an A player to ~146.9"
+  },
+  {
+   "t": 147.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B #11 dribbling left"
+  },
+  {
+   "t": 147.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B #11 dribbling left"
+  },
+  {
+   "t": 148.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B #11 dribbling left"
+  },
+  {
+   "t": 148.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B #11 dribbling left"
+  },
+  {
+   "t": 149.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B pass to teammate at left (~148.9); teammate dribbling"
+  },
+  {
+   "t": 149.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B dribbling toward A goal (left)"
+  },
+  {
+   "t": 150.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B dribbling toward A goal (left)"
+  },
+  {
+   "t": 150.7,
+   "team": "B",
+   "conf": 3,
+   "note": "B dribbling toward A goal (left)"
+  },
+  {
+   "t": 151.2,
+   "team": "B",
+   "conf": 3,
+   "note": "B dribbling toward A goal (left)"
+  },
+  {
+   "t": 151.7,
+   "team": "B",
+   "conf": 2,
+   "note": "B dribbler with an A defender tight alongside"
+  },
+  {
+   "t": 152.2,
+   "team": "B",
+   "conf": 2,
+   "note": "B dribbler with an A defender tight alongside"
+  },
+  {
+   "t": 152.7,
+   "team": "B",
+   "conf": 2,
+   "note": "ball rolling ahead of B dribbler (long touch ~152.35) toward A keeper"
+  },
+  {
+   "t": 153.2,
+   "team": "B",
+   "conf": 1,
+   "note": "ball arriving at A keeper (yellow); collected ~153.35"
+  },
+  {
+   "t": 153.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A keeper has ball at feet"
+  },
+  {
+   "t": 154.2,
+   "team": "A",
+   "conf": 3,
+   "note": "A keeper dribbles past pressing B player"
+  },
+  {
+   "t": 154.7,
+   "team": "A",
+   "conf": 3,
+   "note": "A keeper dribbling"
+  },
+  {
+   "t": 155.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A keeper / A defender with ball near A box (ball tiny, far)"
+  },
+  {
+   "t": 155.7,
+   "team": "A",
+   "conf": 2,
+   "note": "A keeper / A defender with ball near A box (ball tiny, far)"
+  },
+  {
+   "t": 156.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A keeper / A defender with ball near A box (ball tiny, far)"
+  },
+  {
+   "t": 156.7,
+   "team": "A",
+   "conf": 2,
+   "note": "A keeper / A defender with ball near A box (ball tiny, far)"
+  },
+  {
+   "t": 157.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A keeper / A defender with ball near A box (ball tiny, far)"
+  },
+  {
+   "t": 157.7,
+   "team": "A",
+   "conf": 2,
+   "note": "A pass in transit rightwards (passes a B player with no visible deflection)"
+  },
+  {
+   "t": 158.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A pass reaching A player"
+  },
+  {
+   "t": 158.7,
+   "team": "A",
+   "conf": 2,
+   "note": "A players dribbling/passing right along far touchline (far, small)"
+  },
+  {
+   "t": 159.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A players dribbling/passing right along far touchline (far, small)"
+  },
+  {
+   "t": 159.7,
+   "team": "A",
+   "conf": 2,
+   "note": "A players dribbling/passing right along far touchline (far, small)"
+  },
+  {
+   "t": 160.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A players dribbling/passing right along far touchline (far, small)"
+  },
+  {
+   "t": 160.7,
+   "team": "A",
+   "conf": 2,
+   "note": "A players dribbling/passing right along far touchline (far, small)"
+  },
+  {
+   "t": 161.2,
+   "team": "A",
+   "conf": 2,
+   "note": "A players dribbling/passing right along far touchline (far, small)"
+  },
+  {
+   "t": 161.7,
+   "team": "B",
+   "conf": 1,
+   "note": "B player steps in on A dribbler ~161.6-161.8 (far, small)"
+  },
+  {
+   "t": 162.2,
+   "team": "B",
+   "conf": 2,
+   "note": "B player dribbling right along far touchline with B support ahead, A chasing (far)"
+  },
+  {
+   "t": 162.7,
+   "team": "B",
+   "conf": 2,
+   "note": "B player dribbling right along far touchline with B support ahead, A chasing (far)"
+  },
+  {
+   "t": 163.2,
+   "team": "B",
+   "conf": 2,
+   "note": "B player dribbling right along far touchline with B support ahead, A chasing (far)"
+  },
+  {
+   "t": 163.7,
+   "team": "B",
+   "conf": 2,
+   "note": "B player dribbling right along far touchline with B support ahead, A chasing (far)"
+  },
+  {
+   "t": 164.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 164.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 165.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 165.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 166.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 166.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 167.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 167.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 168.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "far side, camera zoomed out; ball not resolvable; B dribble may have ended in a pass or a loss"
+  },
+  {
+   "t": 168.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball rolling slowly along far touchline, A player trailing, players walking; possibly already out of play"
+  },
+  {
+   "t": 169.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball rolling slowly along far touchline, A player trailing, players walking; possibly already out of play"
+  },
+  {
+   "t": 169.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball rolling slowly along far touchline, A player trailing, players walking; possibly already out of play"
+  },
+  {
+   "t": 170.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball rolling slowly along far touchline, A player trailing, players walking; possibly already out of play"
+  },
+  {
+   "t": 170.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball rolling slowly along far touchline, A player trailing, players walking; possibly already out of play"
+  },
+  {
+   "t": 171.2,
+   "team": "unclear",
+   "conf": 1,
+   "note": "ball rolling slowly along far touchline, A player trailing, players walking; possibly already out of play"
+  },
+  {
+   "t": 171.7,
+   "team": "unclear",
+   "conf": 1,
+   "note": "B player retrieving ball at far touchline; probably dead"
+  },
+  {
+   "t": 172.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 172.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 173.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 173.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 174.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 174.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 175.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 175.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 176.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 176.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 177.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 177.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 178.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 178.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 179.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 179.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 180.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 180.7,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 181.2,
+   "team": "dead",
+   "conf": 2,
+   "note": "B player stands on the track with the ball, players static: B throw-in being prepared"
+  },
+  {
+   "t": 181.7,
+   "team": "dead",
+   "conf": 3,
+   "note": "B thrower arms overhead; throw not taken before clip end"
+  }
+ ],
+ "changes": [
+  {
+   "wonAt": 134.8,
+   "lostAt": 133.3,
+   "fromTeam": "B",
+   "toTeam": "A",
+   "cause": "misplaced pass",
+   "conf": 2,
+   "note": "B chest control ~133.0, B flick-header ~133.3 went loose and bounced to an A player near the referee, who controlled ~134.77-134.83",
+   "adjudicatorNote": "confirmed (am_133.jpg): blue flick ~133.3 goes loose and bounces right untouched to a white near the referee who receives ~134.8",
+   "raw": {
+    "L1": [
+     133.3,
+     134.8
+    ]
+   }
+  },
+  {
+   "wonAt": 146.3,
+   "lostAt": 145.9,
+   "fromTeam": "A",
+   "toTeam": "B",
+   "cause": "tackle_or_duel",
+   "conf": 2,
+   "note": "B challenge 145.7-145.9 dislodged the ball from the A dribbler; B #11 first touch ~146.3, shielding duel with an A player to ~146.9 (a light A touch ~146.8 possible), clean away ~146.95",
+   "alternatives": {
+    "wonAt": 146.95,
+    "why": "if the 146.3-146.9 shielding duel (a white touch ~146.7-146.8 is possible) is not yet control"
+   },
+   "adjudicatorNote": "confirmed (am_146.jpg): blue challenge dislodges the ball at ~145.9, it squirts right to blue #11 who has her foot on it at 146.3; contested to ~146.9; she runs left with it from 147.0",
+   "raw": {
+    "L1": [
+     145.9,
+     146.3
+    ]
+   }
+  },
+  {
+   "wonAt": 153.35,
+   "lostAt": 152.35,
+   "fromTeam": "B",
+   "toTeam": "A",
+   "cause": "interception",
+   "conf": 3,
+   "note": "B dribbler (A defender alongside) pushed the ball long toward the A box ~152.35; A keeper (yellow) came out and collected ~153.35 (times +-0.2)",
+   "adjudicatorNote": "confirmed (am_153.jpg): blue's long touch rolls toward the yellow A keeper, who reaches it ~153.3-153.4",
+   "raw": {
+    "L1": [
+     152.35,
+     153.35
+    ]
+   }
+  },
+  {
+   "wonAt": 161.65,
+   "lostAt": 161.55,
+   "fromTeam": "A",
+   "toTeam": "B",
+   "cause": "tackle_or_duel",
+   "conf": 2,
+   "note": "far touchline, players ~20 px tall: A dribbling right to ~161.4; from ~161.8 a B player is directly behind the ball with the A players trailing and keeps dribbling to >=163.5; exact moment +-0.3",
+   "adjudicatorNote": "re-timed (am_1617.jpg, every 2nd frame): white leads the ball to 161.53, the blue is level at 161.60 and in front with the ball from 161.67; blue dribbles on to 163.5",
+   "raw": {
+    "L1": [
+     161.5,
+     161.7
+    ]
+   }
+  }
+ ],
+ "untimedChanges": [
+  {
+   "fromTeam": "unclear",
+   "toTeam": "B",
+   "cause": "out_of_play",
+   "conf": 2,
+   "window": [
+    163.7,
+    171.9
+   ],
+   "note": "ball went out on the far touchline at an unseen moment (possession unclear 164-171.7); B throw-in prepared 172-181.7, not taken before clip end, so no wonAt inside the clip"
+  }
+ ],
+ "restarts": [
+  {
+   "team": "B",
+   "kind": "throw_in",
+   "touchAt": 118.85,
+   "conf": 3,
+   "note": "clip starts during the dead ball; previous possession unseen"
+  },
+  {
+   "team": "B",
+   "kind": "throw_in",
+   "touchAt": null,
+   "conf": 2,
+   "note": "prepared 172-181.7 at far touchline, taken after clip end"
+  }
+ ],
+ "contestedNoChange": [
+  {
+   "t": [
+    119.67,
+    119.73
+   ],
+   "note": "A player brushes the throw-in, no control"
+  },
+  {
+   "t": [
+    125.9,
+    126.6
+   ],
+   "note": "A forward vs B keeper scramble; keeper dives on it"
+  },
+  {
+   "t": [
+    142.9,
+    143.37
+   ],
+   "note": "B #13 next to A carrier, A passes away"
+  },
+  {
+   "t": [
+    151.0,
+    152.35
+   ],
+   "note": "A defender tight alongside B dribbler"
+  }
+ ],
+ "split": "heldout",
+ "adjudicated": [
+  "Team letters (A white, B blue) confirmed with people[] team letters drawn on 118-137 s frames (am_s1/am_s2).",
+  "Keeper sides confirmed (am_b152.jpg): at 152.2-153.6 the wide shot shows both goals; a blue attacks the LEFT goal and the yellow keeper there collects, so yellow = A keeper (left), lime = B keeper (right). This is what makes 118.85-133.3 one B possession (back-pass to own keeper), as L1 concluded after her re-think.",
+  "Throw-in release re-timed to 118.85 (am_118.jpg; ball leaves the hands between frames 3565 and 3566).",
+  "All 4 timed changes re-checked from frames; 161.7 re-timed to 161.65, the rest kept. The untimed out-of-play (163.7-171.9) could not be resolved either (camera zoomed far out); kept as untimed."
+ ],
+ "agreement": {
+  "labellers": [
+   "L1"
+  ],
+  "method": "adjudicator re-labelled a seeded random 20% of the points (random.Random(20261022).sample) and every change from video frames",
+  "recheckedPoints": 26,
+  "recheckAgree": 26,
+  "recheckAgreeRate": 1.0,
+  "recheckTeamPoints": 19,
+  "recheckTeamAgree": 19,
+  "weakEvidence": 8,
+  "rechecked": [
+   {
+    "t": 118.2,
+    "label": "dead",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: B thrower over the ball at the near touchline, arms up (throw released ~118.85)"
+   },
+   {
+    "t": 121.2,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: B thrower dribbling at the touchline, ball at her feet"
+   },
+   {
+    "t": 121.7,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: ball lifted by the B player at the touchline, in the air toward the B goal"
+   },
+   {
+    "t": 124.7,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: lime B keeper with the ball at her feet in front of her goal"
+   },
+   {
+    "t": 126.2,
+    "label": "B",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree (weak evidence): scramble at the B keeper, keeper on the ground; no A control visible"
+   },
+   {
+    "t": 129.2,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: B keeper holds the ball in her hands"
+   },
+   {
+    "t": 130.2,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: B keeper holds the ball"
+   },
+   {
+    "t": 130.7,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: B keeper still holding in her box"
+   },
+   {
+    "t": 132.7,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: punted ball visible in the air"
+   },
+   {
+    "t": 133.2,
+    "label": "B",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: B players at the landing spot; flick-on follows"
+   },
+   {
+    "t": 136.2,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: white A player kicking/dribbling near the B box"
+   },
+   {
+    "t": 137.7,
+    "label": "A",
+    "conf": 3,
+    "verdict": "agree",
+    "note": "agree: white A player dribbling with the ball"
+   },
+   {
+    "t": 152.7,
+    "label": "B",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: ball rolling ahead of the blue dribbler toward the yellow A keeper"
+   },
+   {
+    "t": 155.2,
+    "label": "A",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree (ball not resolvable): A keeper and a white walking together by the A box, consistent with the note"
+   },
+   {
+    "t": 157.7,
+    "label": "A",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree (weak): ball between the A keeper/white pair and a blue, moving right"
+   },
+   {
+    "t": 158.7,
+    "label": "A",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree (weak): white dribbling on the far side"
+   },
+   {
+    "t": 160.2,
+    "label": "A",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree (weak): ball by a white near the referee on the far side"
+   },
+   {
+    "t": 162.7,
+    "label": "B",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: blue dribbling right with blue support ahead, whites chasing (am_162z.jpg)"
+   },
+   {
+    "t": 163.2,
+    "label": "B",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: blue still on the ball"
+   },
+   {
+    "t": 163.7,
+    "label": "B",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree (weak): camera zooming out; blue group leading"
+   },
+   {
+    "t": 165.2,
+    "label": "unclear",
+    "conf": 1,
+    "verdict": "agree",
+    "note": "agree: very wide zoom, ball not resolvable -> unclear"
+   },
+   {
+    "t": 170.7,
+    "label": "unclear",
+    "conf": 1,
+    "verdict": "agree",
+    "note": "agree: players walking along the far touchline, ball not resolvable -> unclear"
+   },
+   {
+    "t": 172.7,
+    "label": "dead",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: players static, throw-in being prepared -> dead"
+   },
+   {
+    "t": 177.7,
+    "label": "dead",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: blue standing on the track beyond the far touchline, players static -> dead"
+   },
+   {
+    "t": 178.2,
+    "label": "dead",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: same -> dead"
+   },
+   {
+    "t": 178.7,
+    "label": "dead",
+    "conf": 2,
+    "verdict": "agree",
+    "note": "agree: same -> dead"
+   }
+  ],
+  "changesRechecked": 4
+ },
+ "summary": {
+  "counts": {
+   "dead": 22,
+   "B": 51,
+   "A": 39,
+   "unclear": 16
+  },
+  "possessionChanges": 4
+ },
+ "sources": [
+  "labels/raw/AM-L1.json"
+ ]
+}

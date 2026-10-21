@@ -654,6 +654,10 @@ class TacticalView {
   }
 
   state() { return this.last; }
+
+  // The next render draws again even at the same time and options: a layer in this.overlays changed (the coaching
+  // evidence shown or cleared while the video is paused), which the render cache key cannot see.
+  invalidate() { this.lastKey = null; }
 }
 
 global.Tactical = {PITCH, RULES, buildTimeline, sampleAt, sampleStable, finalRoster, create: (options) => new TacticalView(options)};
