@@ -1,0 +1,4487 @@
+{
+ "kind": "coaching-profiles",
+ "version": 1,
+ "about": "The coaching profile table of PitchIQ coaching v2 (DESIGN v2 section 2), read by soccer/coaching/profiles.py. Items tagged FEDERATION paraphrase an official source and cite its id in sources.json; everything else, and every number, is a PITCHIQ-PROPOSAL: initial, unvalidated, to be reviewed with a coach. Verbatim research items keep their pointer in \"research\"; \"edited\" marks a shortened paraphrase.",
+ "tags": {
+  "FEDERATION": "what an official source says, paraphrased, with its source id",
+  "PITCHIQ-PROPOSAL": "PitchIQ's own rule or number: initial, unvalidated, configurable"
+ },
+ "disclaimer": "PitchIQ's checks and numbers are its own proposals; the sources describe coaching objectives, not PitchIQ's thresholds. No federation reviewed or endorses PitchIQ.",
+ "parameters": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "note": "Initial values (DESIGN Appendix A). No federation gives a positional number. Scale 'length' or 'width': metres on a 105 x 68 m pitch, multiplied by L/105 or W/68 of the declared or measured field; 'body': absolute metres; [M] = measured on one professional match or 5.4 min of broadcast. Measurement constants (the 10 m behind-the-ball margin, the channel and holding-midfielder distances, the +-15 s formation-change window) live in tactics_geom.py and situations.py: a profile cannot change what was measured (fix round 1, critic S-14). baseFailShare (each level's detector params): the pooled not-demonstrated share of the decided opportunities on Metrica game 1 (full tracking, engine phase, the level's rules at its typical age); a family failing at or above it gets no bare strength (critic B-2) [M]. judgeDepthOn11v11 (levels 1-3, attacking shape): false makes 11v11 depth descriptive only (fix round 2, LEAD decision (c), the coach's recommendation): a sample failing on depth alone is unclear, so depth is never criticised or reviewed at these levels; small formats keep judging it. Fix round 3 (LEAD decisions (2) and (3)): baseTestAlpha, baseSuccessScale (levels 1-4 in the level objects), momentsSettleS, momentsContestS (shared), lineMinPlayers, lineStdMaxM and markedM (back-line spacing); level 3's far-side baseFailShare .004 (the level-4 rule, 1 of 242 decided on the whole of Metrica game 1, full tracking).",
+  "values": {
+   "pressureM": {
+    "value": 5.0,
+    "scale": "body",
+    "basis": "the outer bound of \"pressed\" and the \"nobody pressed\" rule: StatsBomb Euro 2020 (4 matches, data by StatsBomb), 8,576 carriers with a visible opponent: \"nobody within 5 m\" agrees with \"not under pressure\" on .935 (.911 in the defending third; 3 m: .901 / .869); labeller notes [M]: \"pressed\" median 2.6 m (83% within 5 m), \"unpressed\" 9.2 m (8%); camera agreement on \"within 5 m\" .93-.94"
+   },
+   "pressureCertainM": {
+    "value": 3.0,
+    "scale": "body",
+    "basis": "three-state pressure call (LEAD decision, fix round 1): pressed within this; StatsBomb Euro 2020 (4 matches, data by StatsBomb), 8,576 carriers with a visible opponent: 3 m gives precision .421 for \"under pressure\" and the best Youden J (.431), 5 m precision .322 (43.9% of carriers not under pressure have someone within 5 m; 72.9% where the nearest opponent is fully in view); an annotator's judgement on senior men's play, not a truth set; youth distances not validated"
+   },
+   "pressureClosingMS": {
+    "value": 1.0,
+    "scale": "body",
+    "basis": "three-state pressure call: between pressureCertainM and pressureM the first defender presses only while closing at this speed, else the call is unclear; StatsBomb freeze frames carry no velocity, so this part is a PitchIQ proposal it does not validate; [M] Metrica game 1: 101 of 270 professional \"pressed without cover\" failing samples had the presser moving away"
+   },
+   "goToBallClosingMS": {
+    "value": 1.5,
+    "scale": "body",
+    "basis": "level 1-2 framing \"goes to the ball\" [P]"
+   },
+   "goToBallMaxM": {
+    "value": 8.0,
+    "scale": "body",
+    "basis": "level 1-2 framing \"goes to the ball\" [P]"
+   },
+   "coverRadiusM": {
+    "value": 12.0,
+    "scale": "length",
+    "basis": "professionals: cover present .76-.89 in the own third with R12/A60 [M]; multiplied by min(1, L/105), never below coverRadiusMinM"
+   },
+   "coverRadiusMinM": {
+    "value": 6.0,
+    "scale": "body",
+    "basis": "floor of the scaled cover radius [P]"
+   },
+   "coverAngleDeg": {
+    "value": 60.0,
+    "scale": "angle",
+    "basis": "prototype; camera agreement on \"no cover\" .91-.95 [M]"
+   },
+   "advancedM": {
+    "value": 15.0,
+    "scale": "length",
+    "basis": "professionals advanced 29% / 76% of possession (back four / wing-backs) [M]"
+   },
+   "advancedHalfwayShare": {
+    "value": 0.1,
+    "scale": "length_share",
+    "basis": "small formats at level 2: beyond halfway by 0.1 L, because the U.S. 7v7 picture puts wide defenders at halfway [F] USS-F-7V7"
+   },
+   "cbShiftM": {
+    "value": 4.0,
+    "scale": "body",
+    "basis": "the near centre-back's shift towards the touchline that counts as cover (test c), judged on the measured shift nearCbShiftM [P]"
+   },
+   "recoveringMS": {
+    "value": 3.0,
+    "scale": "body",
+    "basis": "a player sprinting toward the own goal is recovering, not criticised [P]"
+   },
+   "lateralGapM": {
+    "value": 20.0,
+    "scale": "width",
+    "basis": "professionals: gap above 20 m 3.4-5.2% of the time [M]; ball side and an opponent inside only"
+   },
+   "dmGapM": {
+    "value": 18.0,
+    "scale": "length",
+    "basis": "professionals: p90 17.3-18.9 m out of possession [M]"
+   },
+   "dmGapStrengthLoM": {
+    "value": 8.0,
+    "scale": "length",
+    "basis": "professionals: p50 10.8-11.5 m out of possession [M]"
+   },
+   "dmGapStrengthHiM": {
+    "value": 14.0,
+    "scale": "length",
+    "basis": "professionals: p50 10.8-11.5 m out of possession [M]"
+   },
+   "lineStdStrengthM": {
+    "value": 2.5,
+    "scale": "body",
+    "basis": "professionals: p50 1.4-1.7 m out of possession [M]"
+   },
+   "strengthTimeShare": {
+    "value": 0.7,
+    "scale": "share",
+    "basis": "[P]"
+   },
+   "widthShare": {
+    "value": 0.55,
+    "scale": "share",
+    "basis": "professionals: in-possession width .70-.74 of 68 m [M]"
+   },
+   "depthShare": {
+    "value": 0.3,
+    "scale": "share",
+    "basis": "[P] team length over field length; on 11v11 a share below it fails only when the team also uses less than depthAvailShare of the length to the opponents' last line (critic B-7): the professional in-possession field share is p10 .26 / p50 .32 on Metrica game 1, so .30 alone sits at the professional median"
+   },
+   "depthAvailShare": {
+    "value": 0.75,
+    "scale": "share",
+    "basis": "11v11 depth (critic B-7, COACH B4): with the field share below depthShare the team is still tall and deep when its length is at least this share of the length from its deepest outfield player to the opponents' last line (measured with the opponents complete); [M] Metrica game 1, own possession, 15-minute clips: p10 .87 / p50 .95 on full tracking (.86 / .95 camera), below .75 on 2.3% (2.2%) of the samples, while the field share is below .30 on 30% of them; BC180 Barcelona against a low block about 1.0 at a field share of .20-.31"
+   },
+   "minWeakCount": {
+    "value": 1,
+    "scale": "count",
+    "basis": "professionals: zero far-side defenders on 2.6% / 8.7% of wide-ball samples [M]"
+   },
+   "excludeOwnGoalM": {
+    "value": 20.0,
+    "scale": "length",
+    "basis": "the far-side check is not judged with the ball this close to the own goal line: box defending, not switch protection (COACH B3: BC180 at 188.233 s, ball 17.25 m out, the back four flat across the box edge 0.01-2.3 m upfield of it) [P]"
+   },
+   "failMinS": {
+    "value": 2.0,
+    "scale": "seconds",
+    "basis": "a far-side gap must last this long [P]"
+   },
+   "outcomeShare": {
+    "value": 0.6,
+    "scale": "share",
+    "basis": "an opportunity is demonstrated / not demonstrated when this share of its samples is (DESIGN 4.8) [P]"
+   },
+   "spellMinS": {
+    "value": 2.0,
+    "scale": "seconds",
+    "basis": "minimum outcome spell; 3 s for D3 and D4 (possession rule 5) [P]"
+   },
+   "distinctS": {
+    "value": 10.0,
+    "scale": "seconds",
+    "basis": "distinct spells start at least this far apart (existing evidence spacing) [P]"
+   },
+   "shortRangeS": {
+    "value": 180.0,
+    "scale": "seconds",
+    "basis": "a range shorter than this bans \"repeated\" wording (DESIGN 4.9) [P]"
+   },
+   "shortRangeMinFailingSpells": {
+    "value": 3,
+    "scale": "count",
+    "basis": "work items in a short range need this many distinct spells [P]"
+   },
+   "reachHorizonS": {
+    "value": 2.0,
+    "scale": "seconds",
+    "basis": "suggested-zone reach horizon (DESIGN 5.1) [P]"
+   },
+   "reviewFloorShare": {
+    "value": 0.5,
+    "scale": "share",
+    "basis": "a review (possible issue) needs at least this share of the level's minimum opportunities and minimum relevant phase seconds, else the check reads not assessed: too little play to judge it (critic S-1); [M] Metrica game 1 (full tracking) after the B-1, B-5 and B-7 fixes, without the floor: a criticism in 12-13 of 62 three-minute clips at levels 3-5 and 5 of 62 at levels 6-7, and in 3 of 12 fifteen-minute clips at levels 3-5 (wide-defender reviews resting on one opportunity); with it 0-2 of 62 and 0-1 of 12"
+   },
+   "momentsFromLevel": {
+    "value": 3,
+    "scale": "count",
+    "basis": "[P] the first level whose report may carry 'moments worth a look' reviews (fix round 2, LEAD decision (b)): levels 1-2 stay positive-first and keep the strict rules only"
+   },
+   "momentsMinSpells": {
+    "value": 3,
+    "scale": "count",
+    "basis": "[P] a 'moments worth a look' review needs at least this many distinct failing spells (10 s apart) whose failure is clear: a run of failing samples as long as the level's failure spell with no unclear sample in it, for 'nobody pressed' a gap to the carrier not closing at 1 m/s, stable identity, the phase from the possession engine or the coach's marks, every guardrail passed (LEAD decision (b), 2026-10-23); a verdict still needs the level's failure majority"
+   },
+   "momentsMaxPerReport": {
+    "value": 1,
+    "scale": "count",
+    "basis": "[P] at most this many 'moments worth a look' reviews in one report (the level's most relevant first; the others give what their family gives without one): one, so a report never turns a team's normal share of imperfect moments into a list (LEAD decision (b)); [M] Metrica game 1, 15-minute clips: no report had two candidates, so 1, 2 or no cap give the same counts (assess.py)"
+   },
+   "baseTestAlpha": {
+    "value": 0.05,
+    "scale": "share",
+    "basis": "[P] fix round 3 (LEAD decisions (2) and (3), critic N6): the level of the one-sided binomial test both directions use against the level's base share: a 'moments worth a look' review needs its clear failing spells, and a withheld strength its failures, above baseFailShare x the decided opportunities with a tail probability at most this (assess.binom_tail)"
+   },
+   "baseSuccessScale": {
+    "value": 1.0,
+    "scale": "share",
+    "basis": "[P] fix round 3 (LEAD decision (3), COACH F-5): the praise test's base below level 5 is 1 - (1 - baseFailShare) x k, k the level's baseSuccessScale (levels 1-4: .5 / .6 / .7 / .8; a youth team is expected to show a behaviour k times as often as the professionals of Metrica game 1); 1.0 from level 5 (the professional base). Only the praise test reads it"
+   },
+   "momentsSettleS": {
+    "value": 2.0,
+    "scale": "seconds",
+    "basis": "[P] fix round 3 (LEAD decision (2), FACTS F-3): a clear failing sample lies at least this long after the end of a dead ball and away from any stretch whose team was not named (a possession change window, a run the engine could not name, a coach-marked change); the 2 s the possession docs exclude around a change. [M] Metrica game 1: the disputed moments sat 1.2-1.6 s after a restart or an unnamed run"
+   },
+   "momentsContestS": {
+    "value": 1.0,
+    "scale": "seconds",
+    "basis": "[P] fix round 3 (LEAD decision (2)): ... and at least this far from a ball possession-4 calls loose (last touched by the team not in possession: between the teams) or contested; [M] Metrica game 1 (full tracking): such balls are .066 of the engine's frames, the disputed D3 moment sat 0.4-0.8 s from two contested balls (an interception in flight)"
+   },
+   "lineMinPlayers": {
+    "value": 4,
+    "scale": "count",
+    "basis": "[P] fix round 3 (FACTS F-3): on 11v11 a back-line spacing failure is clear only with a recognised line of at least this many players (the camera's 3-player line at 750.87 s left out the defender standing in the 'gap'); a three-player line (team B, a back three, 4239 of 5750 samples) gives no clear lateral-gap moment"
+   },
+   "lineStdMaxM": {
+    "value": 4.0,
+    "scale": "body",
+    "basis": "[P] fix round 3 (FACTS F-3): ... and a depth spread (std) of the line at most this; [M] Metrica game 1 full tracking, D5 samples: p90 3.55 / 4.60 m (team A / B), p95 4.54 / 5.94 m; the disputed 5-player 'line' at 4557.67 s had 8.1 m (a player 19.6 m ahead of the others)"
+   },
+   "markedM": {
+    "value": 4.0,
+    "scale": "body",
+    "basis": "[P] fix round 3 (critic N1, LEAD decision (2)): the opponent in a lateral gap is marked, and the gap no clear failure, when one of ours stands goal-side of him within this distance (the D-M gap's 'free to receive' distance, contextual.DM_FREE_M); the user-run review cited an opponent our midfielder stood 2.8-2.9 m from, goal-side"
+   }
+  },
+  "shared": [
+   "outcomeShare",
+   "spellMinS",
+   "distinctS",
+   "shortRangeS",
+   "shortRangeMinFailingSpells",
+   "reviewFloorShare",
+   "momentsFromLevel",
+   "momentsMinSpells",
+   "momentsMaxPerReport",
+   "baseTestAlpha",
+   "baseSuccessScale",
+   "momentsSettleS",
+   "momentsContestS"
+  ]
+ },
+ "detectors": {
+  "pressure_cover": {
+   "code": "D1",
+   "skill": "pressure_and_cover",
+   "zones": true,
+   "needsMetres": true,
+   "params": [
+    "pressureM",
+    "pressureCertainM",
+    "pressureClosingMS",
+    "goToBallClosingMS",
+    "goToBallMaxM",
+    "coverRadiusM",
+    "coverRadiusMinM",
+    "coverAngleDeg"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "weak_side_balance": {
+   "code": "D2",
+   "skill": "far_side_protection",
+   "zones": true,
+   "needsMetres": false,
+   "params": [
+    "minWeakCount",
+    "failMinS",
+    "excludeOwnGoalM"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "wide_defender_advance": {
+   "code": "D3",
+   "skill": "wide_defender_support",
+   "zones": true,
+   "needsMetres": false,
+   "params": [
+    "advancedM",
+    "advancedHalfwayShare",
+    "cbShiftM",
+    "recoveringMS"
+   ],
+   "spellMinS": 3.0,
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "behind_ball": {
+   "code": "D4",
+   "skill": "someone_back_when_attacking",
+   "zones": true,
+   "needsMetres": false,
+   "params": [],
+   "spellMinS": 3.0,
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "defensive_spacing": {
+   "code": "D5",
+   "skill": "back_line_coordination",
+   "zones": true,
+   "needsMetres": false,
+   "params": [
+    "lateralGapM",
+    "dmGapM",
+    "dmGapStrengthLoM",
+    "dmGapStrengthHiM",
+    "lineStdStrengthM",
+    "strengthTimeShare",
+    "lineMinPlayers",
+    "lineStdMaxM",
+    "markedM"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "attacking_shape": {
+   "code": "D6",
+   "skill": "spread_when_attacking",
+   "zones": false,
+   "needsMetres": false,
+   "params": [
+    "widthShare",
+    "depthShare",
+    "depthAvailShare"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  }
+ },
+ "levels": {
+  "1": {
+   "name": "FOUNDATION",
+   "typicalAges": [
+    "U7",
+    "U8"
+   ],
+   "defaultAge": "U8",
+   "summary": "Typical U7-U8: spreading out, going to the ball and someone ready to protect the goal; praise first.",
+   "ageSummary": {
+    "text": "play 4v4 with attacking and defending roles, try every position, and enjoy defending and winning the ball back",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U78",
+     "FA-DNA-PRIORITIES"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "Teach how to play 4v4 using a game model, and the attacking and defending roles inside 4v4.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U78",
+      "USS-AGG-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.learning_objectives[0]"
+    },
+    {
+     "text": "Every player experiences all positions, and every player gets a turn in goal when a goalkeeper is used.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U78",
+      "CS-STANDARDS-2026"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.learning_objectives[2]"
+    },
+    {
+     "text": "Ball work: skills with both feet, short passing and receiving introduced, shooting from about 5-10 yards, and an introduction to defending and winning the ball back.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.learning_objectives[3]"
+    },
+    {
+     "text": "England Foundation Phase (5-11) priorities: confidence and creativity on the ball including 1v1s; defending with enthusiasm and enjoying winning the ball back; staying alert and positioning creatively when the opponents have it; trying different defensive roles; reacting quickly and positively when the ball is won or lost.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA-DNA-PRIORITIES"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.learning_objectives[7]"
+    },
+    {
+     "text": "Canada grassroots principles: high ball contact, training that resembles the game, fun for every player (not a chosen few), open access, and constructive, specific feedback to players and parents.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-PRINCIPLES"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.learning_objectives[8]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "Build an attacking shape with height, width and depth so the team can play forward.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U78",
+      "USS-GM-U78-PAGE"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.attacking[0]"
+    },
+    {
+     "text": "Get into the attacking half by dribbling, driving with the ball, or short combinations with teammates.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.attacking[1]"
+    },
+    {
+     "text": "In the attacking half, create and score chances through 1v1s or a pass to a free teammate.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.attacking[3]"
+    },
+    {
+     "text": "Stop the opponents from playing forward and try to win the ball back.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.defending[0]"
+    },
+    {
+     "text": "Try to win the ball high up the field by pressing and by being compact as a team.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.defending[1]"
+    },
+    {
+     "text": "The U7/U8 model draws the switch as two cues only: win the ball and go back to attacking, lose it and go back to defending.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.transition[1]"
+    },
+    {
+     "text": "Helping a teammate who defends: the FA 7-11 programme teaches one player pressing while a teammate covers on a line in front of goal; the U.S. U7-U8 material introduces defending and winning the ball back only.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U78",
+      "EF-SWIFT-SUPPORT"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.positioning_concepts.cover[0]",
+     "edited": true
+    },
+    {
+     "text": "U.S. formation: 1-2-1 diamond with no goalkeeper, chosen to teach playing with height, width and depth; all players attack and defend; formations are a guide to be amended to the players and club.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-4V4",
+      "USS-F"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.format[1]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "Fixed positions or positional discipline: U.S. Soccer wants every player to experience all positions, Canada makes players trying all positions a standard, and the FA 5-11 lead warns against fixing children into positions with little flexibility.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U78",
+      "CS-STANDARDS-2026",
+      "FA-TRANSITION-YOUNG"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.not_expected_at_this_stage[0]"
+    },
+    {
+     "text": "A goalkeeper in the U.S. 4v4: the 1-2-1 has none and all four players attack and defend.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-4V4",
+      "USS-F"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.not_expected_at_this_stage[1]"
+    },
+    {
+     "text": "Transitions coached as moments of their own (U10 and under: two moments only).",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-USING"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.not_expected_at_this_stage[2]"
+    },
+    {
+     "text": "An FA 5-11 lead observes that around ages 7-9 the ball changes hands again and again without any clear counter-attacking intent; this shows where children are in their learning and should not be judged against adult or televised football.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA-TRANSITION-YOUNG"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.transition[3]"
+    },
+    {
+     "text": "Heading: none in practice or games.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U78",
+      "EF-HEADING"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.not_expected_at_this_stage[5]"
+    },
+    {
+     "text": "A results focus: Canada requires no scores or standings at these ages and festival-format match days up to U9.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-STANDARDS-2026"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.not_expected_at_this_stage[6]"
+    },
+    {
+     "text": "Do not flag many players near the ball as an error at L1 (young children are drawn to the ball and possession changes constantly). At most offer a challenge to find a free space, tied to the free-teammate principle, and only when the ball position is reliable.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "FA-TRANSITION-YOUNG",
+      "USS-GM-U78"
+     ],
+     "research": "L1L2:levels.L1_FOUNDATION.pitchiq_operationalisation[6]"
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Basic attacking and defending",
+     "status": "assessed",
+     "detectors": [
+      "attacking_shape",
+      "pressure_cover"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Moving toward the ball appropriately",
+     "status": "assessed",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Helping a teammate who is defending",
+     "status": "assessed",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": "praised when seen, never required (only the FA 7-11 programme teaches it at this age)",
+     "unavailable": null
+    },
+    {
+     "spec": "Finding open space",
+     "status": "unavailable",
+     "detectors": [
+      "attacking_shape"
+     ],
+     "note": null,
+     "unavailable": "open_space"
+    },
+    {
+     "spec": "Simple width and depth",
+     "status": "assessed",
+     "detectors": [
+      "attacking_shape"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Confidence and experimentation",
+     "status": "language_only",
+     "detectors": [],
+     "note": null,
+     "unavailable": "not_measurable"
+    },
+    {
+     "spec": "Positive learning experiences",
+     "status": "language_only",
+     "detectors": [],
+     "note": null,
+     "unavailable": "not_measurable"
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "review",
+      "describe"
+     ],
+     "framing": "go to the ball and help your teammate",
+     "params": {
+      "pressureRule": "distance_or_go_to_ball",
+      "coverRequired": false,
+      "carrierZone": "own_half",
+      "unpressuredZone": "own_half",
+      "teamLevelOnly": true,
+      "baseFailShare": 0.515
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [],
+     "framing": null,
+     "params": {}
+    },
+    "wide_defender_advance": {
+     "verdicts": [],
+     "framing": null,
+     "params": {
+      "reframedAs": "behind_ball"
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "review",
+      "describe"
+     ],
+     "framing": "someone ready to protect our goal",
+     "params": {
+      "teamLevelOnly": true,
+      "baseFailShare": 0.0
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [],
+     "framing": null,
+     "params": {}
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "describe"
+     ],
+     "framing": "spread out: tall, wide and deep",
+     "params": {
+      "baseFailShare": 0.113,
+      "judgeDepthOn11v11": false
+     }
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "9": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "11": {
+     "rule": "count",
+     "minBehind": 1
+    }
+   },
+   "priorities": {
+    "order": [
+     "spread_when_attacking",
+     "pressure_and_cover",
+     "someone_back_when_attacking"
+    ],
+    "relevance": {
+     "attacking_shape": 1.0,
+     "pressure_cover": 0.8,
+     "behind_ball": 0.6
+    }
+   },
+   "evidence": {
+    "minOpportunities": 8,
+    "minFailingSpells": 3,
+    "minFailureShare": 0.6,
+    "minFailureShareStyleBase": null,
+    "minPhaseSeconds": 60.0,
+    "maxWorkItems": 1,
+    "strengthSpells": 2,
+    "strengthShare": 0.5,
+    "naming": "never"
+   },
+   "register": {
+    "tone": "praise first; one 'Try this' question; short sentences",
+    "numbers": "none",
+    "maxChallenges": 1,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal"
+    ],
+    "banned": [
+     "mistake",
+     "balance",
+     "cover",
+     "press",
+     "pressing",
+     "rest defence",
+     "transition",
+     "out of position",
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Go to the ball and help a teammate",
+    "someone_back_when_attacking": "Someone ready to protect our goal",
+    "wide_defender_support": null,
+    "far_side_protection": null,
+    "back_line_coordination": null,
+    "spread_when_attacking": "Spread out: tall, wide, deep"
+   },
+   "drillPool": [
+    "l1_help_your_teammate_2v2",
+    "l1_spread_out_4v4",
+    "l1_go_to_the_ball_corridor"
+   ],
+   "baseSuccessScale": 0.5,
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "2": {
+   "name": "EARLY DEVELOPMENT",
+   "typicalAges": [
+    "U9",
+    "U10"
+   ],
+   "defaultAge": "U10",
+   "summary": "Typical U9-U10: pressure and cover, someone staying back, spreading out; at most two questions.",
+   "ageSummary": {
+    "text": "learn 7v7 and a role in attack and defence; covering and marking are introduced; effort over outcome",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U910"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "Learn 7v7 through a game model, introduce the 1-3-2-1, and help players learn their role in attack, defense and transition.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U910",
+      "USS-AGG-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.learning_objectives[0]"
+    },
+    {
+     "text": "Small-sided games from 1v1 to 7v7 including unbalanced teams; every player experiences all positions and plays in goal; players work with others to solve problems.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.learning_objectives[1]"
+    },
+    {
+     "text": "Ball work: both feet; passing, crossing and shooting from mid-range (at most 20 yards); defending skills of covering and marking; goalkeeping catching positions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.learning_objectives[2]"
+    },
+    {
+     "text": "Values: help children feel good about themselves, recognise effort over outcome, support them in resolving problems with teammates.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.learning_objectives[4]"
+    },
+    {
+     "text": "FA 7-11 pressing programme objectives: press to win the ball, steer the opponent's direction, recognise when to press and when to delay, understand when to cover a teammate.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PROG-7-11"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.learning_objectives[6]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "Same four attacking principles as U7-U8: height, width and depth; play forward by dribbling, driving or short combinations; keep the ball when forward play is not on; 1v1s or passes to a free player to create and score chances.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U910",
+      "USS-GM-U910-PAGE"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.attacking[0]"
+    },
+    {
+     "text": "In the 7v7 the goalkeeper and the three defenders also support the attack; two staggered midfielders create passing lanes; the central forward gives height and an option to play forward.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-7V7",
+      "USS-F-7V7-PAGE"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.attacking[1]"
+    },
+    {
+     "text": "Same three defending principles as U7-U8: stop forward play and regain the ball; win it high by pressing and being compact as a team; in the defending half prevent chances and regain the ball.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.defending[0]"
+    },
+    {
+     "text": "FA 7-11 sessions: one player presses while a teammate covers; pressing and covering roles change as the ball moves; players scan to find the closest defender who can apply pressure.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-SWIFT-SUPPORT",
+      "EF-PROG-7-11"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.defending[2]"
+    },
+    {
+     "text": "England definition (no age stated): recovering means getting back into defensive shape in a transition by the shortest route, to get between the ball and the goal; defending starts as soon as the ball is lost.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-COVER-RECOVER"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.transition[4]"
+    },
+    {
+     "text": "U.S. 1-3-2-1 diagram (described, not copied): wing backs out near the touchlines, level with the halfway line; central back just in front of the own penalty area; the two midfielders staggered up and down the central corridor around the centre circle; the forward toward the opponents' area.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-7V7"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.format[2]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "Fixed roles: players may interchange positions and should try all of them; coaches encourage many positions and roles.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-7V7",
+      "USS-CG-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.not_expected_at_this_stage[0]"
+    },
+    {
+     "text": "Transitions coached as separate moments (U.S.: two moments for U10 and under).",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-USING"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.not_expected_at_this_stage[1]"
+    },
+    {
+     "text": "Heading: none in practice or games.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U910",
+      "EF-HEADING"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.not_expected_at_this_stage[2]"
+    },
+    {
+     "text": "Outcome focus: effort over outcome (U.S.); Canada allows no tiering of players before U10 and league formats only from U10, without scores or standings.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U910",
+      "CS-STANDARDS-2026"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.not_expected_at_this_stage[3]"
+    },
+    {
+     "text": "Unit pressing on shared triggers and positioning as a unit: the England sessions that teach these are stated for 12-16s, while the age-tagged 7-11 material works with one presser and one cover.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PCB25",
+      "EF-COVER-RECOVER-SESSION",
+      "EF-SWIFT-SUPPORT"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.not_expected_at_this_stage[4]"
+    },
+    {
+     "text": "Team balance as a taught concept: no L2-age source defines it; the 2023 England session uses the word only in its title, with no age and no definition, and the 2025 session of that name is for 12-16s.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PCB-2023",
+      "EF-PCB-2023-PDF",
+      "EF-PCB25"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.not_expected_at_this_stage[5]"
+    },
+    {
+     "text": "In the U.S. 1-3-2-1 picture the wing backs stand level with halfway and support the attack, so a wide defender at halfway is the reference shape, not a fault. PitchIQ says that nobody stayed behind only when it measured it, with the possession estimate naming our team.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "USS-F-7V7",
+      "USS-GM-U910"
+     ],
+     "research": "L1L2:levels.L2_EARLY_DEVELOPMENT.pitchiq_operationalisation[2]",
+     "edited": true
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Simple defensive pressure",
+     "status": "assessed",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Covering the first defender",
+     "status": "assessed",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Team balance",
+     "status": "assessed",
+     "detectors": [
+      "behind_ball"
+     ],
+     "note": "read as \"someone stays back\"; no source defines balance at this age, so the word is not used",
+     "unavailable": null
+    },
+    {
+     "spec": "Basic passing support",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "passing_support"
+    },
+    {
+     "spec": "Recognizing open space",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "open_space"
+    },
+    {
+     "spec": "Recovering toward goal",
+     "status": "described",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": "share of players goal-side of the ball while the other team had it; recovery after a loss is unavailable",
+     "unavailable": null
+    },
+    {
+     "spec": "Positional responsibilities without restricting creativity",
+     "status": "assessed",
+     "detectors": [],
+     "note": "relative roles only; a role swap is never an error",
+     "unavailable": null
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "review",
+      "describe"
+     ],
+     "framing": "pressure on the ball and cover behind it",
+     "params": {
+      "pressureRule": "distance_or_go_to_ball",
+      "coverRequired": true,
+      "carrierZone": "own_half",
+      "unpressuredZone": "own_third",
+      "teamLevelOnly": false,
+      "baseFailShare": 0.438
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [],
+     "framing": null,
+     "params": {}
+    },
+    "wide_defender_advance": {
+     "verdicts": [
+      "try_this",
+      "review",
+      "describe"
+     ],
+     "framing": "someone stays back when our wide defender goes forward",
+     "params": {
+      "teamLevelOnly": true,
+      "requireNobodyBehind": true
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "review",
+      "describe"
+     ],
+     "framing": "someone stays back to protect our goal",
+     "params": {
+      "teamLevelOnly": true,
+      "baseFailShare": 0.0
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [],
+     "framing": null,
+     "params": {}
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "describe"
+     ],
+     "framing": "spread out: tall, wide and deep",
+     "params": {
+      "baseFailShare": 0.113,
+      "judgeDepthOn11v11": false
+     }
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "9": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "11": {
+     "rule": "count",
+     "minBehind": 1
+    }
+   },
+   "priorities": {
+    "order": [
+     "pressure_and_cover",
+     "someone_back_when_attacking",
+     "spread_when_attacking",
+     "wide_defender_support"
+    ],
+    "relevance": {
+     "pressure_cover": 1.0,
+     "behind_ball": 0.8,
+     "attacking_shape": 0.6,
+     "wide_defender_advance": 0.5
+    }
+   },
+   "evidence": {
+    "minOpportunities": 8,
+    "minFailingSpells": 3,
+    "minFailureShare": 0.5,
+    "minFailureShareStyleBase": null,
+    "minPhaseSeconds": 60.0,
+    "maxWorkItems": 2,
+    "strengthSpells": 2,
+    "strengthShare": 0.5,
+    "naming": "relative"
+   },
+   "register": {
+    "tone": "praise first; up to two 'Try this' questions; define pressure and cover once",
+    "numbers": "counts",
+    "maxChallenges": 2,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal",
+     "pressure",
+     "cover"
+    ],
+    "banned": [
+     "mistake",
+     "balance",
+     "rest defence",
+     "transition",
+     "trigger",
+     "back line",
+     "synchronised",
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Go to the ball and help a teammate",
+    "someone_back_when_attacking": "Someone ready to protect our goal",
+    "wide_defender_support": null,
+    "far_side_protection": null,
+    "back_line_coordination": null,
+    "spread_when_attacking": "Spread out: tall, wide, deep"
+   },
+   "drillPool": [
+    "l2_pressure_and_cover_3v2",
+    "l2_someone_stays_back_4v4",
+    "l1_help_your_teammate_2v2"
+   ],
+   "baseSuccessScale": 0.6,
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "3": {
+   "name": "DEVELOPING",
+   "typicalAges": [
+    "U11",
+    "U12"
+   ],
+   "defaultAge": "U12",
+   "summary": "Typical U11-U12: pressure and cover, width and depth, support behind an advancing defender, reviewed gently.",
+   "ageSummary": {
+    "text": "learn 9v9 across four moments, swap roles during play, combination play under moderate pressure",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U1112"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "Players learn the 9v9 game through a game model that covers attacking, defending and the transitions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112",
+      "USS-CGPAGE-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.learning_objectives[0]"
+    },
+    {
+     "text": "Coaches work on all four moments of the game from U11 upward (U10 and younger focus on two: attacking and defending).",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-USING",
+      "USS-GM-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.learning_objectives[1]"
+    },
+    {
+     "text": "Introduce a 9v9 formation; the example given is 1-3-2-3.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112",
+      "USS-F-9V9"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.learning_objectives[2]"
+    },
+    {
+     "text": "Players interchange roles during play.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.learning_objectives[4]"
+    },
+    {
+     "text": "Players build an understanding of space and positioning.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.learning_objectives[5]"
+    },
+    {
+     "text": "Combination play in small groups (pairs and small groups) under moderate pressure.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112",
+      "USS-CGPAGE-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.learning_objectives[6]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "Build an attacking shape with height, width and depth so the team can play forward.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.attacking[0]"
+    },
+    {
+     "text": "The 1-3-2-3 is described as two blocks of four: three defenders plus one midfielder, and one midfielder plus three forwards; it sets up 1v1s across the field in both attacking and defending moments.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-9V9"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.attacking[5]"
+    },
+    {
+     "text": "Try to win the ball high up the field through pressing and compactness, with a high front line and back line.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.defending[1]"
+    },
+    {
+     "text": "If the opponent plays through the pressure, recover quickly.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.defending[2]"
+    },
+    {
+     "text": "In the defending half, prevent scoring chances by closing off the centre of the pitch.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.defending[3]"
+    },
+    {
+     "text": "Provide support ahead of the ball (U11-U12 wording names only 'ahead'; U13-U14 adds 'behind').",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1112",
+      "USS-GM-U1314"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.transition_defense_to_attack[2]"
+    },
+    {
+     "text": "Covering = taking up the right position relative to teammates, opponents and the ball (angles and distances) so you are the next line of protection for a teammate; it is the preparation before a challenge or interception.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-COVER-RECOVER"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.covering_and_recovering_general[0]"
+    },
+    {
+     "text": "Recovering = getting back into a defensive position during a transition, usually after the team has been played through, by the shortest route back toward your own goal.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-COVER-RECOVER"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.covering_and_recovering_general[1]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "Players develop at different rates; coaches are asked to be patient and to support each player at their own pace.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112",
+      "USS-PLAYER-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[0]"
+    },
+    {
+     "text": "Positions are not fixed: players should experience all positions and interchange roles during play.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[1]"
+    },
+    {
+     "text": "The 1-3-2-3 is one structure among many and is to be adapted to the players and club; the game model is likewise a guide that can be adapted.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-9V9",
+      "USS-GM-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[2]"
+    },
+    {
+     "text": "No heading at U11 in practice or games; at U12 no more than 30 minutes of heading practice per week and no more than 15-20 headers per player per week (U.S.). England: heading not introduced in training up to U11 and phased out of U11 matches in 2026-27; at U12 at most one low-priority session a week with at most five unopposed headers with light balls.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1112",
+      "EF-HEADING"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[4]"
+    },
+    {
+     "text": "Do not expect a 'defensive shape behind the ball while attacking' (rest-defence-like) principle: it first appears in the U13-U14 model (attacking principle 5). At L3, cover behind an attack should be judged through recovery after a loss and simple 'someone stayed back' relationships, not as structural rest defence.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "USS-GM-U1112",
+      "USS-GM-U1314"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[6]"
+    },
+    {
+     "text": "Do not judge a player by distance from a nominal 9v9 slot; at most judge the two blocks (back block of 3 defenders + 1 midfielder, front block of 1 midfielder + 3 forwards) and whether someone in the back block stayed behind the ball.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "USS-F-9V9",
+      "USS-CG-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[9]"
+    },
+    {
+     "text": "Pressing triggers, coordinated team pressing and counter-pressing are not named in the U.S. U11-U12 guidance; do not score them at L3.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "USS-GM-U1112",
+      "USS-CG-U1112"
+     ],
+     "research": "L3L4:levels.L3_DEVELOPING.not_expected_at_this_stage[10]"
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Support angles",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "passing_support"
+    },
+    {
+     "spec": "Team width and depth",
+     "status": "assessed",
+     "detectors": [
+      "attacking_shape"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Pressure and cover",
+     "status": "assessed",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Recovering defensive shape",
+     "status": "described",
+     "detectors": [
+      "pressure_cover"
+     ],
+     "note": "goal-side share, described",
+     "unavailable": null
+    },
+    {
+     "spec": "Attacking-to-defending transitions",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "recovery_after_loss"
+    },
+    {
+     "spec": "Basic positional combinations",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "passing_support"
+    },
+    {
+     "spec": "Understanding teammates' responsibilities",
+     "status": "assessed",
+     "detectors": [
+      "wide_defender_advance"
+     ],
+     "note": "the relationship behind an advancing defender, reviewed gently",
+     "unavailable": null
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "pressure, cover and recovering toward our goal",
+     "params": {
+      "pressureRule": "distance",
+      "coverRequired": true,
+      "carrierZone": "own_half",
+      "unpressuredZone": "own_third",
+      "teamLevelOnly": false,
+      "baseFailShare": 0.654
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [
+      "review",
+      "describe"
+     ],
+     "framing": "protecting the far side when the ball is wide",
+     "params": {
+      "baseFailShare": 0.004
+     }
+    },
+    "wide_defender_advance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "someone covering behind an advancing wide defender",
+     "params": {
+      "workOnNeedsHighConfidence": true,
+      "countOnly": "uncovered",
+      "useDmRotation": false,
+      "baseFailShare": 0.212
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "review",
+      "describe"
+     ],
+     "framing": "someone stays behind the ball",
+     "params": {
+      "teamLevelOnly": true,
+      "baseFailShare": 0.017
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [
+      "describe"
+     ],
+     "framing": "spacing of the back players",
+     "params": {}
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "strength",
+      "try_this",
+      "describe"
+     ],
+     "framing": "width and depth when we have the ball",
+     "params": {
+      "baseFailShare": 0.113,
+      "judgeDepthOn11v11": false
+     }
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "9": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "11": {
+     "rule": "count",
+     "minBehind": 2
+    }
+   },
+   "priorities": {
+    "order": [
+     "pressure_and_cover",
+     "spread_when_attacking",
+     "someone_back_when_attacking",
+     "wide_defender_support",
+     "far_side_protection",
+     "back_line_coordination"
+    ],
+    "relevance": {
+     "pressure_cover": 1.0,
+     "attacking_shape": 0.8,
+     "behind_ball": 0.7,
+     "wide_defender_advance": 0.7,
+     "weak_side_balance": 0.5,
+     "defensive_spacing": 0.3
+    }
+   },
+   "evidence": {
+    "minOpportunities": 10,
+    "minFailingSpells": 3,
+    "minFailureShare": 0.5,
+    "minFailureShareStyleBase": null,
+    "minPhaseSeconds": 90.0,
+    "maxWorkItems": 2,
+    "strengthSpells": 3,
+    "strengthShare": 0.6,
+    "naming": "role_words"
+   },
+   "register": {
+    "tone": "strengths first; questions; consequences only as hypotheticals",
+    "numbers": "rounded_metres",
+    "maxChallenges": 2,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal",
+     "pressure",
+     "cover",
+     "support",
+     "recover",
+     "width",
+     "depth",
+     "if the ball had been lost"
+    ],
+    "banned": [
+     "mistake",
+     "rest defence",
+     "trigger",
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Pressure and cover",
+    "someone_back_when_attacking": "Someone stays behind the ball",
+    "wide_defender_support": "Support behind an advancing wide defender",
+    "far_side_protection": "Protecting the far side",
+    "back_line_coordination": "Spacing of the back players",
+    "spread_when_attacking": "Width and depth when we have the ball"
+   },
+   "drillPool": [
+    "l3_defensive_recovery_5v4",
+    "l3_wide_and_deep_9v9_shape",
+    "l2_pressure_and_cover_3v2"
+   ],
+   "baseSuccessScale": 0.7,
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "4": {
+   "name": "INTERMEDIATE",
+   "typicalAges": [
+    "U13",
+    "U14"
+   ],
+   "defaultAge": "U14",
+   "summary": "Typical U13-U14: a defensive shape behind the ball while attacking, back-line coordination, pressure and cover.",
+   "ageSummary": {
+    "text": "learn 11v11, keep playing different positions, skills under high pressure; coaches do not compare or criticise players",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U1314"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "Players learn 11v11 through a game model covering attacking, defending and transition.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314",
+      "USS-CGPAGE-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.learning_objectives[0]"
+    },
+    {
+     "text": "Introduce an 11v11 formation; the example given is 1-4-3-3.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314",
+      "USS-F-11V11"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.learning_objectives[1]"
+    },
+    {
+     "text": "Develop player roles in attack, defense and transition.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.learning_objectives[2]"
+    },
+    {
+     "text": "Players interchange positions with teammates.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.learning_objectives[3]"
+    },
+    {
+     "text": "Fundamental skills with and without the ball under high pressure.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.learning_objectives[4]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "NEW at U13-U14: guard against an opponent counter-attack by keeping a high defensive shape behind the ball while attacking.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.attacking[3]"
+    },
+    {
+     "text": "1-4-3-3: compared with 9v9 it adds a second centre back and a third midfielder; GK and back four, then three midfielders and three forwards; its triangles and diamonds create passing lanes; two blocks of five (attacking and defending) set up 1v1s across the field.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-11V11"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.attacking[4]"
+    },
+    {
+     "text": "Stop the opponent playing forward; try to win the ball high through pressing and compactness with a high front and back line.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.defending[0]"
+    },
+    {
+     "text": "In the defending half, close off the centre of the pitch to stop scoring chances.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.defending[2]"
+    },
+    {
+     "text": "Provide support both ahead of and behind the ball.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.transition_defense_to_attack[1]"
+    },
+    {
+     "text": "Protect the middle first; when the ball goes wide, shift across together as a unit instead of trying to cover the whole pitch, which leaves gaps.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-COVER-RECOVER-SESSION",
+      "EF-PROG-PRESS-COVER"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.unit_and_cover_guidance_from_england_12_16[0]"
+    },
+    {
+     "text": "Keep the right spacing: close enough to engage the opponent, far enough to support teammates; time the move into the line of the ball or the goal.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-COVER-RECOVER-SESSION"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.unit_and_cover_guidance_from_england_12_16[1]"
+    },
+    {
+     "text": "Avoid two defenders pressing at once: one presses, the other covers; press at an angle to limit the attacker's options.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PROG-PRESS-COVER"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.unit_and_cover_guidance_from_england_12_16[2]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "Positions still rotate: players keep playing different positions and interchange with teammates.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.not_expected_at_this_stage[0]"
+    },
+    {
+     "text": "The 1-4-3-3 is one organisational structure among many variations and should be amended to the players and club.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-11V11"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.not_expected_at_this_stage[1]"
+    },
+    {
+     "text": "Coaches should not compare or criticise players, should notice frustration and disappointment, and should help players reflect on their own and others' performance.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-CG-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.not_expected_at_this_stage[2]"
+    },
+    {
+     "text": "Growth spurts: some players grow rapidly, may feel awkward, and face higher injury risk (ACL risk for girls); late developers may be smaller and slower for now.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-PLAYER-U1314"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.not_expected_at_this_stage[3]"
+    },
+    {
+     "text": "The 'prepare for losing the ball' framing of rest defence, and anticipating the regain DURING the attack-to-defense transition, are U15-U16 additions; at L4 judge the simpler 'shape behind the ball while attacking' and recovery, not counter-press structures.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "USS-GM-U1314",
+      "USS-GM-U1516"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.not_expected_at_this_stage[5]"
+    },
+    {
+     "text": "Pressing triggers are coached in England's 12-16 programme, but PitchIQ has no reliable touch/pass/turnover events, so trigger-based pressing assessment must be reported as unavailable.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "EF-PZ"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.not_expected_at_this_stage[7]"
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Formation responsibilities",
+     "status": "assessed",
+     "detectors": [
+      "wide_defender_advance",
+      "defensive_spacing"
+     ],
+     "note": "through roles; coach-confirmed roles count most",
+     "unavailable": null
+    },
+    {
+     "spec": "Defensive line coordination",
+     "status": "assessed",
+     "detectors": [
+      "defensive_spacing"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Midfield-defensive compactness",
+     "status": "assessed",
+     "detectors": [
+      "defensive_spacing"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Positional support",
+     "status": "assessed",
+     "detectors": [
+      "pressure_cover",
+      "wide_defender_advance"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Team balance during attacking movements",
+     "status": "assessed",
+     "detectors": [
+      "behind_ball",
+      "wide_defender_advance"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Recognizing unprotected spaces",
+     "status": "assessed",
+     "detectors": [
+      "wide_defender_advance",
+      "defensive_spacing"
+     ],
+     "note": "the vacated channel and the ball-side gap",
+     "unavailable": null
+    },
+    {
+     "spec": "Collective recovery after possession loss",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "recovery_after_loss"
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "close enough to engage, far enough to support",
+     "params": {
+      "pressureRule": "distance",
+      "coverRequired": true,
+      "carrierZone": "own_half",
+      "unpressuredZone": "own_third",
+      "teamLevelOnly": false,
+      "baseFailShare": 0.654
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "far-side protection when the ball is wide",
+     "params": {
+      "baseFailShare": 0.004
+     }
+    },
+    "wide_defender_advance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "a defensive shape behind the ball while attacking",
+     "params": {
+      "workOnNeedsHighConfidence": false,
+      "countOnly": "uncovered",
+      "useDmRotation": false,
+      "baseFailShare": 0.212
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "a defensive shape behind the ball while attacking",
+     "params": {
+      "teamLevelOnly": false,
+      "baseFailShare": 0.017
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [
+      "strength",
+      "review",
+      "describe"
+     ],
+     "framing": "back-line coordination and the gap to midfield",
+     "params": {
+      "baseFailShare": 0.048
+     }
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "strength",
+      "describe"
+     ],
+     "framing": "width and depth in possession",
+     "params": {
+      "baseFailShare": 0.113
+     }
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "9": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "11": {
+     "rule": "count",
+     "minBehind": 2
+    }
+   },
+   "priorities": {
+    "order": [
+     "wide_defender_support",
+     "someone_back_when_attacking",
+     "pressure_and_cover",
+     "back_line_coordination",
+     "far_side_protection",
+     "spread_when_attacking"
+    ],
+    "relevance": {
+     "wide_defender_advance": 1.0,
+     "behind_ball": 0.9,
+     "pressure_cover": 0.9,
+     "defensive_spacing": 0.7,
+     "weak_side_balance": 0.8,
+     "attacking_shape": 0.4
+    }
+   },
+   "evidence": {
+    "minOpportunities": 10,
+    "minFailingSpells": 2,
+    "minFailureShare": 0.4,
+    "minFailureShareStyleBase": null,
+    "minPhaseSeconds": 90.0,
+    "maxWorkItems": 3,
+    "strengthSpells": 3,
+    "strengthShare": 0.65,
+    "naming": "evidence_only"
+   },
+   "register": {
+    "tone": "neutral and specific; relationships, not blame",
+    "numbers": "metres",
+    "maxChallenges": 3,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal",
+     "pressure",
+     "cover",
+     "support",
+     "recover",
+     "width",
+     "depth",
+     "if the ball had been lost",
+     "positional responsibility",
+     "defensive line",
+     "compact",
+     "channel",
+     "unprotected space"
+    ],
+    "banned": [
+     "mistake",
+     "trigger",
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Pressure and cover",
+    "someone_back_when_attacking": "Defensive shape behind the ball",
+    "wide_defender_support": "Support behind advancing wide defenders",
+    "far_side_protection": "Defensive balance (far side)",
+    "back_line_coordination": "Back-line coordination",
+    "spread_when_attacking": "Attacking width and depth"
+   },
+   "drillPool": [
+    "l4_defensive_unit_6v6",
+    "l4_cover_the_line_3v3",
+    "l3_defensive_recovery_5v4"
+   ],
+   "baseSuccessScale": 0.8,
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "5": {
+   "name": "ADVANCED YOUTH",
+   "typicalAges": [
+    "U15",
+    "U16",
+    "U17",
+    "U18"
+   ],
+   "defaultAge": "U16",
+   "summary": "Typical U15-U18: unit defending, cover behind attacking full-backs, holding-midfielder and centre-back adjustments.",
+   "ageSummary": {
+    "text": "systems of play and roles with interchange of positions at U15-U16, then tactical awareness and one or two positions from U17",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-AGG-U1516",
+     "USS-AGG-U17"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "U15-U16: learn to play 11v11 through a game model, be introduced to systems of play in attack and defence, learn one's role in attack, defence and transition, and interchange positions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U1516"
+     ],
+     "research": "L57:levels[0].learningObjectives[0]",
+     "bands": [
+      "U15-U16"
+     ]
+    },
+    {
+     "text": "U15-U16: keep playing players in different positions; build decision-making through game scenarios; individual skills linked to the playing position; quick combination play in tight areas; finding and using space.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U1516"
+     ],
+     "research": "L57:levels[0].learningObjectives[1]",
+     "bands": [
+      "U15-U16"
+     ]
+    },
+    {
+     "text": "U17+: understand the 11v11 game through a game model, develop tactical awareness, and prepare players to carry out a game strategy; support players to specialise in one or two positions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U17"
+     ],
+     "research": "L57:levels[0].learningObjectives[2]",
+     "bands": [
+      "U17-U18"
+     ]
+    },
+    {
+     "text": "12-16 (England programme): understand how and when to press, improve positioning, practise covering a teammate who presses; later weeks add pressing in organised zones, recovery runs, 1v1/2v2 duels, and applying it in game-like transitions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PCB25",
+      "EF-PTC"
+     ],
+     "research": "L57:levels[0].learningObjectives[3]",
+     "bands": [
+      "U15-U16"
+     ]
+    },
+    {
+     "text": "Canada Soccer LTPD: Training to Train (to about U15-U16) emphasises team work with tasks per unit (defence, midfield, forwards) and positional awareness through small-sided and large-sided games; Training to Compete (from about U15-U16) adds decision-making, tactical awareness, game appreciation and game analysis under competitive conditions, with refinement of position-specific skills.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "research": "L57:levels[0].learningObjectives[5]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "Create an attacking shape with height, width and depth that encourages forward play (U15-U16 and U17+).",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1516",
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[0].attackingPrinciples[0]"
+    },
+    {
+     "text": "U17+ only: position at least five players ahead of the ball and use clever positioning to create and exploit space.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[0].attackingPrinciples[2]",
+     "bands": [
+      "U17-U18"
+     ]
+    },
+    {
+     "text": "While attacking, prepare for losing the ball by creating a high defensive shape behind the ball (U15-U16 and U17+; U13-U14 words the same idea as protecting against a counter-attack).",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1516",
+      "USS-GM-U17",
+      "USS-GM-U1314"
+     ],
+     "research": "L57:levels[0].attackingPrinciples[3]"
+    },
+    {
+     "text": "U15-U16: stop the opponent playing forward; try to win the ball high through pressing and compactness, with a high front line and back line; if the opponent plays through the pressure, recover quickly; in the defending half, close off the centre of the pitch; anticipate regaining the ball.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1516"
+     ],
+     "research": "L57:levels[0].defendingPrinciples[0]",
+     "bands": [
+      "U15-U16"
+     ]
+    },
+    {
+     "text": "U17+: win the ball back as quickly and as high up the field as possible; reduce the opponent's space by making the field small and staying compact; recover quickly if the pressure is played through; close off the centre in the defending half.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[0].defendingPrinciples[1]",
+     "bands": [
+      "U17-U18"
+     ]
+    },
+    {
+     "text": "Press, cover and balance (12-16s): press on triggers (heavy touch, hesitation, opponent facing their own goal; later weeks add a slow or long pass and the back to goal); position as a unit so the gaps are too small to pass through; provide cover when a teammate presses; communicate so the press and the cover behind it work together.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PCB25",
+      "EF-PZ",
+      "EF-COVER-RECOVER-SESSION",
+      "EF-DSN26"
+     ],
+     "research": "L57:levels[0].defendingPrinciples[2]",
+     "bands": [
+      "U15-U16"
+     ]
+    },
+    {
+     "text": "Shape: protect the middle first; when the ball goes to one side, shift across as a unit; trying to cover the whole pitch leaves gaps; stay compact centrally; teammates give depth to cover the space behind the presser.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-COVER-RECOVER-SESSION",
+      "EF-PZ",
+      "EF-CRS"
+     ],
+     "research": "L57:levels[0].defendingPrinciples[5]"
+    },
+    {
+     "text": "England's defending principles: delaying, compactness, cover and balance (when one player presses, others cover the space left behind and keep the defence balanced), pressing, and control and restraint (an outnumbered player may rightly hold position rather than press).",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PRINC"
+     ],
+     "research": "L57:levels[0].defendingPrinciples[7]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "U15-U16 are not yet position specialists: the guide asks coaches to keep players in different positions and lists interchange of positions as a tactical aim.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U1516"
+     ],
+     "research": "L57:levels[0].notExpected[0]",
+     "bands": [
+      "U15-U16"
+     ]
+    },
+    {
+     "text": "Individuals develop at different rates; coaches should support both early and late developers and find ways to include every player.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U1516",
+      "UEFA-YB"
+     ],
+     "research": "L57:levels[0].notExpected[1]"
+    },
+    {
+     "text": "Players should not be expected to press all game; without a trigger the right action can be to slow down and delay; when outnumbered, holding position can be correct.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-CRS",
+      "EF-PZ",
+      "EF-PRINC"
+     ],
+     "research": "L57:levels[0].notExpected[3]"
+    },
+    {
+     "text": "Game models and formations are guides to adapt to the players and club, not fixed prescriptions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U1516",
+      "USS-GM-U17",
+      "USS-F",
+      "USS-F-11V11"
+     ],
+     "research": "L57:levels[0].notExpected[4]"
+    },
+    {
+     "text": "Heading practice is limited: U.S. Soccer says no more than 30 minutes per week and 15-20 headers per player per week (U15-U16 and U17+); The FA says U14-U16 at most one session a week and 10 headers per player per session, and at U18 contested headers are allowed within 10 headers per session and one session per week.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U1516",
+      "USS-AGG-U17",
+      "EF-HEADING"
+     ],
+     "research": "L57:levels[0].notExpected[5]"
+    },
+    {
+     "text": "The defensive shape behind the ball while we have the ball is described at U15-U16 and reviewed at U17-U18. U.S. Soccer's U17+ 'at least five players ahead of the ball' is an attacking guide and is never turned into a fault count.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "USS-GM-U1516",
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[0].pitchiqProposals[4]",
+     "edited": true
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Pressing triggers",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "pressing_coordination"
+    },
+    {
+     "spec": "Collective defensive organization",
+     "status": "assessed",
+     "detectors": [
+      "defensive_spacing",
+      "weak_side_balance"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Advanced supporting movement",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "passing_support"
+    },
+    {
+     "spec": "Attacking and defensive transitions",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "recovery_after_loss"
+    },
+    {
+     "spec": "Defensive compactness",
+     "status": "assessed",
+     "detectors": [
+      "defensive_spacing"
+     ],
+     "note": "only while the other team had the ball",
+     "unavailable": null
+    },
+    {
+     "spec": "Player rotations",
+     "status": "suppressor",
+     "detectors": [],
+     "note": null,
+     "unavailable": "rotations_finding"
+    },
+    {
+     "spec": "Cover behind attacking fullbacks",
+     "status": "assessed",
+     "detectors": [
+      "wide_defender_advance"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Maintaining balanced team structures",
+     "status": "assessed",
+     "detectors": [
+      "behind_ball"
+     ],
+     "note": null,
+     "unavailable": null
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "pressure and cover in every zone",
+     "params": {
+      "pressureRule": "distance",
+      "coverRequired": true,
+      "carrierZone": "any",
+      "unpressuredZone": "own_third",
+      "teamLevelOnly": false,
+      "baseFailShare": 0.562
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "balance on the far side",
+     "params": {
+      "baseFailShare": 0.004
+     }
+    },
+    "wide_defender_advance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "cover behind attacking full-backs: holding midfielder and centre-back",
+     "params": {
+      "workOnNeedsHighConfidence": false,
+      "countOnly": "uncovered",
+      "useDmRotation": true,
+      "baseFailShare": 0.204
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "review",
+      "describe"
+     ],
+     "framing": "a defensive shape behind the ball, prepared for losing it",
+     "params": {
+      "teamLevelOnly": false
+     },
+     "verdictsByBand": {
+      "U15-U16": [
+       "describe"
+      ],
+      "U17-U18": [
+       "review",
+       "describe"
+      ]
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "unit defending: ball-side gaps and the gap to midfield",
+     "params": {
+      "baseFailShare": 0.048
+     }
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "describe"
+     ],
+     "framing": "width and depth in possession (context)",
+     "params": {}
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "9": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "11": {
+     "rule": "count",
+     "minBehind": 2
+    }
+   },
+   "priorities": {
+    "order": [
+     "pressure_and_cover",
+     "wide_defender_support",
+     "back_line_coordination",
+     "far_side_protection",
+     "someone_back_when_attacking",
+     "spread_when_attacking"
+    ],
+    "relevance": {
+     "pressure_cover": 1.0,
+     "wide_defender_advance": 1.0,
+     "defensive_spacing": 0.9,
+     "weak_side_balance": 0.9,
+     "behind_ball": 0.7,
+     "attacking_shape": 0.3
+    }
+   },
+   "evidence": {
+    "minOpportunities": 12,
+    "minFailingSpells": 2,
+    "minFailureShare": 0.35,
+    "minFailureShareStyleBase": null,
+    "minPhaseSeconds": 120.0,
+    "maxWorkItems": 3,
+    "strengthSpells": 3,
+    "strengthShare": 0.7,
+    "naming": "yes"
+   },
+   "register": {
+    "tone": "analytical; the player decides, the report asks",
+    "numbers": "shares",
+    "maxChallenges": 3,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal",
+     "pressure",
+     "cover",
+     "support",
+     "recover",
+     "width",
+     "depth",
+     "if the ball had been lost",
+     "positional responsibility",
+     "defensive line",
+     "compact",
+     "channel",
+     "unprotected space",
+     "holding midfielder",
+     "centre-back adjustment",
+     "rotation",
+     "balance",
+     "transition"
+    ],
+    "banned": [
+     "mistake",
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Pressure and cover",
+    "someone_back_when_attacking": "Defensive shape behind the ball",
+    "wide_defender_support": "Support behind advancing wide defenders",
+    "far_side_protection": "Defensive balance (far side)",
+    "back_line_coordination": "Back-line coordination",
+    "spread_when_attacking": "Attacking width and depth"
+   },
+   "drillPool": [
+    "l5_transition_and_cover_8v8",
+    "l5_shift_nine_zones",
+    "l4_cover_the_line_3v3"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "6": {
+   "name": "COMPETITIVE ADULT / ACADEMY",
+   "typicalAges": [
+    "U17",
+    "U18",
+    "U19",
+    "U21",
+    "U23",
+    "Adult"
+   ],
+   "defaultAge": "Adult",
+   "summary": "Competitive adults or academy players: tactical roles, rest defence (a PitchIQ measure), block compactness, aware of the declared style.",
+   "ageSummary": {
+    "text": "decision-making, tactical awareness and position-specific refinement under competitive conditions",
+    "tag": "FEDERATION",
+    "sources": [
+     "CS-W2WC"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "Active for Life (same stage, 2009 manual): technical training may add skills or maintain them; basic tactics are sufficient to enjoy the game; the mental focus is fun, stress release and fitness; the format adapts to the level, numbers and space.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-W2WC",
+      "CS-LTPDCG"
+     ],
+     "research": "L57:levels[1].learningObjectives[1]",
+     "bands": [
+      "adult"
+     ]
+    },
+    {
+     "text": "Training to Compete (about U15-U19 female, U16-U20 male): perform skills under varied competitive conditions; a sound understanding of principles and concepts; tactical instruction in decision-making, tactical awareness, game appreciation and game analysis; refinement of position-specific skills; 11-a-side FIFA rules.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "research": "L57:levels[1].learningObjectives[2]"
+    },
+    {
+     "text": "UEFA B Diploma (youth to senior amateur): learn the characteristics of each playing position and how players fit into team structures for a given game format; evaluate, analyse and give feedback on training and matches.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-B",
+      "UEFA-LIC"
+     ],
+     "research": "L57:levels[1].learningObjectives[3]"
+    },
+    {
+     "text": "UEFA A Diploma (top amateur): game-oriented sessions with an opponent focus, pressure and intensity; detailed match plans that follow the club's playing philosophy and the opponent; match analysis to evaluate individuals and the team.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-A",
+      "UEFA-LIC"
+     ],
+     "research": "L57:levels[1].learningObjectives[4]",
+     "bands": [
+      "adult"
+     ]
+    },
+    {
+     "text": "UEFA Elite Youth A (elite youth to professional, adolescence to adulthood): prepare players for professional demands, plan pathways for players aged about 17-23, game-like sessions with opposition, pressure and intensity, match plans per club philosophy and opponent.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-EYA"
+     ],
+     "research": "L57:levels[1].learningObjectives[5]",
+     "bands": [
+      "academy"
+     ]
+    },
+    {
+     "text": "U17+ (U.S. Soccer): develop tactical awareness and prepare players to deliver a game strategy; specialise in one or two positions; discuss tactics and help players reflect on the game and their role.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-AGG-U17"
+     ],
+     "research": "L57:levels[1].learningObjectives[6]"
+    },
+    {
+     "text": "Canada Soccer B Diploma targets development environments (youth academies, college, standards-based leagues) and names 'tactical roles' and match plans; the A Diploma targets elite youth and top senior amateur performance environments.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-ACEP"
+     ],
+     "research": "L57:levels[1].learningObjectives[7]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "U17+ game model (the only U.S. Soccer model above U16): height/width/depth shape; at least five players ahead of the ball; play quickly into the attacking half; keep the ball if forward play is not on; individual and combination play to create and finish chances; a high defensive shape behind the ball in case it is lost.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[1].attackingPrinciples[0]"
+    },
+    {
+     "text": "In possession the game splits into building the attack (own third), creating it (middle third) and finishing it (final third); coaches consider how many players to commit to finishing.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PHASES"
+     ],
+     "research": "L57:levels[1].attackingPrinciples[1]"
+    },
+    {
+     "text": "U17+: win the ball back as quickly and as high as possible; make the field small and stay compact; recover quickly when the pressure is played through; close off the centre in the defending half.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[1].defendingPrinciples[0]"
+    },
+    {
+     "text": "Blocks: a low block in the own third is compact, with small gaps between defenders and midfielders who cover each other; a mid block keeps the front and back lines close and the three central lanes tight, and inviting the ball wide can cue an intense press; in a high press the nearest attacker presses the ball and teammates move together to close the next options.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PHASES"
+     ],
+     "research": "L57:levels[1].defendingPrinciples[1]",
+     "edited": true
+    },
+    {
+     "text": "Press, cover, balance roles (England senior teams): the nearest player presses; surrounding players cover so the team cannot be played through; players away from the ball provide balance against a switch; roles change as the ball moves (a wide defender can switch from pressing to cover).",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-DLE-ROLES"
+     ],
+     "research": "L57:levels[1].defendingPrinciples[2]"
+    },
+    {
+     "text": "Wide areas: a compact team accepts space out wide; when the ball goes wide a full-back may drop off to protect the space behind the line while a wide player recovers to help.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-DLE-WIDE",
+      "EF-DLE-INTRO"
+     ],
+     "research": "L57:levels[1].defendingPrinciples[3]"
+    },
+    {
+     "text": "U17+: on losing the ball, try to win it back immediately and stop forward play; if not, recover into shape and delay the counter by dropping off and blocking the path to goal. On winning it: think and play forward, attack fast, support ahead of and behind the ball, and prepare again for losing it.",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-GM-U17"
+     ],
+     "research": "L57:levels[1].transitionPrinciples[0]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "For recreational adults (Active for Life / Soccer for Life) basic tactics are sufficient; the focus is fun, fitness and stress release, not optimisation.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-W2WC",
+      "CS-GCE"
+     ],
+     "research": "L57:levels[1].notExpected[0]",
+     "bands": [
+      "adult"
+     ]
+    },
+    {
+     "text": "Pressing creates gaps somewhere: a compact team deliberately leaves space out wide, so a wide gap can be the accepted cost of the plan rather than a fault.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-DLE-WIDE",
+      "EF-DLE-INTRO"
+     ],
+     "research": "L57:levels[1].notExpected[1]"
+    },
+    {
+     "text": "A block that stays narrow and invites the ball wide is described as a deliberate choice, and staying in position when outnumbered can be correct (control and restraint).",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-PHASES",
+      "EF-PRINC"
+     ],
+     "research": "L57:levels[1].notExpected[2]"
+    },
+    {
+     "text": "Line height alone is not a verdict: the step-up or drop decision depends on pressure on the ball and the striker's movement.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-DLE-BEHIND"
+     ],
+     "research": "L57:levels[1].notExpected[3]"
+    },
+    {
+     "text": "Coaches should not change approach every week, and the system and style should suit the players; how well a system works is judged over time (possibly seasons).",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-TACTICS"
+     ],
+     "research": "L57:levels[1].notExpected[4]"
+    },
+    {
+     "text": "Development settings put development ahead of results (UEFA Youth B: no win-at-all-costs mindset, enough playing time for every squad member, training adjusted for growth and maturation).",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-YB"
+     ],
+     "research": "L57:levels[1].notExpected[5]",
+     "bands": [
+      "academy"
+     ]
+    },
+    {
+     "text": "England's senior-team defending articles are labelled as inspiration, not as a template for young groups: PitchIQ uses them as background only.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-DLE-TRANS"
+     ],
+     "research": "L3L4:levels.L4_INTERMEDIATE.senior_inspired_references_use_with_care[0]",
+     "edited": true,
+     "bands": [
+      "academy"
+     ]
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Formation adaptability",
+     "status": "described",
+     "detectors": [],
+     "note": "formation readings per period",
+     "unavailable": null
+    },
+    {
+     "spec": "Pressing and counterpressing structures",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "pressing_coordination"
+    },
+    {
+     "spec": "Support around possession",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "passing_support"
+    },
+    {
+     "spec": "Rest defense",
+     "status": "assessed",
+     "detectors": [
+      "behind_ball"
+     ],
+     "note": "a PitchIQ-defined margin, not a federation definition",
+     "unavailable": null
+    },
+    {
+     "spec": "Tactical roles",
+     "status": "assessed",
+     "detectors": [
+      "wide_defender_advance"
+     ],
+     "note": "through roles",
+     "unavailable": null
+    },
+    {
+     "spec": "Balance between attacking risk and defensive protection",
+     "status": "assessed",
+     "detectors": [
+      "wide_defender_advance",
+      "behind_ball"
+     ],
+     "note": null,
+     "unavailable": null
+    },
+    {
+     "spec": "Repeated team-level patterns",
+     "status": "assessed",
+     "detectors": [],
+     "note": "recurrence: distinct spells at least 10 s apart",
+     "unavailable": null
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "pressure and cover by zone and block",
+     "params": {
+      "pressureRule": "distance",
+      "coverRequired": true,
+      "carrierZone": "any",
+      "unpressuredZone": "own_third",
+      "teamLevelOnly": false,
+      "baseFailShare": 0.562
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "far-side balance against a switch",
+     "params": {
+      "baseFailShare": 0.004
+     }
+    },
+    "wide_defender_advance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "balance behind an advanced full-back (exposed channel)",
+     "params": {
+      "workOnNeedsHighConfidence": false,
+      "countOnly": "exposed",
+      "useDmRotation": true,
+      "baseFailShare": 0.0
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "rest defence (PitchIQ measure): players behind the ball against their forwards",
+     "params": {
+      "teamLevelOnly": false,
+      "baseFailShare": 0.017
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "block compactness: ball-side gaps and the gap to midfield",
+     "params": {
+      "baseFailShare": 0.048
+     }
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "describe"
+     ],
+     "framing": "width and depth in possession (context)",
+     "params": {}
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "9": {
+     "rule": "margin",
+     "minMargin": 1
+    },
+    "11": {
+     "rule": "margin",
+     "minMargin": 1
+    }
+   },
+   "priorities": {
+    "order": [
+     "wide_defender_support",
+     "someone_back_when_attacking",
+     "pressure_and_cover",
+     "back_line_coordination",
+     "far_side_protection",
+     "spread_when_attacking"
+    ],
+    "relevance": {
+     "wide_defender_advance": 1.0,
+     "behind_ball": 1.0,
+     "pressure_cover": 0.9,
+     "defensive_spacing": 0.9,
+     "weak_side_balance": 0.8,
+     "attacking_shape": 0.3
+    }
+   },
+   "evidence": {
+    "minOpportunities": 12,
+    "minFailingSpells": 2,
+    "minFailureShare": 0.3,
+    "minFailureShareStyleBase": null,
+    "minPhaseSeconds": 120.0,
+    "maxWorkItems": 3,
+    "strengthSpells": 4,
+    "strengthShare": 0.7,
+    "naming": "yes"
+   },
+   "register": {
+    "tone": "tactical; rest defence defined once as a PitchIQ measure",
+    "numbers": "rates",
+    "maxChallenges": 3,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal",
+     "pressure",
+     "cover",
+     "support",
+     "recover",
+     "width",
+     "depth",
+     "if the ball had been lost",
+     "positional responsibility",
+     "defensive line",
+     "compact",
+     "channel",
+     "unprotected space",
+     "holding midfielder",
+     "centre-back adjustment",
+     "rotation",
+     "balance",
+     "transition",
+     "rest defence",
+     "block height",
+     "low block",
+     "mid block",
+     "high press",
+     "style"
+    ],
+    "banned": [
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Pressure and cover",
+    "someone_back_when_attacking": "Rest-defence margin (PitchIQ)",
+    "wide_defender_support": "Support behind advancing wide defenders",
+    "far_side_protection": "Defensive balance (far side)",
+    "back_line_coordination": "Back-line coordination",
+    "spread_when_attacking": "Attacking width and depth"
+   },
+   "drillPool": [
+    "l6_rest_defence_9v9",
+    "l6_block_compactness_shadow",
+    "l5_transition_and_cover_8v8"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  },
+  "7": {
+   "name": "PROFESSIONAL / ELITE",
+   "typicalAges": [
+    "U19",
+    "U21",
+    "U23",
+    "Adult"
+   ],
+   "defaultAge": "Adult",
+   "summary": "Professional or elite: judged against the declared game model and style; without one, criticisms stay possible issues to review.",
+   "ageSummary": {
+    "text": "adjusting game plans and adapting strategies to changing demands",
+    "tag": "FEDERATION",
+    "sources": [
+     "CS-W2WC"
+    ]
+   },
+   "objectives": [
+    {
+     "text": "UEFA Pro Diploma (360 h minimum, at least one season): develop and apply technical policy and philosophy; build a winning team and a high-performance culture; plan a season-long team-tactical and physical programme; prepare and coach matches with a match plan that reflects the playing philosophy and the opponent; analyse matches as a learning tool; work with analysts, fitness and medical staff.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PRO",
+      "UEFA-LIC"
+     ],
+     "research": "L57:levels[2].learningObjectives[0]"
+    },
+    {
+     "text": "Concacaf Pro Diploma minimum content (hosted by Canada Soccer): build, implement, monitor and evaluate a game model; analyse team and opponent trends over several matches, including individual players; set match-plan KPIs, roles and responsibilities; help players recognise game situations and key moments.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-CPRO"
+     ],
+     "research": "L57:levels[2].learningObjectives[1]",
+     "edited": true
+    },
+    {
+     "text": "Canada Soccer LTPD Training to Win (about U18+ female, U19+ male): performance optimisation; players may still need tactical experience in high-pressure games for consistency; tactical training stimulates decision-making, leadership and game analysis; players adjust game plans and adapt strategies to changing demands.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "research": "L57:levels[2].learningObjectives[2]"
+    }
+   ],
+   "principles": [
+    {
+     "text": "Positional rotations (UEFA editorial): full-backs moving into midfield, midfielders dropping into deep wide areas as 'false full-backs', wingers holding width high to pin the opposing full-back; when the winger comes inside, the full-back goes outside.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-FALSEFB"
+     ],
+     "research": "L57:levels[2].attackingPrinciples[0]"
+    },
+    {
+     "text": "Shape-shifting in build-up (UCL 2022/23 report): defensive midfielders dropping between centre-backs, full-backs stepping into midfield, a centre-back stepping into midfield (1-3-2-4-1; 1-4-3-3 becoming 1-3-2-5 in build-up); the purpose of interchange is numerical superiority.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-TR2223"
+     ],
+     "research": "L57:levels[2].attackingPrinciples[1]"
+    },
+    {
+     "text": "Zonal versus man-for-man high pressing (UEFA editorial): zonal relies on reading play with local support; man-marking is more aggressive and leaves defenders 1v1 at the back, a known risk that some coaches accept from the halfway line upward.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PI-PRESS",
+      "UEFA-TR2324"
+     ],
+     "research": "L57:levels[2].defendingPrinciples[0]"
+    },
+    {
+     "text": "Rest defence (UEFA editorial): the organisation left behind while the team attacks. UEFA's coaching tip is to consider how positional fluidity affects your own rest defence and to make sure players know their roles when the ball is lost. No player counts, distances or thresholds are given.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PI-FB"
+     ],
+     "research": "L57:levels[2].transitionPrinciples[0]"
+    },
+    {
+     "text": "A sound defensive shape during attacks is described as the basis of a good counter-press: defenders stay close to the other team's attackers while their own team has the ball, so there is no easy outlet if it is lost.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PI-1V1"
+     ],
+     "research": "L57:levels[2].transitionPrinciples[1]",
+     "edited": true
+    },
+    {
+     "text": "Attacking with only two central defenders behind carries counter-attack risk; younger players need more balance and pragmatism (UEFA editorial).",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PI-SPURS"
+     ],
+     "research": "L57:levels[2].transitionPrinciples[4]"
+    }
+   ],
+   "notExpected": [
+    {
+     "text": "No UEFA page read sets a numeric standard for positioning, pressing, rest defence or rotations; the licence pages describe competences and the technical analysis is descriptive commentary.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-LIC",
+      "UEFA-PRO",
+      "UEFA-CONV",
+      "UEFA-PI-FB",
+      "UEFA-PI-PRESS"
+     ],
+     "research": "L57:levels[2].notExpected[0]"
+    },
+    {
+     "text": "Match plans depend on the club's playing philosophy and the opponent, so the same position can be right in one plan and wrong in another.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PRO",
+      "UEFA-A",
+      "CS-CPRO"
+     ],
+     "research": "L57:levels[2].notExpected[1]"
+    },
+    {
+     "text": "A man-marking press accepts 1v1 duels at the back; a deliberately aggressive structure is not by itself a mistake.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PI-PRESS",
+      "UEFA-TR2324"
+     ],
+     "research": "L57:levels[2].notExpected[2]"
+    },
+    {
+     "text": "Rotations and fluid positions are a deliberate strategy at elite level; a player far from his nominal position may be executing the plan.",
+     "tag": "FEDERATION",
+     "sources": [
+      "UEFA-PI-FB",
+      "UEFA-FALSEFB",
+      "UEFA-TR2223"
+     ],
+     "research": "L57:levels[2].notExpected[3]"
+    },
+    {
+     "text": "Judge against the team's declared game model: at level 7 the coach's style, formation and confirmed roles become the reference (UEFA Pro / Concacaf Pro: match plan, KPIs, roles). With no declared model, findings stay descriptive 'review' items and never claim the team's intent.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "UEFA-PRO",
+      "CS-CPRO",
+      "UEFA-A"
+     ],
+     "research": "L57:levels[2].pitchiqProposals[0]"
+    }
+   ],
+   "focus": [
+    {
+     "spec": "Rest-defense structures",
+     "status": "assessed",
+     "detectors": [
+      "behind_ball"
+     ],
+     "note": "a PitchIQ-defined margin",
+     "unavailable": null
+    },
+    {
+     "spec": "Positional rotations",
+     "status": "suppressor",
+     "detectors": [],
+     "note": null,
+     "unavailable": "rotations_finding"
+    },
+    {
+     "spec": "Pressing triggers",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "pressing_coordination"
+    },
+    {
+     "spec": "Cover shadows",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "passing_support"
+    },
+    {
+     "spec": "Counterpressing relationships",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "pressing_coordination"
+    },
+    {
+     "spec": "Opponent overloads",
+     "status": "described",
+     "detectors": [
+      "wide_defender_advance",
+      "behind_ball"
+     ],
+     "note": "local counts only",
+     "unavailable": null
+    },
+    {
+     "spec": "Defensive shifting",
+     "status": "assessed",
+     "detectors": [
+      "defensive_spacing"
+     ],
+     "note": "lateral shifting over time is unavailable on camera footage",
+     "unavailable": null
+    },
+    {
+     "spec": "Occupation of space between lines",
+     "status": "unavailable",
+     "detectors": [],
+     "note": null,
+     "unavailable": "between_lines"
+    },
+    {
+     "spec": "Build-up structure",
+     "status": "described",
+     "detectors": [],
+     "note": "formation readings split by the possession estimate",
+     "unavailable": null
+    },
+    {
+     "spec": "Tactical adaptations",
+     "status": "described",
+     "detectors": [],
+     "note": "formation change points; intent is not inferred",
+     "unavailable": null
+    }
+   ],
+   "detectors": {
+    "pressure_cover": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "pressure and cover against the game plan",
+     "params": {
+      "pressureRule": "distance",
+      "coverRequired": true,
+      "carrierZone": "any",
+      "unpressuredZone": "own_third",
+      "teamLevelOnly": false,
+      "baseFailShare": 0.562
+     }
+    },
+    "weak_side_balance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "far-side balance against a switch",
+     "params": {
+      "baseFailShare": 0.004
+     }
+    },
+    "wide_defender_advance": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "exposed channel behind an advanced full-back, against the declared plan",
+     "params": {
+      "workOnNeedsHighConfidence": false,
+      "countOnly": "exposed",
+      "useDmRotation": true,
+      "baseFailShare": 0.0
+     }
+    },
+    "behind_ball": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "rest defence (PitchIQ measure) and the spacing between named roles",
+     "params": {
+      "teamLevelOnly": false,
+      "baseFailShare": 0.017
+     }
+    },
+    "defensive_spacing": {
+     "verdicts": [
+      "strength",
+      "work_on",
+      "review",
+      "describe"
+     ],
+     "framing": "block compactness and spacing between roles",
+     "params": {
+      "baseFailShare": 0.048
+     }
+    },
+    "attacking_shape": {
+     "verdicts": [
+      "describe"
+     ],
+     "framing": "width and depth in possession (context)",
+     "params": {}
+    }
+   },
+   "behindBall": {
+    "4": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "5": {
+     "rule": "count",
+     "minBehind": 1
+    },
+    "7": {
+     "rule": "count",
+     "minBehind": 2
+    },
+    "9": {
+     "rule": "margin",
+     "minMargin": 1
+    },
+    "11": {
+     "rule": "margin",
+     "minMargin": 1
+    }
+   },
+   "priorities": {
+    "order": [
+     "someone_back_when_attacking",
+     "wide_defender_support",
+     "back_line_coordination",
+     "pressure_and_cover",
+     "far_side_protection",
+     "spread_when_attacking"
+    ],
+    "relevance": {
+     "behind_ball": 1.0,
+     "wide_defender_advance": 1.0,
+     "defensive_spacing": 0.9,
+     "pressure_cover": 0.8,
+     "weak_side_balance": 0.8,
+     "attacking_shape": 0.3
+    }
+   },
+   "evidence": {
+    "minOpportunities": 15,
+    "minFailingSpells": 2,
+    "minFailureShare": null,
+    "minFailureShareStyleBase": 0.3,
+    "minPhaseSeconds": 180.0,
+    "maxWorkItems": 3,
+    "strengthSpells": 4,
+    "strengthShare": 0.75,
+    "naming": "yes"
+   },
+   "register": {
+    "tone": "analyst; against the declared game model; rates per 10 minutes",
+    "numbers": "rates",
+    "maxChallenges": 3,
+    "concepts": [
+     "spread out",
+     "tall",
+     "wide",
+     "deep",
+     "go to the ball",
+     "help your teammate",
+     "ready to protect our goal",
+     "pressure",
+     "cover",
+     "support",
+     "recover",
+     "width",
+     "depth",
+     "if the ball had been lost",
+     "positional responsibility",
+     "defensive line",
+     "compact",
+     "channel",
+     "unprotected space",
+     "holding midfielder",
+     "centre-back adjustment",
+     "rotation",
+     "balance",
+     "transition",
+     "rest defence",
+     "block height",
+     "low block",
+     "mid block",
+     "high press",
+     "style",
+     "rest-defence occupation",
+     "transition route",
+     "spacing between roles",
+     "game model"
+    ],
+    "banned": [
+     "failed",
+     "should have",
+     "poor",
+     "communicate",
+     "communication",
+     "turnover",
+     "lost the ball",
+     "won the ball",
+     "counter-attack",
+     "certified",
+     "endorsed",
+     "needs to improve spacing",
+     "should communicate better",
+     "stay in formation"
+    ]
+   },
+   "skills": {
+    "pressure_and_cover": "Pressure and cover",
+    "someone_back_when_attacking": "Rest-defence margin (PitchIQ)",
+    "wide_defender_support": "Support behind advancing wide defenders",
+    "far_side_protection": "Defensive balance (far side)",
+    "back_line_coordination": "Back-line coordination",
+    "spread_when_attacking": "Attacking width and depth"
+   },
+   "drillPool": [
+    "l7_tactical_phase_11v11",
+    "l6_rest_defence_9v9",
+    "l6_block_compactness_shadow"
+   ],
+   "origin": "PITCHIQ-PROPOSAL",
+   "validated": false
+  }
+ },
+ "ages": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "note": "Age drives safety, physical load, tone, player naming and sub-bands (DESIGN 2.2). The naming cap combines with the level: the stricter applies. reachSpeedCapMS caps the speed a suggested area assumes (DESIGN 5.1).",
+  "groups": {
+   "U6": {
+    "typicalLevel": 1,
+    "register": "child",
+    "naming": "never",
+    "maxLoad": "low",
+    "tackling": false,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 5.0,
+    "heading": "none_youth"
+   },
+   "U7": {
+    "typicalLevel": 1,
+    "register": "child",
+    "naming": "never",
+    "maxLoad": "low",
+    "tackling": false,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 5.0,
+    "heading": "none_youth"
+   },
+   "U8": {
+    "typicalLevel": 1,
+    "register": "child",
+    "naming": "never",
+    "maxLoad": "low",
+    "tackling": false,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 5.0,
+    "heading": "none_youth"
+   },
+   "U9": {
+    "typicalLevel": 2,
+    "register": "child",
+    "naming": "relative",
+    "maxLoad": "low",
+    "tackling": true,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 5.0,
+    "heading": "none_youth"
+   },
+   "U10": {
+    "typicalLevel": 2,
+    "register": "child",
+    "naming": "relative",
+    "maxLoad": "low",
+    "tackling": true,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 5.0,
+    "heading": "none_youth"
+   },
+   "U11": {
+    "typicalLevel": 3,
+    "register": "child",
+    "naming": "role_words",
+    "maxLoad": "moderate",
+    "tackling": true,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 6.0,
+    "heading": "none_youth"
+   },
+   "U12": {
+    "typicalLevel": 3,
+    "register": "child",
+    "naming": "role_words",
+    "maxLoad": "moderate",
+    "tackling": true,
+    "sprintRaces": false,
+    "reachSpeedCapMS": 6.0,
+    "heading": "u12_u13"
+   },
+   "U13": {
+    "typicalLevel": 4,
+    "register": "teen",
+    "naming": "evidence_only",
+    "maxLoad": "moderate",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 6.0,
+    "heading": "u12_u13"
+   },
+   "U14": {
+    "typicalLevel": 4,
+    "register": "teen",
+    "naming": "evidence_only",
+    "maxLoad": "moderate",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 6.0,
+    "heading": "u14_u16"
+   },
+   "U15": {
+    "typicalLevel": 5,
+    "register": "teen",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "u14_u16"
+   },
+   "U16": {
+    "typicalLevel": 5,
+    "register": "teen",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "u14_u16"
+   },
+   "U17": {
+    "typicalLevel": 5,
+    "register": "teen",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "u17"
+   },
+   "U18": {
+    "typicalLevel": 5,
+    "register": "teen",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "u18"
+   },
+   "U19": {
+    "typicalLevel": 6,
+    "register": "adult",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "adult_unresearched"
+   },
+   "U21": {
+    "typicalLevel": 6,
+    "register": "adult",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "adult_unresearched"
+   },
+   "U23": {
+    "typicalLevel": 6,
+    "register": "adult",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "adult_unresearched"
+   },
+   "Adult": {
+    "typicalLevel": 6,
+    "register": "adult",
+    "naming": "yes",
+    "maxLoad": "high",
+    "tackling": true,
+    "sprintRaces": true,
+    "reachSpeedCapMS": 7.0,
+    "heading": "adult_unresearched"
+   }
+  }
+ },
+ "heading": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "rule": "The stricter of the U.S. Soccer and England caps applies whatever the federation setting. PitchIQ's drill library has no heading drills; at U11 or younger there is no heading drill and no heading coaching point. A future heading drill must declare a volume within the caps below.",
+  "guidance": [
+   {
+    "text": "U.S. U7-U8 guide: no heading in games (small-sided games) and none in practice or games (ball skills).",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U78"
+    ],
+    "research": "L1L2:heading_guidance[0]"
+   },
+   {
+    "text": "U.S. U9-U10 guide: no heading in practice or games.",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U910"
+    ],
+    "research": "L1L2:heading_guidance[2]"
+   },
+   {
+    "text": "U.S. U11-U12 guide: no heading at U11 in practice or games; at U12 at most 30 minutes of heading practice per week and at most 15-20 headers per player per week.",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U1112",
+     "USS-AGG-U1112"
+    ],
+    "research": "L1L2:heading_guidance[3]"
+   },
+   {
+    "text": "England matches: deliberate heading is phased out of affiliated grassroots youth matches U7-U11 - U7-U9 from 2024-25, U10 from 2025-26, U11 from 2026-27; a deliberate header gives an indirect free kick (moved to the penalty-area line if inside the own area), with no caution unless persistent; heading returns at U12.",
+    "tag": "FEDERATION",
+    "sources": [
+     "EF-HEADING"
+    ],
+    "research": "L1L2:heading_guidance[6]"
+   },
+   {
+    "text": "England training: no heading at U7-U11; U12-U13 a very low priority, at most one session a week, light balls, at most five headers in repetition, short or self-served, always unopposed; U14-U16 at most one session a week and 10 headers per player per session; U18 contested headers introduced within the same caps.",
+    "tag": "FEDERATION",
+    "sources": [
+     "EF-HEADING"
+    ],
+    "research": "L1L2:heading_guidance[7]"
+   },
+   {
+    "text": "England heading in training: U13 at most one low-priority session a week with at most five headers; U14-U16 at most one heading-focused session a week, at most 10 headers per player per session.",
+    "tag": "FEDERATION",
+    "sources": [
+     "EF-HEADING"
+    ],
+    "research": "L3L4:levels.L4_INTERMEDIATE.format[3]"
+   },
+   {
+    "text": "Heading practice is limited: U.S. Soccer says no more than 30 minutes per week and 15-20 headers per player per week (U15-U16 and U17+); The FA says U14-U16 at most one session a week and 10 headers per player per session, and at U18 contested headers are allowed within 10 headers per session and one session per week.",
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-AGG-U1516",
+     "USS-AGG-U17",
+     "EF-HEADING"
+    ],
+    "research": "L57:levels[0].notExpected[5]"
+   },
+   {
+    "text": "Drill filter: no drill or coaching point with heading for any profile at U11 or younger, whichever federation applies; for U12-U13 only unopposed light-ball heading within the stricter (England) caps, and only when the coach confirms the governing rules. L1 and L2 reports never mention heading as something to work on.",
+    "tag": "PITCHIQ-PROPOSAL",
+    "sources": [
+     "USS-CG-U78",
+     "USS-CG-U910",
+     "USS-CG-U1112",
+     "EF-HEADING"
+    ],
+    "research": "L1L2:heading_guidance[8]"
+   }
+  ],
+  "rules": {
+   "none_youth": {
+    "heading": "none",
+    "caps": null,
+    "text": "No heading in training or matches at this age (U.S. Soccer guides; England training guidance, and England matches from 2026-27 at U11). PitchIQ shows no heading drills and no heading coaching points.",
+    "sources": [
+     "USS-CG-U78",
+     "USS-CG-U910",
+     "USS-CG-U1112",
+     "EF-HEADING"
+    ]
+   },
+   "u12_u13": {
+    "heading": "limited",
+    "caps": {
+     "sessionsPerWeek": 1,
+     "minutesPerWeek": 30,
+     "headersPerSession": 5,
+     "headersPerWeek": 15,
+     "contested": false,
+     "lightBall": true,
+     "unopposed": true
+    },
+    "text": "Heading practice follows the stricter of the U.S. Soccer and England caps: at most one session and 30 minutes a week, at most 5 light, unopposed headers per session and 15 a week. PitchIQ suggests no heading drills.",
+    "sources": [
+     "USS-CG-U1112",
+     "USS-CG-U1314",
+     "EF-HEADING"
+    ]
+   },
+   "u14_u16": {
+    "heading": "limited",
+    "caps": {
+     "sessionsPerWeek": 1,
+     "minutesPerWeek": 30,
+     "headersPerSession": 10,
+     "headersPerWeek": 15,
+     "contested": false,
+     "lightBall": false,
+     "unopposed": true
+    },
+    "text": "Heading practice follows the stricter of the U.S. Soccer and England caps: at most one session and 30 minutes a week, at most 10 unopposed headers per session and 15 a week. PitchIQ suggests no heading drills.",
+    "sources": [
+     "USS-CG-U1314",
+     "USS-AGG-U1516",
+     "EF-HEADING"
+    ]
+   },
+   "u17": {
+    "heading": "limited",
+    "caps": {
+     "sessionsPerWeek": 1,
+     "minutesPerWeek": 30,
+     "headersPerSession": 10,
+     "headersPerWeek": 15,
+     "contested": false,
+     "lightBall": false,
+     "unopposed": true
+    },
+    "text": "England's guidance read for this project names U14-U16 and U18, not U17: the stricter caps of both are applied (one session and 30 minutes a week, 10 unopposed headers per session, 15 a week). PitchIQ suggests no heading drills.",
+    "sources": [
+     "USS-AGG-U17",
+     "EF-HEADING"
+    ]
+   },
+   "u18": {
+    "heading": "limited",
+    "caps": {
+     "sessionsPerWeek": 1,
+     "minutesPerWeek": 30,
+     "headersPerSession": 10,
+     "headersPerWeek": 15,
+     "contested": true,
+     "lightBall": false,
+     "unopposed": false
+    },
+    "text": "Heading practice follows the stricter caps (one session and 30 minutes a week, 10 headers per session, 15 a week); England allows contested headers at U18 within the same caps. PitchIQ suggests no heading drills.",
+    "sources": [
+     "USS-AGG-U17",
+     "EF-HEADING"
+    ]
+   },
+   "adult_unresearched": {
+    "heading": "none",
+    "caps": null,
+    "text": "No heading guidance was researched for this age, so PitchIQ prescribes no heading drills and gives no heading coaching points.",
+    "sources": []
+   }
+  }
+ },
+ "safetyNotes": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "notes": [
+   {
+    "ages": [
+     "U6",
+     "U7",
+     "U8",
+     "U9",
+     "U10"
+    ],
+    "tag": "PITCHIQ-PROPOSAL",
+    "sources": [],
+    "text": "Physical load stays low: short activities with rests, and everyone plays."
+   },
+   {
+    "ages": [
+     "U11",
+     "U12",
+     "U13",
+     "U14"
+    ],
+    "tag": "PITCHIQ-PROPOSAL",
+    "sources": [],
+    "text": "Physical load up to moderate; ball-involved recovery games rather than plain running."
+   },
+   {
+    "ages": [
+     "U6",
+     "U7",
+     "U8"
+    ],
+    "tag": "PITCHIQ-PROPOSAL",
+    "sources": [],
+    "text": "No tackling progressions below U9."
+   },
+   {
+    "ages": [
+     "U6",
+     "U7",
+     "U8",
+     "U9",
+     "U10",
+     "U11",
+     "U12"
+    ],
+    "tag": "PITCHIQ-PROPOSAL",
+    "sources": [],
+    "text": "No repeated maximal sprint races before U13."
+   },
+   {
+    "ages": [
+     "U6",
+     "U7",
+     "U8",
+     "U9",
+     "U10",
+     "U11"
+    ],
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U1112",
+     "USS-CG-U78"
+    ],
+    "text": "Every player takes turns in goal up to U11, so roles never assume a fixed goalkeeper (USS-CG-U78, USS-CG-U1112)."
+   },
+   {
+    "ages": [
+     "U11",
+     "U12"
+    ],
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-PLAYER-U1112"
+    ],
+    "text": "Early-maturing players can face growth-related injury risk (USS-PLAYER-U1112)."
+   },
+   {
+    "ages": [
+     "U13",
+     "U14"
+    ],
+    "tag": "FEDERATION",
+    "sources": [
+     "USS-CG-U1314",
+     "USS-PLAYER-U1314"
+    ],
+    "text": "Growth spurts: some players feel awkward and face a higher injury risk (ACL risk for girls); players' physical output is never compared (USS-CG-U1314, USS-PLAYER-U1314)."
+   }
+  ]
+ },
+ "formats": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "rule": "Never apply 11v11 expectations to a smaller format: small formats use relative roles, never team_shape templates, reference values or 11v11 role names (DESIGN 2.5).",
+  "4": {
+   "name": "4v4",
+   "goalkeeperDefault": false,
+   "goalkeeperChoice": true,
+   "roleModel": "relative",
+   "templates": false,
+   "backBlock": null,
+   "formations": [
+    {
+     "name": "1-2-1",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-4V4"
+     ],
+     "note": "U.S. diamond with no goalkeeper: one deep, two wide, one high"
+    }
+   ],
+   "note": "U.S. Soccer plays 4v4 with no goalkeeper up to U8 (USS-F-4V4); Canada plays 3v3 at U6-U7. No back block, so back-line and wide-defender checks are not assessed."
+  },
+  "5": {
+   "name": "5v5",
+   "aliasOf": "4",
+   "goalkeeperDefault": true,
+   "goalkeeperChoice": true,
+   "roleModel": "relative",
+   "templates": false,
+   "backBlock": null,
+   "formations": [
+    {
+     "name": "1-2-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "the U.S. 4v4 diamond for the four outfield players"
+    }
+   ],
+   "note": "England plays 5v5 at U7-U8 (FA-PITCH-U78) and Canada 4v4 or 5v5 at U8-U9 (CS-STANDARDS-2026). Not one of the four formats of the brief: assessed with the 4v4 rules."
+  },
+  "7": {
+   "name": "7v7",
+   "goalkeeperDefault": true,
+   "goalkeeperChoice": false,
+   "roleModel": "relative",
+   "templates": false,
+   "backBlock": 3,
+   "formations": [
+    {
+     "name": "1-3-2-1",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-7V7"
+     ],
+     "note": "U.S. 7v7 shape; its wide defenders stand level with halfway"
+    },
+    {
+     "name": "1-2-3-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a common shape, not from the sources"
+    },
+    {
+     "name": "1-3-1-2",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a common shape, not from the sources"
+    }
+   ],
+   "note": "U.S. Soccer and England play 7v7 at U9-U10 (England also at U11), Canada at U10-U11 (USS-F-7V7, FA-PITCH-U910, CS-STANDARDS-2024)."
+  },
+  "9": {
+   "name": "9v9",
+   "goalkeeperDefault": true,
+   "goalkeeperChoice": false,
+   "roleModel": "relative",
+   "templates": false,
+   "backBlock": 3,
+   "formations": [
+    {
+     "name": "1-3-2-3",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-9V9"
+     ],
+     "note": "U.S. 9v9 shape: two blocks of four"
+    },
+    {
+     "name": "1-3-3-2",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a common shape, not from the sources"
+    },
+    {
+     "name": "1-4-3-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a common shape, not from the sources"
+    }
+   ],
+   "note": "U.S. Soccer plays 9v9 at U11-U12, England at U12-U13, Canada at U12-U13 (USS-F-9V9, EF-9V9, CS-STANDARDS-2024)."
+  },
+  "11": {
+   "name": "11v11",
+   "goalkeeperDefault": true,
+   "goalkeeperChoice": false,
+   "roleModel": "team_shape",
+   "templates": true,
+   "backBlock": null,
+   "formations": [
+    {
+     "name": "4-3-3",
+     "tag": "FEDERATION",
+     "sources": [
+      "USS-F-11V11",
+      "EF-11V11"
+     ],
+     "note": "U.S. Soccer's example (1-4-3-3); also among England's 11v11 examples"
+    },
+    {
+     "name": "4-4-2",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-11V11"
+     ],
+     "note": "among England's 11v11 examples"
+    },
+    {
+     "name": "4-2-3-1",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-11V11"
+     ],
+     "note": "among England's 11v11 examples"
+    },
+    {
+     "name": "4-1-4-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a team_shape template"
+    },
+    {
+     "name": "3-5-2",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a team_shape template"
+    },
+    {
+     "name": "3-4-3",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-11V11"
+     ],
+     "note": "among England's 11v11 examples"
+    },
+    {
+     "name": "5-3-2",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF-11V11"
+     ],
+     "note": "among England's 11v11 examples"
+    },
+    {
+     "name": "5-4-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "a team_shape template"
+    },
+    {
+     "name": "4-4-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "nine outfield players (a dismissal)"
+    },
+    {
+     "name": "4-3-2",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "nine outfield players (a dismissal)"
+    },
+    {
+     "name": "5-3-1",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [],
+     "note": "nine outfield players (a dismissal)"
+    }
+   ],
+   "note": "From U13 (U.S.) or U14 (England); the 11v11 formation templates and position names (LB, CB, CM and so on) are used only here."
+  }
+ },
+ "formatDefaults": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "rule": "Default = the U.S. Soccer maximum format for the age (auto and US). England: 5v5 at U7-U8 and 7v7 at U9-U11, 9v9 at U12-U13. Canada: 5v5 at U8-U9 (4v4 without a goalkeeper is also played), 7v7 at U10-U11, 9v9 at U12-U13. Where a federation plays no PitchIQ format, or its format was not researched, the row is PitchIQ's nearest format and 'basis' says so. The coach can always choose another format; smaller formats suit every age.",
+  "basis": {
+   "England": {
+    "U6": "the U.S. Soccer format: the FA format below U7 was not part of the research"
+   },
+   "Canada": {
+    "U6": "the nearest PitchIQ format: Canada plays 3v3 at U6-U7 (CS-STANDARDS-2026), which PitchIQ does not assess",
+    "U7": "the nearest PitchIQ format: Canada plays 3v3 at U6-U7 (CS-STANDARDS-2026), which PitchIQ does not assess",
+    "U14": "the U.S. Soccer format: Canada's Grassroots Standards stop at U13, so its U14 format was not verified"
+   }
+  },
+  "sources": [
+   "USS-FORMATS",
+   "USS-F",
+   "EF-PITCH-SIZES",
+   "EF-9V9",
+   "EF-11V11",
+   "CS-STANDARDS-2024",
+   "CS-STANDARDS-2026"
+  ],
+  "byAge": {
+   "U6": {
+    "US": {
+     "players": 4,
+     "goalkeeper": false
+    },
+    "England": {
+     "players": 4,
+     "goalkeeper": false
+    },
+    "Canada": {
+     "players": 4,
+     "goalkeeper": false
+    }
+   },
+   "U7": {
+    "US": {
+     "players": 4,
+     "goalkeeper": false
+    },
+    "England": {
+     "players": 5,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 4,
+     "goalkeeper": false
+    }
+   },
+   "U8": {
+    "US": {
+     "players": 4,
+     "goalkeeper": false
+    },
+    "England": {
+     "players": 5,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 5,
+     "goalkeeper": true
+    }
+   },
+   "U9": {
+    "US": {
+     "players": 7,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 7,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 5,
+     "goalkeeper": true
+    }
+   },
+   "U10": {
+    "US": {
+     "players": 7,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 7,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 7,
+     "goalkeeper": true
+    }
+   },
+   "U11": {
+    "US": {
+     "players": 9,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 7,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 7,
+     "goalkeeper": true
+    }
+   },
+   "U12": {
+    "US": {
+     "players": 9,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 9,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 9,
+     "goalkeeper": true
+    }
+   },
+   "U13": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 9,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 9,
+     "goalkeeper": true
+    }
+   },
+   "U14": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U15": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U16": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U17": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U18": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U19": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U21": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "U23": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   },
+   "Adult": {
+    "US": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "England": {
+     "players": 11,
+     "goalkeeper": true
+    },
+    "Canada": {
+     "players": 11,
+     "goalkeeper": true
+    }
+   }
+  }
+ },
+ "styles": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "unknownLimits": {
+   "7": {
+    "workOnDetectors": []
+   },
+   "6": {
+    "workOnDetectors": [
+     "pressure_cover",
+     "wide_defender_advance"
+    ]
+   }
+  },
+  "unknown": {
+   "name": "Unknown / no preference",
+   "description": "PitchIQ never claims an intended style. At level 7 every criticism stays a possible issue to review; at level 6 work items are kept only for pressure and cover and for unsupported wide-defender spells.",
+   "effects": {}
+  },
+  "possession": {
+   "name": "Possession-oriented",
+   "description": "Advancing full-backs are expected while we have the ball: a covered advance is praised as structure; width and depth strengths are emphasised.",
+   "effects": {
+    "wide_defender_advance": {
+     "code": "possession_advance_expected"
+    },
+    "attacking_shape": {
+     "code": "possession_shape_emphasised"
+    }
+   }
+  },
+  "counter": {
+   "name": "Counter-attacking",
+   "description": "More players are expected behind the ball while we have it; a deeper block is not a concern; width in possession is not judged.",
+   "effects": {
+    "behind_ball": {
+     "add": {
+      "minBehind": 1
+     },
+     "code": "counter_more_behind"
+    },
+    "attacking_shape": {
+     "set": {
+      "judgeWidth": false
+     },
+     "code": "counter_width_not_judged"
+    },
+    "defensive_spacing": {
+     "code": "counter_deep_block"
+    }
+   }
+  },
+  "high_press": {
+   "name": "High pressing",
+   "description": "Missing cover while pressing in the opponents' third is not counted (professionals lack it in about half of high-press moments); a larger gap between midfield and defence is tolerated (+20%).",
+   "effects": {
+    "pressure_cover": {
+     "set": {
+      "coverExemptZone": "final_third"
+     },
+     "code": "high_press_cover_exempt"
+    },
+    "defensive_spacing": {
+     "multiply": {
+      "dmGapM": 1.2
+     },
+     "code": "high_press_gap_tolerated"
+    }
+   }
+  },
+  "compact": {
+   "name": "Compact defending",
+   "description": "Back-line spacing thresholds are 15% tighter; wide space on the far side is accepted (compact teams accept space out wide).",
+   "effects": {
+    "defensive_spacing": {
+     "multiply": {
+      "lateralGapM": 0.85,
+      "dmGapM": 0.85
+     },
+     "code": "compact_tightened"
+    },
+    "weak_side_balance": {
+     "set": {
+      "acceptFarSideGap": true
+     },
+     "code": "compact_far_side_accepted"
+    }
+   },
+   "sources": [
+    "EF-DLE-WIDE"
+   ]
+  }
+ },
+ "unavailable": {
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false,
+  "categories": {
+   "recovery_after_loss": {
+    "category": "Recovery movement after the ball changes hands, support after a regain, compactness during transitions",
+    "reason": "The timing of possession changes is not reliable enough (F1 .59-.69, .49-.64 within 1 s on held-out data), and the team that just lost the ball was fully in view after only 4 of 90 high-confidence changes on the camera.",
+    "unlock": "Reliable change detection and full-team views."
+   },
+   "passing_support": {
+    "category": "Passing-support positions, covering passing lanes, cover shadows, support angles",
+    "reason": "PitchIQ has no pass-lane, ball-trajectory or body-orientation model and no labelled truth for these positions.",
+    "unlock": "A passing-lane model and coach labels."
+   },
+   "pressing_coordination": {
+    "category": "Pressing coordination, pressing triggers, counter-pressing",
+    "reason": "These need reliable change timing and the timing between several players; PitchIQ does not track touches, passes or body orientation.",
+    "unlock": "Reliable change timing and touch events."
+   },
+   "rotations_finding": {
+    "category": "Positional rotations as a finding",
+    "reason": "Role holders change on 4-25% of window steps even on full tracking, so rotations are used only to stop \"out of position\" criticism, never praised or criticised.",
+    "unlock": "Coach-confirmed roles over whole periods."
+   },
+   "lateral_shift": {
+    "category": "Defenders shifting across together",
+    "reason": "On camera footage 98-100% of the windows do not show enough of both units for long enough.",
+    "unlock": "Full-team views over long spells."
+   },
+   "isolation": {
+    "category": "Isolation of a player as a finding",
+    "reason": "The measurement had 0-6% power to detect it in the round-2 checks; it stays a diagram distance.",
+    "unlock": null
+   },
+   "between_lines": {
+    "category": "Occupation between the lines, numerical balance by zone",
+    "reason": "Both teams must be fully in view and no definition has been validated.",
+    "unlock": "Complete views and coach labels."
+   },
+   "open_space": {
+    "category": "Finding and recognising open space",
+    "reason": "PitchIQ has no model of free space or passing options; it can only describe how spread out the team was.",
+    "unlock": "A space and passing-lane model with coach labels."
+   },
+   "phase_amateur": {
+    "category": "Every check that needs to know which team had the ball, on amateur and Veo footage",
+    "reason": "The possession estimate abstains on this footage, and the ball is not tracked reliably on small, far-away scenes.",
+    "unlock": "Coach-marked possession spans in Coaching setup, registration keyframes, identity corrections or a wider camera."
+   },
+   "small_format_templates": {
+    "category": "Formation-template role checks for 4v4, 7v7 and 9v9",
+    "reason": "Formation templates exist only for 9 and 10 outfield players; pitch registration has not been tested on small-sided field markings.",
+    "unlock": "Relative roles are used instead; a small-sided test video with keyframes."
+   },
+   "not_measurable": {
+    "category": "Confidence, experimentation and enjoyment",
+    "reason": "Player positions cannot show how players feel; the report supports these aims only through its tone (praise first, questions).",
+    "unlock": null
+   }
+  }
+ },
+ "notices": {
+  "sources_disclaimer": "PitchIQ's checks and numbers are its own proposals; the sources describe coaching objectives, not PitchIQ's thresholds. No federation reviewed or endorses PitchIQ.",
+  "defaults_used": "Not set in Coaching setup: {fields}. PitchIQ used {values}; choose your own to change the report.",
+  "level_above_age": "Level {level} checks are applied to a {age} team. Federation guidance for this age emphasises: {summary}",
+  "adult_low_level": "Adult register with level {level} concepts. Canada Soccer says basic tactics are enough for recreational adults (CS-W2WC, CS-GCE); PitchIQ suggests levels 1-3 for them.",
+  "band_academy": "Academy profile: development before results (UEFA-YB); players are not compared with each other.",
+  "band_adult": "Competitive adult profile.",
+  "band_u15_u16": "Level 5, U15-U16: a player seen in another role is first checked as an interchange with a teammate; the shape behind the ball is described, not judged (USS-AGG-U1516).",
+  "band_u17_u18": "Level 5, U17-U18: role responsibilities are assessed once a role is confirmed or stable; the shape behind the ball can be a possible issue to review (USS-AGG-U17).",
+  "style_unknown_7": "No playing style declared: at level 7 every criticism is shown as a possible issue to review, never as a work item.",
+  "style_unknown_6": "No playing style declared: work items are kept only for pressure and cover and for unsupported wide-defender spells; other criticisms are possible issues to review.",
+  "scale_unknown": "No field size given for a {format} game: unless the camera calibration measured the field, distance checks (pressure distance, cover radius, suggested areas) are not assessed and shape checks use fractions of the field.",
+  "small_format_registration": "Pitch registration has been tested only on full-size markings; on a {format} field the positions may be unreliable.",
+  "format_above_default": "The {federation} format for {age} is {default}; you selected {format}, which is used.",
+  "format_above_nearest": "PitchIQ's default for {age} with {federation} selected is {default}, {basis}; you selected {format}, which is used.",
+  "no_back_block": "A {format} team has no back block: back-line and wide-defender checks are not assessed."
+ }
+}

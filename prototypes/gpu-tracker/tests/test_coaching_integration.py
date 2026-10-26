@@ -9,7 +9,8 @@ What is checked:
 - the served report has the contract's shape (section 7), every text of every finding passes the fact check against
   its own observation again, every evidence moment is a frame of the segment with seek = (frame + 0.5) / fps, and the
   three context levels change words only (same observations, evidence, metrics and priorities);
-- tools/coaching_report.py gives the same report and the same fingerprint as the server for the same result;
+- tools/coaching_report.py --context gives the same v1 report and the same fingerprint as the server for the same
+  result (the CLI's default is the v2 report since wave 7; its equality with the server is test_coaching_server's);
 - the wording the integration run on the four test runs corrected (soccer/coaching/language.py, detectors.py,
   report.py): a strength is one-sided and states the professional median (never "within the professional range"
   or "upper level": broadcast 0-60 s team A's length had a median of 17.8 m against a professional p10 of 23.2 m),
@@ -219,7 +220,12 @@ class ServerEndToEnd(ReportChecks, unittest.TestCase):
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
         out = Path(self.tmp.name)/'cli.json'
-        self.assertEqual(cli.main([str(self.run_dir/'result.json'), '--team', 'A', '--out', str(out), '--quiet']), 0)
+        # the CLI makes the v2 report by default since wave 7 (as the server does without a context level); this
+        # class is the v1 engine end to end, so it asks for v1 by its level (test_coaching_server checks v2 CLI = v2
+        # server)
+        argv = [str(self.run_dir/'result.json'), '--team', 'A', '--context', 'competitive', '--out', str(out),
+                '--quiet']
+        self.assertEqual(cli.main(argv), 0)
         mine = json.loads(out.read_text(encoding='utf-8'))['reports']['A']
         served = dict(self.reports['competitive']['answer']['report'])
         self.assertEqual(mine['fingerprint'], served['fingerprint'])

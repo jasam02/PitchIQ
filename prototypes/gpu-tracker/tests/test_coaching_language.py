@@ -1,4 +1,7 @@
-"""The words of the coaching report (soccer/coaching/language.py): every template is plain ASCII, free of digits,
+"""The fact check kept in soccer/coaching/language.py (CoreTests, Oct 22: the module now holds only validate_text,
+facts_for, wording_problems, the tokens and the formatters; the v1 words moved unchanged to language_v1.py and
+are forwarded) and the v1 words of the deprecated v1 report (every test below CoreTests, unchanged):
+every template is plain ASCII, free of digits,
 blame, exaggeration, intent and phases of play; every rendered text passes the fact check against the observation it
 came from; context levels change words, not numbers; a short segment never claims a repeated pattern; and the fact
 check catches what a careless engine would invent.
@@ -888,6 +891,50 @@ class FormatTests(unittest.TestCase):
 
     def test_engine_protocol(self):
         self.assertIsInstance(language.TemplateEngine(), language.TextEngine)
+
+
+class CoreTests(unittest.TestCase):
+    """language.py after the wave-5 trim (DESIGN v2 11.2-11.3): the fact check only; the v1 names forward."""
+
+    def test_the_module_holds_the_fact_check_only(self):
+        own = vars(language)
+        for name in ('validate_text', 'facts_for', 'Facts', 'wording_problems', 'resolve_players', 'fmt_time',
+                     'fmt_duration', 'TIME_TOKEN', 'ID_TOKEN', 'SHORT_BANNED', 'TONE_BANNED', 'TextEngine'):
+            self.assertIn(name, own)
+        for name in ('TEMPLATES', 'PATTERNS', 'NEUTRAL', 'GROUPS', 'TemplateEngine', 'REASONS', 'LEVELS',
+                     'summary_sentences', 'data_quality'):
+            self.assertNotIn(name, own)
+
+    def test_v1_names_forward_to_language_v1(self):
+        from soccer.coaching import language_v1
+        self.assertIs(language.TEMPLATES, language_v1.TEMPLATES)
+        self.assertIs(language.TemplateEngine, language_v1.TemplateEngine)
+        self.assertIs(language_v1.validate_text, language.validate_text)
+        self.assertEqual(language.DEFAULT_LEVEL, 'competitive')
+        with self.assertRaises(AttributeError):
+            language.no_such_word
+
+    def test_the_v2_modules_use_core_names_only(self):
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'soccer', 'coaching')
+        own = vars(language)
+        for name, alias in (('explain.py', 'L'), ('report.py', 'L')):
+            with open(os.path.join(root, name), encoding='ascii') as fh:
+                used = set(re.findall(r'\b'+alias+r'\.([A-Za-z_]\w*)', fh.read()))
+            self.assertEqual(sorted(u for u in used if u not in own), [], name)
+
+    def test_the_fact_check_still_reads_numbers_times_and_ids(self):
+        f = language.facts_for(extra={'t': 610.0, 'n': 3, 'share': .42, 'id': 'A-07', 'seconds': 180.0})
+        self.assertEqual(language.validate_text('A-07 at 10:10.00, 3 times, 42%, over 3 minutes.', f), [])
+        self.assertTrue(language.validate_text('A-08 at 10:11.00, 4 times.', f))
+        self.assertTrue(language.validate_text('four times', f))
+
+    def test_ascii_and_crlf(self):
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'soccer', 'coaching')
+        for name in ('language.py', 'language_v1.py', 'report.py', 'report_v1.py', 'explain.py'):
+            with open(os.path.join(root, name), 'rb') as fh:
+                b = fh.read()
+            b.decode('ascii')
+            self.assertEqual(b.count(b'\n'), b.count(b'\r\n'), name)
 
 
 if __name__ == '__main__':

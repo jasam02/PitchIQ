@@ -1806,89 +1806,192 @@ same format.
 
 ## Coaching report
 
-The **Coaching report** tab (`coaching.js`, `soccer/coaching/`, `GET /api/coaching`,
-`POST /api/coaching/build`) turns a finished run into a report for one team over
-the analysed segment or a custom range (source-video time): strengths, areas to
-improve, moments worth reviewing, a breakdown by area, at most three priorities
-with drills, the confidence and limitations, and the evidence of each finding
-(the exact frame, an overlay, a top-down diagram, a jump to the video or the 2D
-view). EXPORT PDF saves the same report (`pitchiq-coaching-<video>-<run>-<team>-<level>.pdf`).
-The context level (development, competitive, advanced) changes the words only.
-It is a read-only layer: it never changes the tracking, the result or the
-analytics; it measures from the same validated samples and team-shape readings
-as Analytics.
+The **Coaching report** tab (`coaching.js`, `soccer/coaching/`, the `/api/coaching*` routes) turns a finished run into
+a report for one team, over the analysed segment or a custom range (source-video time). The report is adapted to the
+team the coach describes: age group, playing level, match format and style.
 
-**What it can say.** Only what the tracking measured: team width, length and
-area, the gaps between the units, back-line evenness and height, the sideways
-shift of back line and midfield, players' distance to their nearest teammate,
-the formation reading and where the ball was. The report does not read the
-possession record (Possession, above) yet, so nothing is said about passes,
-pressing or phases of play; compactness
-and spacing findings say that they matter most without the ball and point to the
-moments to check. Players are named by their internal id and shown with the
-labels of the result as it is now (an excluded identity shows as "excluded (was
-A-03)").
+- **Read-only.** It never changes the tracking, the result, Analytics, Team shape or Possession. A golden check
+  (2026-10-22) hashed 170 outputs of `result.json`, `/api/analytics`, `/api/team-shape` and `/api/possession` on five
+  runs, and all were byte-identical to the committed code's.
+- **Not validated by a coach yet.** Every threshold, verdict rule, drill and progression rule is a PitchIQ proposal,
+  stored as `origin: PITCHIQ-PROPOSAL, validated: false`.
+- **No federation endorsement.** Federation guidance is paraphrased with its source. No federation reviewed or
+  endorses PitchIQ.
 
-**Compared with professional play.** Every number is set against the
-professional reference `soccer/coaching/reference.json`, measured on Metrica
-Sports sample game 1 (both teams, dead ball included, like a PitchIQ run) by
-`tools/coaching_bench.py`, per pitch third, back-line size or unit:
-- a **strength** needs at least max(30 s, min(60 s, 0.8 x the range)) measured,
-  a median on the favourable side of the professional median and an 80% upper
-  bound of the time beyond the professional upper quarter below the
-  professional 25%;
-- an **area to improve** needs at least 2 spells and more of them than 99% of
-  professional stretches of the same measured length in the same context
-  (both professional teams; a context with one team's data cannot give one);
-  a **high-confidence concern** also needs high confidence, 3 minutes measured
-  and a count of at least 1.5 times that level, beyond every professional stretch;
-- formation readings, block height and ball location are descriptions; a
-  player's support distance is at most a role check; anything measured under
-  20 s, or with low confidence, is listed as not assessed, never as a strength
-  or a weakness. A run shorter than 3 minutes never claims a recurring pattern.
+**Setup (per video and team).** The coach sets:
+- age group, U6 to Adult;
+- playing level, 1 to 7: Foundation, Early development, Developing, Intermediate, Advanced youth, Competitive adult or
+  academy, Professional or elite;
+- match format: 4v4, 5v5, 7v7, 9v9 or 11v11, with a goalkeeper toggle for the small formats;
+- federation, field size, intended formation, style, confirmed player roles, and a squad for progression.
 
-The reference was checked once on the held-out Metrica game 2 with every
-threshold frozen (2026-10-19, `validation` in the file, verdict PASS): the
-detectors run on game 2 as PitchIQ-shaped results found 0.00 / 0.05 / 0.00 /
-0.11 improvement findings per 10 team-minutes with 1-, 3-, 10-minute and
-whole-half windows on the full tracking and 0.00 / 0.05 / 0.00 / 0.05 through a
-simulated 60 m broadcast camera with correlated position noise, no
-high-confidence concern (the pre-declared limit was 0.2; the first detectors
-found 1.31 and 0.44 with 10-minute windows). Game 2's back-line height and its
-forwards' distance to teammates did not carry over (more spells than game 1 in
-long windows); neither can give an area to improve.
+Defaults:
+- **Format:** the U.S. Soccer format for the age. With England or Canada chosen, that federation's own format where
+  the research has it: England 5v5 at U7-U8, 7v7 at U9-U11 and 9v9 at U12-U13; Canada 5v5 at U8-U9 (4v4 without a
+  goalkeeper is also played), 7v7 at U10-U11 and 9v9 at U12-U13. Elsewhere PitchIQ uses its nearest format and says so
+  (Canada plays 3v3 at U6-U7, which PitchIQ does not assess); it never calls that the federation's format.
+- **Heading:** the stricter of the U.S. Soccer and England rules always applies, whatever the federation setting.
+- **Nothing set:** an adult level-6 11v11 team, with a notice saying these are defaults.
 
-**Stored and stale.** Reports are cached under
-`runs/<video>/<run>/coaching/report-<team>-<fp16>.json` with a fingerprint of
-the result, the team-shape settings, the options, the coaching code, the
-reference and the drill library; after a correction or a settings change the
-tab says the report is out of date and why, and REGENERATE builds it again.
-Screenshots are cached under `runs/<video>/coaching/frames/`. A coach's verdict
-on a finding (correct, partially correct, incorrect, not enough evidence, with a
-note) is kept in `runs/<video>/coaching_feedback.json`, apart from the report:
-it stays on its finding in its own run, and verdicts of earlier runs are listed
-apart (team letters are assigned per run).
+The settings are kept in `runs/<video>/coaching_settings.json`. A save that would drop or trim something is refused,
+not silently cut.
 
-**Footage.** Broadcast footage gives the most. On amateur footage (small
-players, no keyframes) many measurements are not assessed: the report says
-once why and what would help (2-3 pitch keyframes, a spell with both lines in
-view, a higher camera); support distances and ball location are measured on
-broadcast-style footage only. On a camera that shows a few players per team
-(the Veo clip: 2.0 and 2.6 on average) team analysis is not possible, and the
-report says so instead of guessing.
+**One measurement, many coaches.** The report is built in three cached tiers (`runs/<video>/<run>/coaching/v2/`):
+- **Measurement** (`obs-*`): coaching series, situations, the six checks' opportunities and their evidence moments.
+- **Role** (`roles-*`): the role book and the wide-defender advances.
+- **Interpretation** (`report-*`): assessment, suggested areas, wording, drills.
 
-From the command line (no server needed):
+What changes trigger a rebuild:
+- **Level, age or style:** only the interpretation tier reruns. That took 11-33 ms on the test runs, inside the GET
+  request.
+- **A confirmed role or formation:** the role tier reruns.
+- **Format, field size, the coach's possession marks or a tracking correction:** the measurement tier is rebuilt in
+  the background (0.13-2.9 s on the test runs).
+
+The observation files never change with the coaching profile. The evaluation re-measured every run copy under 14
+profiles and every synthetic scene under 4: the bytes were identical every time.
+
+**The six checks.** Which checks a level turns on, and which verdicts each may give, follow the profile table in
+`soccer/coaching/profiles.json`. The verdicts are strength, work on, try this, review and describe.
+
+| # | Check | What it measures (when) |
+|---|---|---|
+| D1 | Pressure and cover | Does the nearest defender press the ball carrier (within 5 m; at levels 1-2 also "goes to the ball")? Does a team-mate cover behind him? (the other team has the ball) |
+| D2 | Far-side balance | Is someone goal-side in the far half when the ball is wide? (other team's ball) |
+| D3 | Wide-defender advance | When a full-back or wing-back goes 15 m beyond the back line, does a centre-back shift, a midfielder drop or a team-mate take the channel? (our ball) |
+| D4 | Behind the ball | Are there enough players goal-side of the ball with the ball in the final third? (our ball) |
+| D5 | Defensive spacing | Gaps in the back line and between the units (other team's ball) |
+| D6 | Attacking shape | Width, depth and channels used (our ball) |
+
+All checks except D6's descriptions need to know who had the ball. That comes from one of two sources:
+- the possession record (Possession, above), on broadcast footage;
+- **phases the coach marks** while watching, under the video or the 2D match: "our ball / their ball / dead ball from
+  here". The marks are kept per run in `runs/<video>/coach_spans.json`, shown on their own lane, and the report words
+  their findings as coach-marked. The marking bar opens from the report ("Mark who had the ball"); its button in the
+  tracking and 2D controls appears once the run has marks or the bar is open, so a run nobody marked keeps the earlier
+  layout. Shares of who had the ball are said with their source: your marks, or your marks where you made them and
+  PitchIQ's estimate elsewhere; with only one team's spells marked on footage PitchIQ cannot follow, no share is given
+  and the report says which checks wait for the other team's spells.
+
+Some things the report never assesses: recovery after losing the ball, passes, communication and outcomes. MATCH
+OVERVIEW lists them under "Not measured by PitchIQ", with the reason.
+
+**When it declines.** A finding needs at least the level's number of separate spells and opportunities. A failing
+pattern with too little evidence becomes a review, never a work item. Nothing is criticised in these cases:
+- an identity is in doubt at the moment;
+- the formation changes within 15 s;
+- the player is sprinting back;
+- the calibration or the view does not support the measurement.
+
+Short clips get their own rules. Under 3 minutes, the report never says "repeated" or "pattern", and a work item needs
+3 separate moments. At levels 1-2:
+- no player is named in a challenge;
+- formation discipline is never judged;
+- the report shows at most 1 work item at level 1, and 2 at level 2.
+
+**Evidence and suggested areas.** Every finding cites key moments from the observation file:
+- **The frame:** its exact frame, with seek = (frame + 0.5) / fps.
+- **The ring:** a focus ring on the player's observed position at that frame.
+- **The overlay:** drawn on the video where the calibration supports it, otherwise on the top-down diagram.
+
+For a criticised moment, the report may also propose a **suggested area**: where one team-mate could have reached in
+about 2 s. The area restores the relation the check found broken, opens no new gap, and stays 3 m clear of
+team-mates. When no such area exists, the report says why.
+
+**Words.** `explain.py` writes the text from structured claims, in a register for each level. A deterministic checker
+rejects any sentence that:
+- states a number, time or id that is not a fact of the finding;
+- names an event PitchIQ does not measure (passes, turnovers, "lost the ball");
+- uses a concept the level has not unlocked;
+- uses a banned word for the level, or a generic sentence.
+
+A rejected sentence is replaced by a shorter one, or the finding is withheld.
+
+**Drills.** The library holds 14 drills. All are PitchIQ adaptations, credited to the sessions they adapt (sources in
+`soccer/coaching/sources.json`: 122 sources, 90 read in full). A drill is offered only for a reported work item of its
+own check, or once as an optional drill for the next objective. The safety filter runs before any ranking:
+- no heading drill at U11 or younger;
+- physical load capped by age;
+- no tackling below U9.
+
+**Progression.** Link a team to a squad, and its matches are followed per skill in `runs/_coaching/progress.json`.
+- Rates count per judged moment, never per match total. Cutting Metrica game 1 into 60 s clips gave the whole
+  match's counts exactly.
+- The mastery states (LEARNING to ADAPTABLE) come from `progress_rules.json`, also unvalidated.
+
+**PDF.** EXPORT PDF prints the same seven sections:
+1. match overview;
+2. what went well;
+3. what needs work and what to review;
+4. key moments, with zoomed frames;
+5. tactical diagrams;
+6. training drills;
+7. development progression, with the sources.
+
+The file is named `pitchiq-coaching-<video>-<run>-<team>-level<N>.pdf`.
+
+**Feedback.** A coach's verdict on a finding (correct, partially correct, incorrect, not enough evidence, with a note)
+and any area the coach moved are kept in `runs/<video>/coaching_feedback.json`, apart from the report.
+
+**Footage.**
+- **Broadcast footage** gives the most.
+- **Amateur and Veo clips:** possession is not estimated, so every check that needs who had the ball reports "not
+  assessed" until the coach marks the phases.
+- **Small fields:** the pitch model knows only full-size markings, so on a small field a coach should declare the field
+  size. Checks that need true metres are "not assessed (scale unknown)" while a small field's size is only assumed.
+
+**The first (v1) report** (context levels development / competitive / advanced, judged against Metrica game 1's
+professional reference) is deprecated. It is still served when a request names a `context`, and
+`tools/coaching_report.py --context` still makes it.
+
+**Evaluation (2026-10-22, `tools/coaching_eval.py`; scratch outputs, nothing under `runs/`).**
+
+- **Synthetic counterexamples** (`scenes`; `tests/test_coaching_counterexamples.py`). The 30 variants of DESIGN
+  13.1's scenes in `tools/coaching_synth.py` ran through the server's own measurement path and the real
+  interpretation at levels 1-7:
+  - 380 checks pass and 0 fail; 0 report invariants are broken on any report.
+  - 1 known open defect: the identity-crossing scene gives a level-1 "try this", where DESIGN asks for at most a
+    review.
+  - At level 4, 6 of 6 planted unsupported-advance scenes became work items, and the covered twins drew no criticism
+    at any level.
+- **Same video, different levels** (`levels`; `tests/test_coaching_levels.py`):
+  - The enabled checks and verdicts follow DESIGN 2.3's table, written out independently of `profiles.json`.
+  - Over 30 scene variants x 14 profiles, the most similar explanations of one finding at two levels score a
+    word-trigram Jaccard of .37 (the limit is .5).
+  - Two open defects: the attacking-shape description repeats between levels 5 and 7 (.51-.80), and a few findings
+    show different moments when a level judges a different failing set.
+- **Real run copies** (`runs`): BC60, BC180, BC303, AM and VEO, both teams, 14 profiles, plus AM and VEO with a
+  synthetic coach-marked phase made from the blind possession labels:
+  - 0 invariant problems on 196 reports (7 run variants x 2 teams x 14 profiles).
+  - No work item at levels 3-7. The only work items are BC180 Barcelona's attacking depth at levels 1-2 ("try
+    this"); attacking shape never gets an area.
+  - Every other real criticism is a review whose evidence guardrail failed, so no suggested area is drawn on the real
+    clips.
+  - Without marks, the amateur and Veo clips are "not assessed" for every phase-dependent check.
+- **Pressure distance** (`statsbomb`): checked on StatsBomb open data (Euro 2020 matches with 360 freeze frames; data
+  by StatsBomb, not copied here). Over 8,576 carrier events with a visible opponent:
+  - Under pressure, the nearest outfield opponent was a median 2.1 m away, and 84% were within PitchIQ's 5 m.
+  - Not under pressure, the median was 5.7 m, but 44% were still within 5 m (precision .32).
+  - "Nobody within 5 m" agreed with StatsBomb's "not under pressure" on 94% of events (91% in the defending third).
+  - So 5 m rarely calls an unpressed carrier pressed by mistake, but it counts many unpressed carriers as pressed.
+- **Blind label sheets** (`sheets`, in `tools/annotations/coaching/labels/`; the scorer is
+  `coaching_eval.py --labels DIR`):
+  - MOMENT: 266 moments (200 broadcast, 47 amateur, 19 Veo).
+  - ROLE: 60 players.
+  - ADVANCE: 8 spells.
+  - ZONE: 48 diagrams.
+  - The sheets show the video at a time, or a clean diagram, and short questions; never PitchIQ's output. Until a coach
+    fills them, no coaching judgement here is claimed validated.
+- **Metrica game 3:** reserved for one held-out test on frozen rules, under a plan declared in advance.
 
 ```bat
-.venv\Scripts\python.exe tools\coaching_report.py runs\<video>\<run>\result.json --team A --context competitive ^
-    --out report.json --pdf report.pdf --video uploads\<video>.mp4
-.venv\Scripts\python.exe -I -B tools\coaching_bench.py --data DIR --game 1 --out soccer\coaching\reference.json
+.venv\Scripts\python.exe tools\coaching_report.py runs\<video>\<run>\result.json --team A --level 4 --age U14 ^
+    --format 11v11 --out report.json --pdf report.pdf --video uploads\<video>.mp4
+.venv\Scripts\python.exe tools\coaching_eval.py scenes --json scenes.json
+.venv\Scripts\python.exe tools\coaching_eval.py runs --out DIR --run BC60=...\result.json --spans AM=tools\annotations\possession\AM.json
+.venv\Scripts\python.exe tools\coaching_eval.py --labels FILLED_DIR --sheets tools\annotations\coaching\labels
+.venv\Scripts\python.exe -I -B tools\coaching_eval.py statsbomb STATSBOMB_DIR
 ```
-
-The bench reads the downloaded Metrica files only under `python -I -B`, builds
-the reference from game 1 only, and reads game 2 only with `--validate`
-(`--record` writes the result into the file's `validation` block and nothing
-else).
 
 ## Debug view (how to test)
 

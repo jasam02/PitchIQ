@@ -38,11 +38,34 @@ reads 2.1-2.6 m short with p90 6 m. The D-M gap uses M1, not M: in 4-2-3-1 and 4
 lines. Gaps are centre to centre (mean depth of one unit minus the other's): the edge-to-edge gap (deepest midfielder
 minus most advanced defender) is negative 30-35% of professional time, because full-backs overlap.
 
+Interleaved units (critic B2). A gap is measured only while every member of the deeper unit stands behind the next
+unit's mean depth (D against M1, M against F); otherwise the sample is `units_interleaved`. The template splits the
+players into lines by their 15 s average, so in a rotating shape its "midfielders" can stand ahead of its
+"forwards", and the gap between such units is the template's split, not the team's spacing: on broadcast 0-60 s team
+B's midfield-to-front gap read 4.3 m at the median, and on 71% of its samples (203 of 287) a midfielder stood ahead of
+the forwards' mean depth (critic: 4.1 m by the template, 8.8 m with the players ranked by depth); the others read
+7.6 m. On Metrica game 1 (full tracking) the rule removes 5.0 / 7.3% (team A / B) of the D-M gap's samples out of
+possession, where coaching uses that gap, and 18.2 / 5.5% in possession (full-backs push on); of the M-F gap's, 12.5 /
+6.6% out of possession and 46.7 / 21.8% in it. The out-of-possession D-M medians move by 0.02 / 0.37 m; the
+in-possession M-F medians rise from 9.5 to 12.2 m (A) and from 11.8 to 13.4 m (B). The unit centres (unitD ... unitF)
+are unchanged. soccer/coaching/reference.json was built before this rule (its gap distributions keep the interleaved
+samples); coaching v2 does not judge against it.
+
 Defensive line: defensive_line()'s complete samples (every defender measured) whose unit was recognised from the
 formation (not the role memory or the depth-rank fallback, low confidence by design), neither displaced nor
 disrupted. Height error p50 0.5-0.6 m under the simulated camera. The std of the defenders' depth depends on how many
 form the line (Metrica team A's back four p50/p90 2.82/7.77 m, team B's back three 2.22/4.94 m), so lineSize travels
 with it.
+
+Each defender's offset (`lineOffset`, ported from the stopped fix round 2): on a complete formation back line of three
+or more, disrupted ones included (a defender far out of the line is what it measures), never a displaced one, the
+distance of each defender's depth from the median depth of the other defenders (`lineOffsetSigned`: + further from
+the own goal; `lineRef`: the others' median, metres from the own goal line; `lineRole`: 'wide' for the two outermost
+across the pitch, 'central' otherwise). Every other player is `not_in_line`. On Metrica game 1 (full tracking) it is
+p50 1.3 / 1.9 m, p90 6.4 / 7.0 m out of possession and p50 5.8 / 3.7 m, p90 14.9 / 10.0 m in possession (team A /
+B); under the simulated camera it is off by p50 0.25 m, p90 0.7 / 1.7 m (p99 6-8 m), and "more than 5 m from the
+others" agrees with full tracking at precision .96 / .86, recall .96 / .91, on the 44 / 54% of full tracking's
+defender-samples the camera measures.
 
 Team centre and third. On a complete sample the outfield centroid; otherwise the window's VOTED centre (each visible
 window player's position minus his mean offset from the centre over the window, as team_shape._window_shape computes
@@ -63,7 +86,11 @@ erred by p90 +4.0 m, p99 +12 m. The rule assumes everyone in view was detected: 
 observed), not on small-scene runs (the amateur and Veo clips miss players inside their view; on Veo the nearest
 observed teammate is beyond 15 m 27-40% of the time, mostly because the teammate is not seen), so it is vetoed on
 small-scene runs (labels.small_scene_run), and on a sample where someone in the team's kit is in the picture without a
-usable position (he could be the nearest).
+usable position (he could be the nearest). Where the whole lineup is observed (`complete`) no unseen teammate can be
+nearer, so the view does not veto there (critic S8): under the simulated camera on Metrica game 1 that adds 15848 /
+14754 player-samples (+10 / +9%), off by p50 0.30 m, p90 0.85 m, p99 1.5-1.7 m against full tracking, no worse than
+the disc-certain ones (p50 0.33-0.35, p90 1.05-1.10, p99 4.8-5.3 m); on broadcast 0-60 s team B is measured 593
+player-seconds instead of 499, all ten players for at least 10 s (nine before).
 
 Ball context: the final ball path where it is TRACKED or MISSING (a bridged interpolation), its pitch confidence MEDIUM
 or better, its larger sigma at most 3 m (p90 13.6 m on broadcast 42-222, through the registration loss) and inside the
@@ -76,6 +103,33 @@ third line. After an unmeasured second the zone is decided afresh.
 Stabilized block: never a measurement. Its flags (a box that lost the legs or reaches into a nearer player, a
 down-weighted or rejected foot) mark the players within 0.5 s of a sample whose box foot is wrong (2-3 px off
 normally, 15-32 px on those frames), so evidence avoids them (`flagged`).
+
+Velocity (`velX`, `velY` in the attack frame, `speed`; m/s), per observed outfield player: the difference of his own
+positions VEL_HALF_WINDOW (0.8 s) either side of the sample over their time apart, central where his usable
+positions allow and one-sided at the ends of a stretch (at least 0.4 s apart), never from a frame the registration
+gates veto, never across a gap longer than 0.6 s, a change of side, or a jump no player runs (consecutive positions
+more than 10 m/s x their time apart + 2 m apart); nothing is interpolated. The window is twice DESIGN 3.1's +-0.4 s
+because the camera's position noise dominates the error: on Metrica game 1 under the simulated camera, against
+Metrica's own 25 Hz tracking (central difference over +-0.2 s), the speed is off by p50 0.30, p90 0.88 m/s at
++-0.8 s, 0.49 / 1.49 at +-0.4 s and 0.77 / 2.4 at +-0.2 s, while the wider difference's own lag costs p90 0.18 m/s on
+full tracking (0.06 at +-0.4 s); "towards the own goal at 3 m/s or more" agrees with Metrica at precision .86 / .91,
+recall .86 / .89 (team A / B; at +-0.4 s .73 / .82 and .84 / .87). The noise still inflates speeds, by 0.12 m/s on
+average (0.37 at +-0.4 s). The jump rule breaks 3-8 of the camera's 218000-229000 steps per team and 3-7 of full
+tracking's 288000 (Metrica's own glitches, up to 27 m/s between samples), none on the broadcast clips, 4 and 2 on
+the amateur and Veo clips (team B), where a lone B-07 sighting 11.3 m from the next one 0.6 s later read 16.6 m/s.
+Speeds then: Metrica full tracking p99.9 7.7-7.8 m/s, max 9.0; the broadcast clips p99 4.8-6.0, max 6.0-7.9; the
+amateur and Veo clips max 4.3-7.1. Identities are taken as given: an identity swap moves a velocity as it moves a
+position (the consumers' identity gates apply, DESIGN 3.5).
+
+Data quality (critic B4: the report must say why players were not measured, not only that they were not): per team
+and sample, the people in the team's kit in the picture (outfield role, not rejected or a non-target, placed on the
+pitch or without a usable position: someone placed beyond the lines is not on the pitch) and those of them with a
+confirmed identity; the positioned count is `observed` (the analytics' validated positions). The chain lineup ->
+in kit -> confirmed -> positioned names the dominant cause of a short count (soccer/coaching/situations.py). Means
+per sample (A / B): broadcast 0-60 s 10.1 / 10.0 in kit, 10.1 / 10.0 confirmed, 10.0 / 10.0 positioned; broadcast
+42-222 s 10.1 / 10.0, 9.8 / 10.0, 7.8 / 8.1 (the registration hole); the Veo clip 5.7 / 6.8, 2.9 / 3.5, 2.0 / 2.6.
+These counts, the camera's view polygons and the unplaced counts are kept on CoachingData (`in_kit`,
+`confirmed_in_kit`, `view`, `unplaced`) for the situation timeline; nothing else changes with them.
 
 The same code runs on a Metrica-shaped result, which is how the professional reference is measured
 (tools/coaching_bench.py): a PitchIQ value and its baseline are the same computation.
@@ -119,6 +173,16 @@ CHANNELS = 3                                # the width in thirds from the team'
 # Evidence veto from the stabilized block.
 FLAG_SECONDS = .5                           # s: a stabilizer flag this close to a sample marks the player there
 
+# Player velocity (module docstring "Velocity"): observed positions differenced across the sample.
+VEL_HALF_WINDOW = .8                        # s: the positions this far either side of the sample are differenced (camera
+                                            # speed error p90 0.88 m/s; 1.49 at 0.4 s, the window DESIGN 3.1 proposed)
+VEL_MAX_GAP = .6                            # s: a velocity never spans a gap in the player's usable positions longer than this
+VEL_MIN_BASE = .4                           # s: the shortest time between the two differenced positions (one-sided at a
+                                            # stretch's ends; 2 grid steps)
+VEL_TOLERANCE = .25*SAMPLE_STEP             # s: grid times are real frame times (0.2002 s apart at 29.97 fps, 0.2083 at 24)
+VEL_JUMP_SPEED = 10.0                       # m/s: two consecutive positions further apart than this speed allows (plus
+VEL_JUMP_SLACK = 2.0                        # m: this much position noise) are not one player moving: the stretch breaks
+
 # Reason codes, in the order the gates are checked (a sample's reason is the first gate it failed).
 NOT_CALIBRATED = 'not_calibrated'           # the frame has no registration (or below UNCALIBRATED)
 LOW_CALIBRATION = 'low_calibration'         # the registration is below MEDIUM
@@ -127,11 +191,14 @@ SMALL_SCENE = 'small_scene_veto'            # nearest teammate and ball context:
 NO_DIRECTION = 'no_direction'               # the side the team defends is unknown or contradicted there
 NO_FORMATION = 'no_formation'               # no classified formation window contains the sample (units unknown)
 INCOMPLETE_UNITS = 'incomplete_units'       # a unit misses a member, or a member is not observed
+UNITS_INTERLEAVED = 'units_interleaved'     # a member of the deeper unit stands ahead of the next unit's mean depth
 INCOMPLETE_TEAM = 'incomplete_team'         # fewer outfield players observed than the lineup (or not reliable)
 EXCESS = 'excess_players'                   # more observed outfield players than the lineup (a duplicate, a departed player)
 LINE_DISPLACED = 'line_displaced'           # the defensive unit is ahead of most of its team (set piece, all-out attack)
 LINE_DISRUPTED = 'line_disrupted'           # the defenders are spread beyond team_shape.LINE_DISRUPTED along the pitch
 NOT_OBSERVED = 'not_observed'               # the player has no observed position at the sample
+NOT_IN_LINE = 'not_in_line'                 # the player is not one of the back line's measured defenders at the sample
+SHORT_TRACK = 'short_track'                 # the player's usable positions around the sample span less than VEL_MIN_BASE
 NO_TEAMMATE = 'no_teammate'                 # nobody else of the team has a position
 UNPLACED_TEAMMATE = 'unplaced_teammate'     # someone in the team's kit is in the picture without a usable position
 OUT_OF_VIEW = 'out_of_view'                 # the disc of the nearest-teammate distance is not all in the camera's view
@@ -139,20 +206,23 @@ NO_BALL = 'no_ball'                         # no ball on the path (UNKNOWN, or n
 BALL_UNCERTAIN = 'ball_uncertain'           # the ball's pitch position is below MEDIUM or less certain than BALL_MAX_SIGMA
 BALL_OFF_PITCH = 'ball_off_pitch'           # the ball's pitch position is beyond the pitch lines (with the margin)
 REASONS = (NOT_CALIBRATED, LOW_CALIBRATION, DISAGREEMENT, SMALL_SCENE, NO_DIRECTION, NO_FORMATION, INCOMPLETE_UNITS,
-           INCOMPLETE_TEAM, EXCESS, LINE_DISPLACED, LINE_DISRUPTED, NOT_OBSERVED, NO_TEAMMATE, UNPLACED_TEAMMATE, OUT_OF_VIEW,
-           NO_BALL, BALL_UNCERTAIN, BALL_OFF_PITCH)
+           UNITS_INTERLEAVED, INCOMPLETE_TEAM, EXCESS, LINE_DISPLACED, LINE_DISRUPTED, NOT_OBSERVED, NOT_IN_LINE, SHORT_TRACK,
+           NO_TEAMMATE, UNPLACED_TEAMMATE, OUT_OF_VIEW, NO_BALL, BALL_UNCERTAIN, BALL_OFF_PITCH)
 
-# The metrics with an eligibility mask: per sample (S) and per player (S x N, `nearestTeammate`).
+# The metrics with an eligibility mask: per sample (S) and per player (S x N: `nearestTeammate`, `lineOffset`,
+# `velocity`).
 TEAM_METRICS = ('width', 'depth', 'hull', 'spread', 'centre', 'third', 'unitD', 'unitM1', 'unitM', 'unitF', 'gapDM',
                 'gapMF', 'lineStd', 'lineHeight', 'lineSize', 'ball', 'ballThird', 'ballChannel')
-PLAYER_METRICS = ('nearestTeammate',)
+PLAYER_METRICS = ('nearestTeammate', 'lineOffset', 'velocity')
 # The value arrays and the metric whose eligibility they carry: a value exists only where it may be believed (NaN, or
 # '' for a zone, everywhere else), so no detector can count an unmeasured sample by mistake.
 VALUE_METRIC = {'width': 'width', 'depth': 'depth', 'hull': 'hull', 'spread': 'spread', 'centreX': 'centre',
                 'centreY': 'centre', 'third': 'third', 'DX': 'unitD', 'DY': 'unitD', 'M1X': 'unitM1', 'M1Y': 'unitM1',
                 'MX': 'unitM', 'MY': 'unitM', 'FX': 'unitF', 'FY': 'unitF', 'gapDM': 'gapDM', 'gapMF': 'gapMF',
                 'lineStd': 'lineStd', 'lineHeight': 'lineHeight', 'lineSize': 'lineSize', 'ballX': 'ball', 'ballY': 'ball',
-                'ballThird': 'ballThird', 'ballChannel': 'ballChannel', 'nearestTeammate': 'nearestTeammate'}
+                'ballThird': 'ballThird', 'ballChannel': 'ballChannel', 'nearestTeammate': 'nearestTeammate',
+                'lineOffset': 'lineOffset', 'lineOffsetSigned': 'lineOffset', 'lineRef': 'lineOffset',
+                'lineRole': 'lineOffset', 'velX': 'velocity', 'velY': 'velocity', 'speed': 'velocity'}
 GOOD_STATUS = ('complete', 'reliable')
 
 
@@ -241,6 +311,48 @@ def _zones(t, v, ok, edges, names, hysteresis=BALL_HYSTERESIS, reset=BALL_RESET_
     return out
 
 
+def velocities(t, X, Y, usable, side, half=VEL_HALF_WINDOW, max_gap=VEL_MAX_GAP, min_base=VEL_MIN_BASE,
+               tolerance=VEL_TOLERANCE, jump_speed=VEL_JUMP_SPEED, jump_slack=VEL_JUMP_SLACK):
+    """Per sample and player (S x N): the velocity (m/s) from the player's own positions (module docstring
+    "Velocity"). X, Y: S x N metres; usable: S x N bool, the positions that may be differenced (NaN elsewhere is
+    fine); side: S, the frame's orientation (a change splits a stretch: in the attack frame the side flips the axes).
+    A player's usable positions form stretches broken by any gap longer than max_gap seconds, by a side change and by
+    a jump (two consecutive positions further apart than jump_speed * their time apart + jump_slack metres). At a
+    usable sample the velocity is (P(b) - P(a)) / (t(b) - t(a)), a and b the furthest usable positions of the same
+    stretch within half seconds before and after it (central where the stretch allows, one-sided at its ends), when
+    t(b) - t(a) is at least min_base; NaN elsewhere. Nothing is interpolated or smoothed beyond that difference.
+    Returns (vx, vy)."""
+    t = np.asarray(t, float)
+    X, Y = np.asarray(X, float), np.asarray(Y, float)
+    usable = np.asarray(usable, bool)
+    side = np.asarray(side)
+    S = len(t)
+    N = usable.shape[1] if usable.ndim == 2 else 0
+    vx, vy = np.full((S, N), np.nan), np.full((S, N), np.nan)
+    for j in range(N):
+        u = np.flatnonzero(usable[:, j] & np.isfinite(X[:, j]) & np.isfinite(Y[:, j]))
+        if len(u) < 2:
+            continue
+        tu = t[u]
+        brk = np.ones(len(u), bool)
+        dt = np.diff(tu)
+        jump = np.hypot(np.diff(X[u, j]), np.diff(Y[u, j])) > jump_speed*dt+jump_slack
+        brk[1:] = (dt > max_gap+tolerance) | (side[u][1:] != side[u][:-1]) | jump
+        seg = np.cumsum(brk)-1
+        first = np.flatnonzero(brk)
+        last = np.r_[first[1:]-1, len(u)-1]
+        a = np.maximum(np.searchsorted(tu, tu-half-tolerance, side='left'), first[seg])
+        b = np.minimum(np.searchsorted(tu, tu+half+tolerance, side='right')-1, last[seg])
+        base = tu[b]-tu[a]
+        ok = base >= min_base-tolerance
+        if not ok.any():
+            continue
+        rows, ia, ib = u[ok], u[a[ok]], u[b[ok]]
+        vx[rows, j] = (X[ib, j]-X[ia, j])/base[ok]
+        vy[rows, j] = (Y[ib, j]-Y[ia, j])/base[ok]
+    return vx, vy
+
+
 class TeamSeries:
     """One team's coaching series on the common grid. Arrays (length S = samples, or S x N for the N outfield
     identities in `ids` order): `values[name]` (also attributes), `eligible[metric]` (bool masks), `reasons[metric]`
@@ -257,7 +369,9 @@ class TeamSeries:
     lineQuality, lineDefenders; ballX, ballY (attack frame metres), ballThird, ballChannel, ballObserved. Values
     (S x N): x, y (normalized pitch), kind ('O' or ''), group ('D', 'M', 'F'), line (template line index, -1),
     nearestTeammate (metres), nearestExtras (S: kit-labelled people counted beside the observed teammates), flagged;
-    gk (S x 2). Every value in VALUE_METRIC is NaN ('' for a zone) wherever its metric is not eligible."""
+    lineOffset, lineOffsetSigned, lineRef (metres), lineRole ('wide', 'central'); velX, velY (attack frame, m/s:
+    +X towards the goal the team attacks, +Y towards its right touchline), speed (m/s); gk (S x 2). Every value in
+    VALUE_METRIC is NaN ('' for a zone or a role) wherever its metric is not eligible."""
 
     def __init__(self, team, t, frame, step, ids, segment_start):
         self.team = team
@@ -347,7 +461,8 @@ class TeamSeries:
 class CoachingData:
     """The coaching series of one result: `teams` {'A': TeamSeries, 'B': TeamSeries} on the common grid (`t`,
     `frame`), the run-level facts (`pitch`, `metresEstimated`, `smallScene`, `available` fields), the per-sample frame
-    context shared by both teams (`calibration`, `ball`), the TeamShape and Samples it was built from, and timings."""
+    context shared by both teams (`calibration`, `ball`, `view`; per team `unplaced`, `in_kit`, `confirmed_in_kit`),
+    the TeamShape and Samples it was built from, and timings."""
 
     def __init__(self):
         self.teams = {}
@@ -362,6 +477,10 @@ class CoachingData:
         self.available = {}
         self.calibration = {}
         self.ball = {}
+        self.view = []              # per sample: the camera's view polygon (metres, K x 2), None (no such field), False
+        self.unplaced = {}          # team -> (S,) people in the team's kit in the picture without a usable position
+        self.in_kit = {}            # team -> (S,) people in the team's kit in the picture (data quality)
+        self.confirmed_in_kit = {}  # team -> (S,) ... of them with a confirmed identity (data quality)
         self.shape = None
         self.samples = None
         self.result = None
@@ -458,9 +577,13 @@ def _frame_context(result, data):
     ctx['ball'] = {'x': bx, 'y': by, 'state': state, 'observed': observed, 'reason': breason,
                    'present': any(isinstance(f.get('ball'), dict) for f in F)}
     # Everyone in a team's kit on the frame (outfield role): placed (metres) or not placed. Goalkeepers and people
-    # rejected or not a target are left out; someone placed beyond the pitch (with the margin) is not on it.
+    # rejected or not a target are left out; someone placed beyond the pitch (with the margin) is not on it. The same
+    # pass counts the data-quality block (module docstring "Data quality"): the people in kit in the picture (placed
+    # on the pitch, or without a usable position) and those of them with a confirmed identity.
     people = {'A': [[] for _ in range(S)], 'B': [[] for _ in range(S)]}
     unplaced = {'A': np.zeros(S, int), 'B': np.zeros(S, int)}
+    in_kit = {'A': np.zeros(S, int), 'B': np.zeros(S, int)}
+    confirmed = {'A': np.zeros(S, int), 'B': np.zeros(S, int)}
     for s, f in enumerate(F):
         for p in f.get('people') or ():
             team = p.get('team')
@@ -468,12 +591,17 @@ def _frame_context(result, data):
                 continue
             pos = p.get('pitch')
             pc = p.get('pitchConfidence')
-            if not (isinstance(pos, (list, tuple)) and len(pos) == 2 and all(_number(v) for v in pos)) \
-                    or (_number(pc) and pc < analytics.MIN_PITCH_CONFIDENCE):
+            placed = isinstance(pos, (list, tuple)) and len(pos) == 2 and all(_number(v) for v in pos)
+            if not placed or analytics._valid(pos):
+                in_kit[team][s] += 1
+                if p.get('state') == 'confirmed' and p.get('id'):
+                    confirmed[team][s] += 1
+            if not placed or (_number(pc) and pc < analytics.MIN_PITCH_CONFIDENCE):
                 unplaced[team][s] += 1
             elif analytics._valid(pos):
                 people[team][s].append((p.get('id'), float(pos[0])*L, float(pos[1])*W))
     ctx['people'], ctx['unplaced'] = people, unplaced
+    ctx['quality'] = {'inKit': in_kit, 'confirmed': confirmed}
     # Stabilizer flags: per identity the flagged times.
     st = result.get('stabilized') if isinstance(result.get('stabilized'), dict) else None
     flags = {}
@@ -696,8 +824,17 @@ def _team_series(team, shape, ctx, small_scene, segment_start):
         out._metric('unit'+name, _gates(S, cal+[(no_dir, NO_DIRECTION), (~defined, NO_FORMATION), (~ok, INCOMPLETE_UNITS)]))
     gap_dm = np.where(unit_ok['D'] & unit_ok['M1'], centre_of['M1'][0]-centre_of['D'][0], np.nan)
     gap_mf = np.where(unit_ok['M'] & unit_ok['F'], centre_of['F'][0]-centre_of['M'][0], np.nan)
-    out._metric('gapDM', _gates(S, cal+[(no_dir, NO_DIRECTION), (~defined, NO_FORMATION), (~(unit_ok['D'] & unit_ok['M1']), INCOMPLETE_UNITS)]))
-    out._metric('gapMF', _gates(S, cal+[(no_dir, NO_DIRECTION), (~defined, NO_FORMATION), (~(unit_ok['M'] & unit_ok['F']), INCOMPLETE_UNITS)]))
+    # Interleaved units (module docstring "Interleaved units"): a member of the deeper unit ahead of the next unit's
+    # mean depth.
+    with np.errstate(invalid='ignore'):
+        front_d = np.where(mem['D'] & obs, Xm, -np.inf).max(axis=1) if N else np.full(S, -np.inf)
+        front_m = np.where(mem['M'] & obs, Xm, -np.inf).max(axis=1) if N else np.full(S, -np.inf)
+        mixed_dm = unit_ok['D'] & unit_ok['M1'] & (front_d > centre_of['M1'][0])
+        mixed_mf = unit_ok['M'] & unit_ok['F'] & (front_m > centre_of['F'][0])
+    out._metric('gapDM', _gates(S, cal+[(no_dir, NO_DIRECTION), (~defined, NO_FORMATION), (~(unit_ok['D'] & unit_ok['M1']), INCOMPLETE_UNITS),
+                                        (mixed_dm, UNITS_INTERLEAVED)]))
+    out._metric('gapMF', _gates(S, cal+[(no_dir, NO_DIRECTION), (~defined, NO_FORMATION), (~(unit_ok['M'] & unit_ok['F']), INCOMPLETE_UNITS),
+                                        (mixed_mf, UNITS_INTERLEAVED)]))
     out.units = units
     out._put(group=group, line=line, formation=formation, formationPeriod=period, formationConfidence=fconf,
              unitDefined=defined, gapDM=gap_dm, gapMF=gap_mf,
@@ -737,6 +874,37 @@ def _team_series(team, shape, ctx, small_scene, segment_start):
         out._metric(name, line_reason.copy())
     out._put(lineStd=np.where(lgood, lstd, np.nan), lineHeight=np.where(lgood, lheight, np.nan), lineSize=np.where(lgood, lsize, np.nan),
              lineStatus=lstatus, lineSource=lsource, lineQuality=lquality, lineDefenders=defenders)
+    # Each defender's distance from the median depth of the other defenders (module docstring "Defensive line"): on
+    # the complete formation back lines of three or more, disrupted ones included (a defender far out of the line is
+    # what is measured), never on a displaced unit.
+    off, off_signed, ref = np.full((S, N), np.nan), np.full((S, N), np.nan), np.full((S, N), np.nan)
+    in_line = np.zeros((S, N), bool)
+    line_role = np.full((S, N), '', dtype='<U7')
+    lfull = (lstatus == 'complete') & (lsource == 'formation')
+    for s in np.flatnonzero(lfull):
+        dd = rows[s].get('defenders') or ()
+        if len(dd) < 3:
+            continue
+        dist = np.array([v['distance'] for v in dd], float)
+        across = np.array([v['y'] for v in dd], float)
+        edge = {int(np.argmin(across)), int(np.argmax(across))}        # the two outermost defenders across the pitch
+        for i, v in enumerate(dd):
+            j = col.get(v['id'])
+            if j is None or not obs[s, j]:
+                continue
+            mid = float(np.median(np.delete(dist, i)))
+            ref[s, j] = mid
+            off_signed[s, j] = dist[i]-mid
+            off[s, j] = abs(dist[i]-mid)
+            in_line[s, j] = True
+            line_role[s, j] = 'wide' if i in edge else 'central'
+    offset_reason = _gates((S, N), [(g[:, None], c) for g, c in cal]+[
+        (line_no_dir[:, None], NO_DIRECTION), (not_formation[:, None], NO_FORMATION),
+        (np.isin(lstatus, ('unavailable', 'partial', 'estimated'))[:, None], INCOMPLETE_UNITS),
+        ((lstatus == 'displaced')[:, None], LINE_DISPLACED), (~lfull[:, None], INCOMPLETE_UNITS),
+        (~in_line, NOT_IN_LINE)])
+    out._metric('lineOffset', offset_reason)
+    out._put(lineOffset=off, lineOffsetSigned=off_signed, lineRef=ref, lineRole=line_role)
     out.timings['line'] = clock()-a
 
     # Nearest teammate per observed outfield player, with its certainty.
@@ -770,8 +938,8 @@ def _team_series(team, shape, ctx, small_scene, segment_start):
             near[s, oj] = np.fmin(near[s, oj], de[:, keep].min(axis=1))
     certain = np.ones((S, N), bool)
     for s, v in enumerate(ctx['view']):
-        if v is None or not N:
-            continue
+        if v is None or not N or complete[s]:
+            continue            # the whole lineup observed: no unseen teammate can be nearer, the view does not matter
         if v is False:
             certain[s] = False
             continue
@@ -805,6 +973,17 @@ def _team_series(team, shape, ctx, small_scene, segment_start):
              ballChannel=_zones(t, bY, ok, (W/CHANNELS, 2*W/CHANNELS), ('left', 'centre', 'right')),
              ballObserved=ball['observed'] & (ball_reason == ''))
     out.timings['ball'] = clock()-a
+
+    # Velocity per observed outfield player (attack frame, m/s), from positions on frames the registration gates pass.
+    a = clock()
+    frame_ok = _gates(S, cal) == ''
+    usable = obs & known[:, None] & frame_ok[:, None]
+    vel_x, vel_y = velocities(t, Xm, Ym, usable, side)
+    vel_reason = _gates((S, N), [(g[:, None], c) for g, c in cal]+[
+        (no_dir[:, None], NO_DIRECTION), (~obs, NOT_OBSERVED), (~np.isfinite(vel_x), SHORT_TRACK)])
+    out._metric('velocity', vel_reason)
+    out._put(velX=vel_x, velY=vel_y, speed=np.hypot(vel_x, vel_y))
+    out.timings['velocity'] = clock()-a
 
     # Stabilizer flags near each sample (evidence veto only).
     flagged = np.zeros((S, N), bool)
@@ -859,6 +1038,9 @@ def build_series(result, samples=None, shape=None, settings=None, mode='observed
                      'ball': bool(ctx['ball']['present']), 'stabilized': bool(ctx['stabilized'])}
     out.calibration = {k: v for k, v in ctx['calibration'].items() if k != 'gates'}
     out.ball = {k: v for k, v in ctx['ball'].items() if k != 'present'}
+    out.view = ctx['view']
+    out.unplaced = ctx['unplaced']
+    out.in_kit, out.confirmed_in_kit = ctx['quality']['inKit'], ctx['quality']['confirmed']
     for team in ('A', 'B'):
         a = clock()
         out.teams[team] = _team_series(team, shape, ctx, out.small_scene, data.start)

@@ -46,6 +46,34 @@ evidence timestamp; expert feedback. Choices made for honesty rather than looks:
   options['labels'] (id -> display, from the current result) diagrams and text show the display labels;
 - an empty section says so in one sentence instead of disappearing, and observations without enough evidence are
   listed as not assessed, never as strengths or weaknesses.
+
+Coaching v2 reports (schema 'report' version 2: is_v2(), _ReportV2). The PDF is the page's seven sections (DESIGN
+9.2) in the page's words (coaching.js renderV2, its word tables copied in ASCII, and a test compares the codes the two
+cover): MATCH OVERVIEW (the coaching profile, footage, scale, who had the ball and its caveat, notes, what the level
+aims for and does not expect with the source ids, the shape described, what was checked and why not, what PitchIQ
+does not measure, the described findings), WHAT WENT WELL, WHAT NEEDS WORK (then the possible issues to review), KEY
+MOMENTS, TACTICAL DIAGRAMS, TRAINING DRILLS, DEVELOPMENT PROGRESSION and the next objective, then the sources credited
+with their links, the coach's feedback and the report's identity. The v1 layout above stays for stored v1 reports.
+- Every number a card adds follows the level's register (profile.register.numbers): no counts at level 1, counts at
+  level 2, metres from level 3 (rounded at 3), shares from 5, rates from 6, as the page. The fixed words of this
+  module pass schema.event_problems and every level's banned words (tested on the scene reports at levels 1, 2, 4, 7).
+- Key moments are in time order (E1, E2, ...), each with its absolute and segment times, frame, replay window, the
+  top-down diagram (print colours) and the exact source frame with the annotation at what its tier allows (video
+  colours). The screenshot is zoomed on the people of the annotation by clipping the magnified frame to the column
+  (ZOOM_*): at the half-page column a broadcast player is about 2.5 pt wide in the whole frame. Measured on the five
+  run copies (both teams, levels 2/4/6; scratch pdf_w7/measure.json): 32 of 32 screenshots zoomed, 223 of 225 moments
+  over all 50 reports, zoom 1.31-2.22 (median 2.22, the cap); 4-9 pages, 20-757 kB, 0.02-0.49 s per PDF with the frames
+  decoded from the uploads; 0 elements skipped, 0 links dropped, 0 characters replaced. Chrome 155's PDF viewer
+  (PDFium, headless) showed BC180 B's level-6 pages with the zoomed frames clipped to their columns and each ring at
+  the player's feet.
+- The dotted-area sentence of "How to read this report" is printed only when the report holds a suggested area, and
+  'COACHING ILLUSTRATION' never appears in a v2 PDF (critic B4 / M2: the v1 cover promised illustrations no producer
+  emitted; the v1 cover now names them only when one is drawn). Possession the coach marked is labelled wherever it is
+  used. A moment that may name nobody (evidence.py's naming rule, read per finding) gets no player label, no
+  'Players:' line and no mover id.
+- Fixed with this version for both layouts: the out-of-date sentence no longer prints '..' (critic N1), the footer is
+  cut before it reaches the page number (N2), a heading keeps the first block that follows it (N5), clock() rounds
+  before it splits minutes (N8: 59.999 s was '00:60.00'), and a custom range is in the file name (R4).
 """
 import hashlib
 import math
@@ -587,23 +615,36 @@ def section_order(order=None):
     return tuple(shared)
 
 
-def pdf_filename(video, run, team, context=None, key=None):
-    """The download name of a report PDF: pitchiq-coaching-<video>-<run>-<team>-<level>.pdf. The level is part of the
-    name because the three context levels of one report are different documents (the first PDFs of a development and
-    an advanced report downloaded under the same name and replaced each other). video: the upload's name (its stem is
-    used), key: the fallback when there is none; every part is reduced to [A-Za-z0-9._-]. The server's PDF route
-    uses it through store.pdf_filename."""
+def pdf_filename(video, run, team, context=None, key=None, level=None, t0=None, t1=None):
+    """The download name of a report PDF: pitchiq-coaching-<video>-<run>-<team>-<level>[-<t0>-<t1>s].pdf. The level is
+    part of the name because the levels of one report are different documents (the first PDFs of a development and an
+    advanced report downloaded under the same name and replaced each other): a v1 context name, or 'level1' to
+    'level7' for a coaching v2 playing level (store.pdf_filename_v2's spelling). A custom range adds its whole
+    seconds (critic R4: two ranges of one run downloaded under one name). video: the upload's name (its stem is
+    used), key: the fallback when there is none; every part is
+    reduced to [A-Za-z0-9._-]. The server's PDF route uses it through store.pdf_filename."""
     def part(v, n=48):
         return re.sub(r'[^A-Za-z0-9._-]+', '-', str(v or '')).strip('-.')[:n].strip('-.')
     name = part(Path(str(video)).stem if video else '') or part(key, 16) or 'video'
-    level = context if context in CONTEXT_NAMES else None
-    return '-'.join(p for p in ('pitchiq-coaching', name, part(run, 64), part(team, 4), level) if p) + '.pdf'
+    tag = context if context in CONTEXT_NAMES else None
+    if tag is None and isinstance(level, int) and not isinstance(level, bool) and 1 <= level <= 7:
+        tag = f'level{level}'
+    span = (f'{int(math.floor(t0))}-{int(math.ceil(t1))}s' if _is_num(t0) and _is_num(t1) and t1 > t0 >= 0
+            else None)
+    return '-'.join(p for p in ('pitchiq-coaching', name, part(run, 64), part(team, 4), tag, span) if p) + '.pdf'
 
 
 def report_filename(report):
-    """pdf_filename() of a report's own fields (video name or key, run, team, context level)."""
+    """pdf_filename() of a report's own fields (video name or key, run, team, v1 context level or v2 playing level,
+    and the range when it is not the whole analysed segment)."""
     r = report if isinstance(report, dict) else {}
     video = r.get('video') if isinstance(r.get('video'), dict) else {}
+    if is_v2(r):
+        p = r.get('profile') if isinstance(r.get('profile'), dict) else {}
+        rng = r.get('range') if isinstance(r.get('range'), dict) else {}
+        whole = rng.get('whole') is not False
+        return pdf_filename(video.get('name'), r.get('run'), r.get('team'), None, video.get('key'), p.get('level'),
+                            None if whole else rng.get('t0'), None if whole else rng.get('t1'))
     return pdf_filename(video.get('name'), r.get('run'), r.get('team'), r.get('context'), video.get('key'))
 BREAKDOWN = (('defensiveOrganization', 'Defensive organisation'), ('spacing', 'Spacing'), ('formation', 'Formation'),
              ('attackingStructure', 'Attacking structure'), ('movementSupport', 'Movement and support'))
@@ -666,12 +707,15 @@ def join_bare(lines):
 
 
 def clock(t):
-    """Absolute source time as mm:ss.ss (the Studio's transport and corrections.timestamp format)."""
+    """Absolute source time as mm:ss.ss (the Studio's transport and corrections.timestamp format). Rounded to the
+    hundredth before the minutes are split (critic N8: 59.999 s printed as '00:60.00'; now '01:00.00', as the
+    page's coaching clock and language.fmt_time)."""
     if not isinstance(t, (int, float)) or isinstance(t, bool) or not math.isfinite(t):
         return 'n/a'
     sign = '-' if t < 0 else ''
-    t = abs(float(t))
-    return f'{sign}{int(t//60):02d}:{t % 60:05.2f}'
+    c = int(math.floor(abs(float(t))*100+.5))           # hundredths, half up (JavaScript's Math.round)
+    m, rest = divmod(c, 6000)
+    return f'{sign}{m:02d}:{rest//100:02d}.{rest % 100:02d}'
 
 
 def offset(t):
@@ -853,10 +897,12 @@ class _Layout:
             self.y += 1.5
         self.y += after
 
-    def heading(self, s, level=1, anchor=None, bookmark=False):
+    def heading(self, s, level=1, anchor=None, bookmark=False, keep=0.0):
+        """keep: the height of what must follow the heading on the same page (critic N5: 'Observed strengths' stood
+        alone at the foot of BC60 A page 1 because the first finding needed 80 pt and the heading kept only 42)."""
         from . import render
         size = {1: 15.0, 2: 11.5, 3: 9.5}[level]
-        self.ensure(size*1.6+42)                    # keep a heading with the first lines that follow it
+        self.ensure(size*1.6+max(42.0, float(keep)))   # keep a heading with the first lines that follow it
         if level == 1:
             self.y += 6
         self.anchor(anchor)
@@ -1280,11 +1326,9 @@ class _Report:
         L.text_line(L.left, self.team_long, 12.5, INK_2, 'regular', leading=18)
         L.y += 24
         if self.stale:
-            reasons = [self.say(x) for x in self.stale if isinstance(x, str) and x.strip()]
             L.box([('OUT OF DATE', 8.5, 'bold', '#8a5f12'),
-                   ('The tracking result or its settings changed after this report was made'
-                    + (': ' + '; '.join(reasons) if reasons else '') + '. Regenerate the report in PitchIQ before '
-                    'relying on these findings.', 8.6, 'regular', INK)], fill='#faf0dc', accent='#d9a961')
+                   (stale_sentence(self.stale, self.say), 8.6, 'regular', INK)],
+                  fill='#faf0dc', accent='#d9a961')
         rng = r.get('range') or {}
         video = r.get('video') or {}
         span = rng.get('seconds')
@@ -1363,9 +1407,18 @@ class _Report:
                 + self.comparison_sentence() + ' Times are source-video times (mm:ss.ss) followed by the offset into '
                 'the analysed segment. '
                 + ('Metre values are estimated from an assumed pitch size. ' if self.estimated else '')
-                + 'Diagrams show tracked positions; dashed shapes marked COACHING ILLUSTRATION are suggestions, not '
-                'tracked data. This PDF holds no video: use the timestamps to find each moment.',
+                + 'Diagrams show tracked positions'
+                + ('; dashed shapes marked COACHING ILLUSTRATION are suggestions, not tracked data'
+                   if self.illustrated() else '')
+                + '. This PDF holds no video: use the timestamps to find each moment.',
                 8.3, 'regular', INK_2)])
+
+    def illustrated(self):
+        """True when an evidence figure holds a 'suggested' shape: the cover describes COACHING ILLUSTRATION shapes
+        only then (critic B4/M2: the sentence printed on page 1 of every PDF while no producer emitted one)."""
+        return any(isinstance(el, dict) and el.get('type') == 'suggested'
+                   for e in self.evidence.values() for spec in (e.get('diagram'), e.get('videoOverlay'))
+                   if isinstance(spec, dict) for el in (spec.get('elements') or []))
 
     def shown_ids(self):
         return [f.get('observation') for key in ('strengths', 'improvements', 'reviews')
@@ -1437,8 +1490,8 @@ class _Report:
 
     def findings_section(self, key, findings):
         L = self.L
-        L.heading(dict(SECTIONS)[key], 1, key, True)
         findings = [f for f in (findings or []) if isinstance(f, dict)]
+        L.heading(dict(SECTIONS)[key], 1, key, True, keep=90 if findings else 0)
         if not findings:
             L.para(EMPTY[key], colour=INK_2, font='oblique')
             return
@@ -1948,15 +2001,1618 @@ class _Report:
         return bool(entry.get('run')) and entry.get('run') == self.r.get('run')
 
     def footers(self, doc):
-        from . import render
-        n = len(doc.pages)
         video = (self.r.get('video') or {}).get('name') or (self.r.get('video') or {}).get('key') or ''
-        left = ' | '.join(x for x in ('PitchIQ coaching report', video, self.team_short) if x)
-        y = self.L.H-MARGINS[3]+26
-        for i in range(n):
-            doc.add(i, [render.path([(self.L.left, y-10), (self.L.right, y-10)], stroke=RULE, width=.5),
-                        render.text(self.L.left, y, left, 7, MUTED),
-                        render.text(self.L.right, y, f'Page {i+1} of {n}', 7, MUTED, 'regular', 'right')])
+        add_footers(doc, self.L, ' | '.join(x for x in ('PitchIQ coaching report', video, self.team_short) if x))
+
+
+def stale_sentence(reasons, say=None):
+    """The out-of-date banner's sentence. The reasons (store.py's texts) already end with a full stop: it is stripped
+    before they are joined (critic N1: '...the tracking result changed.. Regenerate')."""
+    say = say or (lambda s: s)
+    shown = [say(x).strip().rstrip('.').strip() for x in (reasons or []) if isinstance(x, str) and x.strip()]
+    shown = [x for x in shown if x]
+    return ('The tracking result or its settings changed after this report was made' + (': ' + '; '.join(shown) if
+            shown else '') + '. Regenerate the report in PitchIQ before relying on these findings.')
+
+
+def fit_text(s, size, width, font='regular'):
+    """s cut with '...' to at most width points (one line)."""
+    s = str(s)
+    if text_width(s, size, font) <= width:
+        return s
+    while s and text_width(s+'...', size, font) > width:
+        s = s[:-1]
+    return s.rstrip()+'...'
+
+
+def add_footers(doc, L, left):
+    """The footer of every page: the left text cut to the room the page number leaves (critic N2: an upload with a
+    long name ran into 'Page 1 of 12')."""
+    from . import render
+    n = len(doc.pages)
+    y = L.H-MARGINS[3]+26
+    for i in range(n):
+        number = f'Page {i+1} of {n}'
+        room = L.width-text_width(number, 7)-14
+        doc.add(i, [render.path([(L.left, y-10), (L.right, y-10)], stroke=RULE, width=.5),
+                    render.text(L.left, y, fit_text(left, 7, room), 7, MUTED),
+                    render.text(L.right, y, number, 7, MUTED, 'regular', 'right')])
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The coaching v2 report (schema 'report' version 2; DESIGN 9.2): the page's seven sections, for print
+
+def is_v2(report):
+    """True for a coaching v2 report (schema 'report': kind 'coaching-report', version 2)."""
+    return isinstance(report, dict) and report.get('kind') == 'coaching-report' and report.get('version') == 2
+
+
+V2_SECTIONS = (('overview', 'Match overview'), ('strengths', 'What went well'), ('needsWork', 'What needs work'),
+               ('keyMoments', 'Key moments'), ('diagrams', 'Tactical diagrams'), ('drills', 'Training drills'),
+               ('progression', 'Development progression'))
+V2_MORE = (('sources', 'Sources'), ('feedback', 'Coach feedback'), ('about', 'About this report'))
+# The page's words (coaching.js VERDICT_UI, TIER_UI, REASON_UI, GUARDRAIL_UI, DETECTOR_UI, MEASURE_UI, MASTERY_UI,
+# TREND_UI, MASTERY_WHY, ALT_REASON_UI, DRILL_SOURCE_UI as of 2026-10-22, in ASCII): a coach moving between the page
+# and the printout reads the same labels (test_coaching_pdf compares the codes the two cover).
+V2_VERDICTS = {'strength': ('Strength', '#117b49', '#e1f4e9'), 'try_this': ('Try this', '#1f6f78', '#e2f2f3'),
+               'work_on': ('Work on', '#8a5f12', '#faf0dc'),
+               'review': ('Possible issue to review', '#3f6690', '#e6eef7'), 'describe': ('Context', INK_2, HEAD)}
+# Fix round 2 (LEAD decision (b); report.REVIEW_PARTS / review_part, TEXT's request): a 'moments worth a look' review
+# (assess limitation MOMENTS_CODE) is printed in its own part of WHAT NEEDS WORK after the possible issues, with this
+# badge, WHAT TO LOOK FOR and its clear counts; it fails the evidence guardrail by construction (that note is not
+# printed) and has no area, no drill and no objective (the page's coaching.js MOMENTS_UI).
+MOMENTS_CODE = 'moments_worth_a_look'
+V2_MOMENTS = ('Moments worth a look', '#3f6690', '#e6eef7')
+
+
+def is_moments(f):
+    """A 'moments worth a look' review (report.review_part(f) == 'moments')."""
+    return isinstance(f, dict) and MOMENTS_CODE in (f.get('limitations') or ())
+
+
+# Polish round (Oct 23; assess.LEVEL_FOCUS_LABEL, a test keeps the copies equal): with no objective from the match the
+# NEXT DEVELOPMENT OBJECTIVE is the level's suggested focus from its guidance, "<label>: <check>. <guidance> Source:
+# <ids>."; the printout shows the label on its own line, the focus, and each source's title with its id, as the page.
+LEVEL_FOCUS_LABEL = "Suggested focus for this level - from the level's guidance, not from this match"
+FOCUS_SOURCE_RE = re.compile(r'\s*Source: ([A-Z0-9][A-Za-z0-9-]*(?:, [A-Z0-9][A-Za-z0-9-]*)*)\.$')
+
+
+def split_focus(text):
+    """(label, focus, source ids) of a suggested-focus objective text, or None for any other objective text."""
+    if not isinstance(text, str) or not text.startswith(LEVEL_FOCUS_LABEL+': '):
+        return None
+    body = text[len(LEVEL_FOCUS_LABEL)+2:]
+    m = FOCUS_SOURCE_RE.search(body)
+    ids = m.group(1).split(', ') if m else []
+    return LEVEL_FOCUS_LABEL, (body[:m.start()] if m else body).strip(), ids
+
+
+TIER_UI = {'world': 'Pitch-accurate', 'pinned': "From the players' feet", 'image': 'Boxes only'}
+REASON_UI = {
+    'phase_unknown': 'the ball and who had it could not be followed reliably on this footage',
+    'possession_unavailable': 'who had the ball could not be estimated on this footage',
+    'ball_unreliable': 'the ball was not tracked reliably enough', 'no_carrier': 'the player on the ball was not known',
+    'out_of_view': 'the players involved were often out of the camera view',
+    'team_incomplete': 'too few teammates were in view',
+    'identity_uncertain': 'player identities were uncertain at those moments',
+    'role_unconfirmed': "the players' roles are not confirmed (confirm them under Player roles in the coaching setup)",
+    'scale_unknown': 'the field size is not known (enter it in the coaching setup)',
+    'format_not_supported': 'this check does not apply to this match format',
+    'registration_low': 'the camera-to-pitch registration was not reliable enough',
+    'short_range': 'the range is too short',
+    'recovering': 'players were running back towards their goal',
+    'units_interleaved': "the team's lines overlapped, so its units could not be told apart",
+    'near_change': 'it was close to a change of who had the ball', 'off': "not part of this level's checks",
+    # fix round 1 (DETECT's new reasons, schema ABSTAIN_REASONS; critic S-7, N6, S-3), the page's words in ASCII
+    'phase_absent': 'the phase this check needs did not happen in this range',
+    'coach_marks_one_side': "you marked who had the ball for one team only: mark the other team's spells too to run "
+                            "this check",
+    'formation_changing': "the team's formation was changing at those moments",
+    # fix round 3 (ASSESS; critic S-2, COACH F-14): enough play, too few of the check's situations; with a count the
+    # PDF says how many (few_situations), as the page does
+    'too_few_situations': 'too few of these situations happened in this range to judge'}
+GUARDRAIL_UI = {'identity': 'who the player was', 'position': "the player's pitch position",
+                'role': "the player's tactical role", 'context': 'the teammates around the moment',
+                'phase': 'who had the ball', 'intent': 'whether the movement was intended',
+                'alternative': 'a reachable better position', 'evidence': 'enough repeated evidence'}
+DETECTOR_UI = {'pressure_cover': 'Going to the ball and helping a teammate',
+               'weak_side_balance': 'Protecting the far side',
+               'wide_defender_advance': 'Support behind an advancing wide defender',
+               'behind_ball': 'Players ready behind the ball when attacking', 'defensive_spacing': 'Back-line spacing',
+               'attacking_shape': 'Width and depth when attacking'}
+SKILL_OF = {'pressure_cover': 'pressure_and_cover', 'behind_ball': 'someone_back_when_attacking',
+            'wide_defender_advance': 'wide_defender_support', 'weak_side_balance': 'far_side_protection',
+            'defensive_spacing': 'back_line_coordination', 'attacking_shape': 'spread_when_attacking'}
+MEASURE_UI = {   # measurement -> (label, kind, first level shown)
+    'd1M': ('Nearest player to the ball', 'm', 3), 'd1Median': ('Nearest player to the ball', 'm', 3),
+    'coverDistM': ('Cover distance', 'm', 4), 'coverAngleDeg': ('Cover angle', 'deg', 6),
+    'pressurePresent': ('Pressure on the ball', 'bool', 3), 'coverPresent': ('Cover behind', 'bool', 3),
+    'coverPresentShare': ('Cover present', 'share', 5), 'goalSideShare': ('Goal-side', 'share', 5),
+    'weakCount': ('Defenders on the far side', 'count', 3), 'centralCount': ('Defenders in the middle', 'count', 4),
+    'openWidthM': ('Open width on the far side', 'm', 5), 'advanceM': ('Advance', 'm', 3),
+    'behindN': ('Behind the ball', 'count', 3), 'minBehind': ('Needed behind the ball', 'count', 3),
+    'channelOccupied': ('Channel behind covered', 'bool', 3), 'interchange': ('Positions swapped', 'bool', 3),
+    'opponentsInChannel': ('Opponents in the channel', 'count', 4),
+    'cbAdjusted': ('Centre-back moved across', 'bool', 5), 'nearCbShiftM': ('Near centre-back shift', 'm', 5),
+    'dmDropped': ('Holding midfielder dropped', 'bool', 5),
+    'threatN': ('Their players on our side of the ball', 'count', 5),
+    'restMargin': ('Margin behind the ball', 'signed', 6),
+    'dmCbSpacingM': ('Midfielder to centre-backs', 'm', 7), 'lateralGapM': ('Widest gap in the back line', 'm', 3),
+    'gapBallSide': ('Gap on the ball side', 'bool', 4), 'opponentInGap': ('Opponent in the gap', 'bool', 4),
+    'dmGapM': ('Defence to midfield gap', 'm', 5), 'lineStdM': ('Back-line unevenness', 'm', 5),
+    # (pre-freeze, critic N-4 / FACTS F-11: contextual counts the opponents between the lines on the ball's half only)
+    'dmGapOpponents': ("Opponents between defence and midfield on the ball's side", 'count', 4),
+    'widthM': ('Width', 'm', 3), 'depthM': ('Depth', 'm', 3), 'channelsOccupied': ('Lanes occupied', 'count', 3),
+    'widthShare': ('Width of the pitch used', 'share', 5), 'depthShare': ('Length of the pitch used', 'share', 5)}
+# Back-line spacing cited for the gap between defence and midfield (failureMode 'dm_gap'): its own chips from the level
+# its text states them (the distance from level 3, the opponents in it from level 4, as opponentInGap), and none of
+# the lateral gap's yes/no chips. A level-4 'moments worth a look' review cited for a 12.2 m gap with an opponent in
+# it showed only "Gap on the ball side no; Opponent in the gap no" (CODE L-4, round 2). dmGapOpponents is shown only
+# then (the lateral mode never states it). The page has the same rule (coaching.js chipLevels).
+DM_GAP_CHIPS = {'dmGapM': 3, 'dmGapOpponents': 4}
+LATERAL_CHIPS = ('gapBallSide', 'opponentInGap')
+
+
+def chip_levels(f):
+    """{measurement: first level shown} for a finding's chips: MEASURE_UI's, changed by the cited failure mode
+    (DM_GAP_CHIPS / LATERAL_CHIPS); None for a measurement not shown at all."""
+    m = f.get('measurements') or {}
+    out = {k: ui[2] for k, ui in MEASURE_UI.items()}
+    dm = (f.get('observation') == 'defensive_spacing' and f.get('verdict') not in ('strength', 'describe')
+          and (m.get('failureMode') == 'dm_gap'
+               or (m.get('failureMode') is None and _is_num(m.get('dmGapM')) and not _is_num(m.get('lateralGapM')))))
+    if dm:
+        out.update(DM_GAP_CHIPS)
+        out.update({k: None for k in LATERAL_CHIPS})
+    else:
+        out['dmGapOpponents'] = None
+    return out
+MASTERY_UI = {'NOT ENOUGH EVIDENCE': 'Not enough evidence yet', 'LEARNING': 'Learning', 'DEVELOPING': 'Developing',
+              'CONSISTENT': 'Consistent', 'ADAPTABLE': 'Adaptable'}
+TREND_UI = {'up': 'improving', 'down': 'fewer successes', 'flat': 'steady', 'unknown': '-'}
+ALT_REASON_UI = {'no_reachable_fix': 'no teammate could have reached a better area in time',
+                 'would_open_new_gap': 'every reachable area would have opened another gap',
+                 'mover_unseen': 'the teammates who could help were not in view just before',
+                 'context_missing': 'the players around were not all in view',
+                 'scale_unknown': 'the field size is not known',
+                 'guardrail_failed': 'the moment could not be confirmed',
+                 'no_zone_for_detector': "this check describes the team's shape, not one position"}
+DRILL_SOURCE_UI = {'adapted_from': 'Adapted from', 'inspired_by': 'Inspired by',
+                   'pitchiq_original': 'PitchIQ original, informed by'}
+PHASE_UI = {'own': 'when we had the ball', 'opp': 'when the other team had the ball',
+            'dead': 'while the ball was out of play'}
+FOOTAGE_UI = {'broadcast': 'Broadcast camera', 'amateur': 'Amateur camera', 'veo': 'Automatic camera (Veo type)'}
+SCALE_UI = {'measured': 'measured by calibration', 'declared': 'entered in the coaching setup', 'assumed': 'assumed'}
+CAUSE_UI = {'registration': 'mostly limited by the pitch registration',
+            'identity': 'mostly limited by player identities',
+            'out_of_view': 'mostly limited by players out of the camera view'}
+FEDERATION_UI = {'auto': 'Automatic (U.S. Soccer formats by age; the stricter of U.S. Soccer and England on heading)',
+                 'US': 'U.S. Soccer', 'England': 'England (The FA)', 'Canada': 'Canada Soccer'}
+DRILL_FIELDS_V2 = (('trains', 'What it trains'), ('why', 'Why it was chosen'), ('easier', 'Make it easier'),
+                   ('harder', 'Make it harder'), ('progress', 'What progress looks like next match'))
+# Screenshots of key moments are zoomed on the people of the annotation (the PDF clips the whole frame, magnified,
+# to the column: the JPEG bytes stay the exact frame, nothing is re-encoded). At the half-page column (243 pt) a
+# broadcast player is about 2.5 pt wide in the full frame, under a millimetre on paper. The crop keeps at least
+# ZOOM_MIN_SHARE of the frame's width (so the zoom is at most 1 / 0.45 = 2.2x, and a 1280 px frame still gives about
+# 170 dpi), a margin of ZOOM_MARGIN of the width around the people (more above them, for the labels over their
+# heads), and is used only when it magnifies by at least ZOOM_FROM.
+ZOOM_MIN_SHARE = .45
+ZOOM_MARGIN = .06
+ZOOM_FROM = 1.3
+ZOOM_WIDTH = 1280             # px of a zoomed screenshot (frames.WIDTHS); an unzoomed one uses FRAME_WIDTH
+V2_EMPTY = {
+    'strengths': ("No strength met this level's evidence bar in this range. A strength needs the behaviour actually "
+                  'shown in separate moments, never only the absence of problems.'),
+    'needsWork': "Nothing met this level's evidence bar for a work item in this range.",
+    'keyMoments': 'No key moment in this range.',
+    'diagrams': 'No diagram in this range.',
+    'drills': 'No drill: there is no work item in this range and no next objective.'}   # no_drill_text says why
+
+
+BUILD_ON_V2 = re.compile(r'To build on it[,:.]?\s+')   # how explain.py opens all 20 v2 build-on texts ("To build on it, ")
+
+
+def without_lead(action):
+    """A strength's action without its own opening "To build on it, ": the card's heading TO BUILD ON IT (the page's
+    "To build on it.") already says it, and BC60 L5 read "To build on it. To build on it, hold the same far-side
+    position deeper in our half." (CODE L-3, round 2). The rest starts with a capital."""
+    m = BUILD_ON_V2.match(action or '')
+    if m is None:
+        return action
+    rest = action[m.end():]
+    return rest[:1].upper()+rest[1:]
+
+
+def no_drill_text(report):
+    """Why the drills section is empty, in the page's words (coaching.js noDrillText). Since the polish round a report
+    without a work item offers one optional drill for the next objective, so "a drill is suggested only for a work item
+    found in this range, never at random" misstated the rule wherever no drill fitted the objective (CODE L-5,
+    round 2: SFS L4, objective "Back-line coordination")."""
+    work = [f for f in (report or {}).get('needsWork') or [] if isinstance(f, dict)]
+    nxt = (report or {}).get('nextObjective') if isinstance((report or {}).get('nextObjective'), dict) else None
+    if work:
+        return "No drill: PitchIQ has none that fits the work items in this range for this team's age, level and format."
+    if nxt is None or not (isinstance(nxt.get('text'), str) and nxt['text'].strip()):
+        return 'No drill: there is no work item in this range and no next objective.'
+    if not nxt.get('skill'):
+        return ('No drill: there is no work item in this range, and the next objective is a general one with no drill '
+                'tied to it.')
+    return ("No drill: there is no work item in this range, and PitchIQ has none that fits the next objective for this "
+            "team's age, level, format and range.")
+
+
+ORIGIN_NAMED = re.compile(r"from this match|from the level|this match's|level's guidance", re.I)
+
+
+# Pre-freeze (Oct 24, critic S-3: DRILLS / PAGE; the page's OPTIONAL_LABELS / optionalLabel, a test keeps them equal):
+# an optional drill read "not from this match's evidence" also when the next objective was chosen from this match's
+# checks (a skill, not from a work item, not the level's suggested focus: report.S8_LABEL), where it was false.
+OPTIONAL_LABELS = {'match': "Optional: for the next objective, chosen from this match's checks (not a work item).",
+                   'level': "Optional: for the next objective, not from this match's evidence."}
+
+
+def optional_label(report):
+    """The line an optional drill prints in place of its finding (OPTIONAL_LABELS)."""
+    n = report.get('nextObjective') if isinstance(report.get('nextObjective'), dict) else {}
+    if n and n.get('skill') is not None and not n.get('fromMatch') and split_focus(n.get('text')) is None:
+        return OPTIONAL_LABELS['match']
+    return OPTIONAL_LABELS['level']
+
+
+def origin_line(n, finding):
+    """The line the next objective's box adds under its text (the page's originLine): the link's lead for an objective
+    from a shown work item, the plain "From the level's objectives, not from this match." only for a skill not from
+    this match whose text names no origin itself (ORIGIN_NAMED), else none. Before fix round 3 an objective from this
+    match with its finding not shown, or a text worded "chosen from this match's checks", got "not from this match"."""
+    if n.get('fromMatch'):
+        return 'From this match: see the finding linked below.' if finding else None
+    if n.get('skill') is None or ORIGIN_NAMED.search(str(n.get('text') or '')):
+        return None
+    return "From the level's objectives, not from this match."
+
+
+def _pct(v):
+    return f'{int(math.floor(float(v)*100+.5))}%'
+
+
+def _secs(v):
+    if not _is_num(v):
+        return '-'
+    return f'{v/60:.1f} min' if v >= 90 else f'{v:.1f} s'
+
+
+def _plural(n, word):
+    return word if n == 1 else word+'s'
+
+
+def _title(s):
+    return ' '.join(w[:1].upper()+w[1:].lower() for w in str(s or '').split())
+
+
+def _dicts(v):
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, (list, tuple)) else []
+
+
+def sanitize_v2(report):
+    """A shallow copy of a v2 report whose lists and maps have the schema's types, so a malformed field leaves its
+    part of the PDF empty instead of failing the export (the report is validated when it is made; the PDF still
+    never trusts it). Values are not changed."""
+    r = _map(report)
+    for key in ('team', 'teamName', 'run', 'generated'):
+        v = r.get(key)
+        r[key] = v if isinstance(v, str) else None
+    for key in ('strengths', 'needsWork', 'reviews', 'described', 'keyMoments', 'diagrams', 'alternatives',
+                'noAlternatives', 'drills', 'sources', 'withheld'):
+        r[key] = _dicts(r.get(key))
+    for key in ('video', 'range', 'segment', 'profile', 'overview', 'engine', 'fingerprints', 'nextObjective'):
+        r[key] = _map(r.get(key))
+    r['progression'] = r.get('progression') if isinstance(r.get('progression'), dict) else None
+    ov = r['overview']
+    for key in ('notices', 'formations', 'detectors', 'unavailable'):
+        ov[key] = _dicts(ov.get(key))
+    for key in ('footage', 'dataQuality', 'scale', 'possession'):
+        ov[key] = _map(ov.get(key))
+    p = r['profile']
+    for key in ('notices', 'objectives', 'principles', 'notExpected'):
+        p[key] = _dicts(p.get(key))
+    for key in ('format', 'register', 'skills', 'safety', 'evidence'):
+        p[key] = _map(p.get(key))
+    for key in ('strengths', 'needsWork', 'reviews', 'described'):
+        r[key] = [dict(f, text=_map(f.get('text')), timestamps=_dicts(f.get('timestamps')),
+                       aggregate=_map(f.get('aggregate')), measurements=_map(f.get('measurements')),
+                       guardrails=_map(f.get('guardrails')), context=_map(f.get('context')),
+                       limitations=[c for c in _items(f.get('limitations')) if isinstance(c, str)],
+                       drills=[d for d in _items(f.get('drills')) if isinstance(d, str)])
+                  for f in r[key] if isinstance(f.get('id'), str)]
+    r['keyMoments'] = [dict(e, diagram=e.get('diagram') if isinstance(e.get('diagram'), dict) else None,
+                            videoOverlay=e.get('videoOverlay') if isinstance(e.get('videoOverlay'), dict) else None,
+                            annotation=e.get('annotation') if isinstance(e.get('annotation'), dict) else None,
+                            players=[x for x in _items(e.get('players')) if isinstance(x, str)])
+                       for e in r['keyMoments'] if isinstance(e.get('id'), str)]
+    r['diagrams'] = [d for d in r['diagrams'] if isinstance(d.get('diagram'), dict)]
+    r['drills'] = [dict(d, fields=_map(d.get('fields'))) for d in r['drills'] if isinstance(d.get('drill'), str)]
+    return r
+
+
+def focus_box(overlay):
+    """The pixel box of what a v2 overlay is about (its people with their boxes, relation ends, the suggested area,
+    the movement arrow, a measure), or None. The channel is left out: it is context, often half the pitch."""
+    W, H = overlay.get('width'), overlay.get('height')
+    if not (_is_num(W) and _is_num(H) and W > 0 and H > 0):
+        return None
+    pts = []
+    for el in overlay.get('elements') or []:
+        if not isinstance(el, dict):
+            continue
+        t = el.get('type')
+        if t in ('focus', 'support') or (t == 'player' and el.get('emphasis')):
+            pts.append((el.get('x'), el.get('y')))
+            b = el.get('box')
+            if isinstance(b, (list, tuple)) and len(b) == 4 and all(_is_num(v) for v in b):
+                pts += [(b[0], b[1]), (b[0]+b[2], b[1]+b[3])]
+        elif t == 'relation':
+            pts += [el.get('pa'), el.get('pb')]
+        elif t == 'suggestedZone':
+            pts += list(el.get('polygon') or [])
+        elif t == 'moveArrow':
+            pts += [el.get('from'), el.get('to')]
+        elif t == 'measure':
+            pts += [el.get('a'), el.get('b')]
+    pts = [(float(p[0]), float(p[1])) for p in pts if isinstance(p, (list, tuple)) and len(p) >= 2
+           and _is_num(p[0]) and _is_num(p[1]) and -.05*W <= p[0] <= 1.05*W and -.05*H <= p[1] <= 1.05*H]
+    if not pts:
+        return None
+    return (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
+
+
+def zoom_crop(box, W, H):
+    """(x0, y0, w, h, zoom) of the frame region to show for a focus box (source pixels), or None when the zoom would
+    be under ZOOM_FROM (see ZOOM_MIN_SHARE)."""
+    if box is None or not (_is_num(W) and _is_num(H) and W > 0 and H > 0):
+        return None
+    m = ZOOM_MARGIN*W
+    x0, y0, x1, y1 = box[0]-m, box[1]-1.8*m, box[2]+m, box[3]+.6*m
+    cw = max(ZOOM_MIN_SHARE*W, x1-x0, (y1-y0)*W/H)
+    if cw*ZOOM_FROM > W:
+        return None
+    ch = cw*H/W
+    cx0 = min(max((x0+x1)/2-cw/2, 0.0), W-cw)
+    cy0 = min(max((y0+y1)/2-ch/2, 0.0), H-ch)
+    return (cx0, cy0, cw, ch, W/cw)
+
+
+class _ReportV2:
+    """Lays out one coaching v2 report on a Document: the page's seven sections (coaching.js renderV2) in its words,
+    for print. Everything printed is the report's own text and numbers (validated when the report was made) or a
+    fixed label of this module; the key moments add the exact source frame with the annotation drawn over it."""
+
+    def __init__(self, report, frame_provider, options):
+        from . import render
+        self.render = render
+        self.r = r = sanitize_v2(report)
+        self.frames = frame_provider
+        self.o = dict(options or {})
+        self.labels = {str(k): str(v) for k, v in (self.o.get('labels') or {}).items()}
+        self.colours = render.team_colours(self.o.get('colours'))
+        self.team = r['team'] if r['team'] in ('A', 'B') else 'A'
+        self.other = 'B' if self.team == 'A' else 'A'
+        name = r.get('teamName')
+        self.team_short = name or f'Team {self.team}'
+        self.team_long = name or f'Team {self.team} (as labelled in this run)'
+        self.team_names = {self.team: self.team_short, self.other: f'Team {self.other}'}
+        self.p = r['profile']
+        lv = self.p.get('level')
+        self.level = lv if isinstance(lv, int) and not isinstance(lv, bool) else None
+        reg = self.p.get('register') or {}
+        self.numbers = reg.get('numbers') if isinstance(reg.get('numbers'), str) else 'metres'
+        self.findings = {f['id']: f for key in ('strengths', 'needsWork', 'reviews', 'described') for f in r[key]}
+        self.moments = sorted(r['keyMoments'], key=lambda e: (e.get('time') if _is_num(e.get('time')) else 0.0))
+        self.ev = {e['id']: e for e in self.moments}
+        self.number = {e['id']: k+1 for k, e in enumerate(self.moments)}
+        self.alts = {a.get('id'): a for a in r['alternatives']}
+        fb = self.o.get('feedback')
+        fb = fb if isinstance(fb, (list, tuple)) else report.get('feedback') if isinstance(report, dict) else None
+        self.feedback = _dicts(fb)
+        self.adjust = {}
+        for f in self.feedback:
+            adj = f.get('adjustment')
+            if f.get('thisRun') and isinstance(adj, dict) and isinstance(adj.get('evidence'), str):
+                self.adjust.setdefault(adj['evidence'], []).append({'polygon': adj.get('polygon'),
+                                                                    'label': render.COACH_AREA})
+        self.url = self.o.get('playback_url')
+        stale = self.o.get('stale')
+        self.stale = ([stale] if isinstance(stale, str) else list(stale) if isinstance(stale, (list, tuple))
+                      else [] if stale else None)
+        self.shots_left = int(self.o.get('max_screenshots', MAX_SCREENSHOTS))
+        self.frame_width = int(self.o.get('image_width', FRAME_WIDTH))
+        self.zoom = bool(self.o.get('zoom', True))
+        self.missing, self.skipped, self.drawn_evidence = [], [], set()
+        self.screenshots = self.overlays = self.zoomed = 0
+        self.resolve = None
+        if self.labels and self.o.get('substitute_text', True):
+            from . import language                   # the package's one id -> display rule (one pass, no chains)
+            self.resolve = language.resolve_players
+        self.pal_print = render.print_palette(self.colours)
+        self.pal_video = render.video_palette(self.colours)
+        self.sources = {s.get('id'): s for s in r['sources']}
+        self.library = None
+        self.plan = {}
+        self.naming_ok = (self.p.get('evidence') or {}).get('naming') in ('evidence_only', 'yes')
+        self.unnamed = self._unnamed()
+
+    # -- helpers ----------------------------------------------------------------------------------------------
+    def say(self, s):
+        if s is None:
+            return None
+        s = str(s)
+        return self.resolve(s, self.labels) if self.resolve else s
+
+    def skill_name(self, detector):
+        name = (self.p.get('skills') or {}).get(SKILL_OF.get(detector))
+        return name if isinstance(name, str) and name else DETECTOR_UI.get(detector) or _humanize(detector or 'check')
+
+    def phase_words(self, f):
+        ph = (f.get('context') or {}).get('phase') if isinstance(f, dict) else None
+        if not isinstance(ph, dict) or ph.get('state') not in PHASE_UI:
+            return None
+        source = (f.get('measurements') or {}).get('phaseSource')
+        how = ('marked by the coach' if ph.get('estimated') is False or source == 'coach' else
+               'estimated, partly marked by the coach' if source == 'mixed' else 'estimated')
+        return f'{PHASE_UI[ph["state"]]} ({how})'
+
+    def coach_marked(self):
+        """True when any finding (or the possession estimate) rests on possession marked by the coach."""
+        if any((f.get('measurements') or {}).get('phaseSource') in ('coach', 'mixed') for f in self.findings.values()):
+            return True
+        cav = (self.r['overview'].get('possession') or {}).get('caveat')
+        return isinstance(cav, str) and 'coach-marked' in cav
+
+    def named(self, ev):
+        """False when a moment may name nobody: then the PDF prints no player label, no 'Players:' line and no
+        mover id for it. evidence.py's rule (focus.label is True only where the profile names players as
+        evidence_only / yes, the finding's identity was confirmed, the check is not team-level only and the finding
+        is not a description), read per finding, so a finding's moments without a drawn focus follow the one
+        with it."""
+        for spec in (ev.get('diagram'), ev.get('videoOverlay')):
+            for el in (spec or {}).get('elements') or []:
+                if isinstance(el, dict) and el.get('type') == 'focus' and el.get('label') is False:
+                    return False
+        f = self.findings.get(ev.get('finding'))
+        return self.naming_ok if f is None else f['id'] not in self.unnamed
+
+    def _unnamed(self):
+        """The findings whose moments name nobody (see named())."""
+        out = set()
+        dets = self.p.get('detectors') if isinstance(self.p.get('detectors'), dict) else {}
+        for f in self.findings.values():
+            params = (dets.get(f.get('observation')) or {}).get('params') if isinstance(dets.get(f.get('observation')),
+                                                                                       dict) else None
+            if not self.naming_ok or f.get('verdict') == 'describe' \
+                    or (f.get('guardrails') or {}).get('identity') == 'fail' \
+                    or (isinstance(params, dict) and params.get('teamLevelOnly')):
+                out.add(f['id'])
+        for ev in self.moments:
+            for spec in (ev.get('diagram'), ev.get('videoOverlay')):
+                for el in (spec or {}).get('elements') or []:
+                    if isinstance(el, dict) and el.get('type') == 'focus' and el.get('label') is False:
+                        out.add(ev.get('finding'))
+        return out
+
+    def moment_ref(self, ev_id):
+        ev = self.ev.get(ev_id)
+        return (f'E{self.number[ev_id]} {clock(ev.get("time"))}', f'ev-{ev_id}') if ev else None
+
+    def drill_record(self, did):
+        if self.library is None:
+            try:
+                from . import drills as D
+                self.library = {d.get('drill_id'): d for d in D.load_library().get('drills') or []
+                                if isinstance(d, dict)}
+            except Exception:                                   # the PDF never fails on the library
+                self.library = {}
+        return self.library.get(did)
+
+    def style_name(self, style):
+        if style in (None, 'unknown'):
+            return 'Unknown: no intended style is assumed'
+        try:
+            from . import profiles
+            for s in profiles.catalog().get('styles') or []:
+                if s.get('id') == style and isinstance(s.get('name'), str):
+                    return s['name']
+        except Exception:
+            pass
+        return _humanize(style)
+
+    def playback(self, ev):
+        u = self.url
+        if not u or not isinstance(ev, dict):
+            return None
+        try:
+            link = u(ev) if callable(u) else str(u).format(
+                frame=int(ev.get('frame')), seek=f'{float(ev.get("seek")):.4f}', time=f'{float(ev.get("time")):.3f}',
+                id=ev.get('id', ''), video=(self.r.get('video') or {}).get('key') or '', run=self.r.get('run') or '')
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError):
+            return None
+        return safe_uri(link)
+
+    def kv(self, rows, key_width=118.0, size=8.8):
+        L, render = self.L, self.render
+        leading = size*1.4
+        for key, value in rows:
+            lines = wrap(self.say(value), size, L.width-key_width) or ['']
+            L.ensure(min(len(lines), 6)*leading)
+            L.add([render.text(L.left, L.y+(leading+size*.7)/2, key, size, MUTED, 'bold')])
+            for k, line in enumerate(lines):
+                if k:
+                    L.ensure(leading)
+                L.text_line(L.left+key_width, line, size, INK, leading=leading)
+                L.y += leading
+            L.add([render.path([(L.left, L.y+1), (L.right, L.y+1)], stroke=RULE, width=.35)])
+            L.y += 3
+        L.y += 8
+
+    def chips(self, lead, items, size=7.8):
+        """A line of linked items ('E1 10:10.00', a drill's name) after a lead word, wrapped; items: [(text, dest)]."""
+        L, render = self.L, self.render
+        items = [(t, d) for t, d in items if t]
+        if not items:
+            return
+        leading = size*1.5
+        L.ensure(leading)
+        x = L.left
+        if lead:
+            L.text_line(x, lead, size, INK_2, 'bold', leading=leading)
+            x += text_width(lead, size, 'bold')+5
+        for t, dest in items:
+            w = text_width(t, size)+8
+            if x+w > L.right and x > L.left+1:
+                L.y += leading
+                L.ensure(leading)
+                x = L.left+12
+            L.add([render.rect(x, L.y+1.2, w, leading-2.2, fill=TINT),
+                   render.text(x+4, L.y+(leading+size*.7)/2, t, size, BRAND_DARK if dest else INK_2)])
+            if dest:
+                L.add([dict({'op': 'link', 'x': x, 'y': L.y, 'w': w, 'h': leading}, **dest)])
+            x += w+4
+        L.y += leading+3
+
+    def badge(self, verdict, x=None, moments=False):
+        """The verdict chip (the page's badge words) at the cursor; returns its width."""
+        L, render = self.L, self.render
+        label, fg, bg = V2_MOMENTS if moments else V2_VERDICTS.get(verdict, ('Finding', INK_2, HEAD))
+        bw = text_width(label.upper(), 6.6, 'bold')+10
+        x = L.left if x is None else x
+        L.add([render.rect(x, L.y, bw, 11, fill=bg), render.text(x+5, L.y+8, label.upper(), 6.6, fg, 'bold')])
+        return bw
+
+    def section_heading(self, key, number, title, count=None, keep=0.0):
+        t = f'{number}. {title}' if number else title
+        self.L.heading(t+(f' ({count})' if count is not None else ''), 1, key, True, keep=keep)
+
+    # -- the parts ------------------------------------------------------------------------------------------
+    def layout(self, doc):
+        rng = self.r['range']
+        header = f'{self.team_short}  |  {clock(rng.get("t0"))} - {clock(rng.get("t1"))}'
+        if self.level is not None:
+            header += f'  |  level {self.level}'
+        if self.stale is not None:
+            header = 'OUT OF DATE  |  '+header
+        self.L = _Layout(doc, header)
+        self.plan_shots()
+        for part in (self.cover, self.overview, self.went_well, self.needs_work, self.key_moments, self.diagrams,
+                     self.drills, self.progression, self.sources_section, self.feedback_section, self.about):
+            part()
+        video = self.r['video'].get('name') or self.r['video'].get('key') or ''
+        add_footers(doc, self.L, ' | '.join(x for x in ('PitchIQ coaching report', video, self.team_short) if x))
+
+    def plan_shots(self):
+        """Which key moments get a screenshot (the first max_screenshots, in time order), at which width and zoom;
+        then one sorted decoding pass per width (frames.py prefetch)."""
+        wanted = {}
+        for ev in self.moments:
+            frame = ev.get('frame')
+            if not isinstance(frame, int) or isinstance(frame, bool) or frame < 0:
+                continue
+            if len(self.plan) >= self.shots_left:
+                break
+            ov = ev.get('videoOverlay')
+            crop = zoom_crop(focus_box(ov), ov.get('width'), ov.get('height')) if self.zoom and ov else None
+            width = ZOOM_WIDTH if crop else self.frame_width
+            self.plan[ev['id']] = (width, crop)
+            wanted.setdefault(width, set()).add(frame)
+        if self.frames is None or not hasattr(self.frames, 'prefetch'):
+            return
+        for width, frames in sorted(wanted.items()):
+            try:
+                self.frames.prefetch(sorted(frames), [width])
+            except Exception:                                  # the per-frame calls report what is missing
+                pass
+
+    def frame_jpeg(self, ev):
+        frame = ev.get('frame')
+        if self.frames is None:
+            return None, None, 'no source video was available when this PDF was made'
+        if ev['id'] not in self.plan:
+            if not isinstance(frame, int) or isinstance(frame, bool) or frame < 0:
+                return None, None, 'the moment has no frame index'
+            return None, None, 'screenshot left out to keep the file small (see the timestamp)'
+        width, crop = self.plan[ev['id']]
+        data = None
+        for w in ((width, self.frame_width) if width != self.frame_width else (width,)):
+            try:
+                data = self.frames(frame, w)
+            except Exception:                                   # a broken video must not break the report
+                data = None
+            if data:
+                if w != width:
+                    crop = None                                 # the small frame is not magnified
+                break
+        if not data:
+            self.missing.append(frame)
+            return None, None, 'the frame could not be read from the source video'
+        try:
+            jpeg_info(data)
+        except ValueError:
+            self.missing.append(frame)
+            return None, None, 'the frame provider returned no JPEG'
+        return data, crop, None
+
+    def cover(self):
+        L, r, render = self.L, self.r, self.render
+        L.y += 4
+        L.kicker('PitchIQ')
+        L.text_line(L.left, 'COACHING REPORT', 21, INK, 'bold', leading=26)
+        L.y += 26
+        L.text_line(L.left, self.say(self.team_long), 12.5, INK_2, 'regular', leading=18)
+        L.y += 24
+        if self.stale is not None:
+            L.box([('OUT OF DATE', 8.5, 'bold', '#8a5f12'),
+                   (stale_sentence(self.stale, self.say), 8.6, 'regular', INK)],
+                  fill='#faf0dc', accent='#d9a961')
+        self.kv(self.profile_rows())
+        n_mw = sum(1 for f in r['reviews'] if is_moments(f))
+        tiles = (('strengths', len(r['strengths']), ('strength', 'strengths')),
+                 ('needsWork', len(r['needsWork']), ('thing to try', 'things to try') if self.level in (1, 2)
+                  else ('work item', 'work items')),
+                 ('needsWork', len(r['reviews'])-n_mw, ('issue to review', 'issues to review')))
+        if n_mw:
+            tiles += (('needsWork', n_mw, ('moment worth a look', 'moments worth a look')),)
+        tiles += (('keyMoments', len(self.moments), ('key moment', 'key moments')),)
+        L.ensure(46)
+        cw = (L.width-(len(tiles)-1)*8)/len(tiles)
+        x = L.left
+        for anchor, n, (one, many) in tiles:
+            L.add([render.rect(x, L.y, cw, 38, fill=TINT), render.text(x+8, L.y+19, str(n), 15, BRAND_DARK, 'bold'),
+                   render.text(x+8, L.y+31, one if n == 1 else many, 7, INK_2),
+                   {'op': 'link', 'x': x, 'y': L.y, 'w': cw, 'h': 38, 'dest': anchor}])
+            x += cw+8
+        L.y += 50
+        text = r['overview'].get('text')
+        if isinstance(text, str) and text.strip():
+            L.box([('In short', 8.5, 'bold', INK), (self.say(text), 9.2, 'regular', INK)])
+        L.heading('Contents', 2)
+        entries = [(f'{k}. {t}', key) for k, (key, t) in enumerate(V2_SECTIONS, 1)]
+        entries += [(t, key) for key, t in V2_MORE if key != 'feedback' or self.feedback]
+        half = (len(entries)+1)//2
+        leading = 12.5
+        L.ensure(half*leading+6)
+        top = L.y
+        for k, (t, anchor) in enumerate(entries):
+            x = L.left+(0 if k < half else L.width/2)
+            y = top+(k if k < half else k-half)*leading
+            L.add([render.text(x, y+9, t, 9, BRAND_DARK),
+                   {'op': 'link', 'x': x, 'y': y, 'w': text_width(t, 9), 'h': leading, 'dest': anchor}])
+        L.y = top+half*leading+8
+        L.box([('How to read this report', 8.5, 'bold', INK), (self.how_to_read(), 8.2, 'regular', INK_2)])
+
+    def how_to_read(self):
+        r = self.r
+        zones = any(isinstance(el, dict) and el.get('type') == 'suggestedZone'
+                    for spec in [e.get('diagram') for e in self.moments]+[d['diagram'] for d in r['diagrams']]
+                    if isinstance(spec, dict) for el in spec.get('elements') or [])
+        out = ['Every statement comes from the tracking of this video, read for the age group and level above; '
+               "PitchIQ's checks and thresholds are its own proposals: no coach has validated them and no "
+               'federation has reviewed them.',
+               'Times are source-video times (mm:ss.ss), with the offset into the analysed segment.']
+        if self.moments:
+            out.append('Each key moment shows the exact source frame with the annotation drawn over it, as far as '
+                       "the frame's pitch registration allows, and the same moment as a top-down diagram.")
+        if zones:     # critic B4 / M2: the dotted area is described only when the report holds one
+            out.append('A dotted area is a possible better position, with a dashed arrow for the movement towards '
+                       'it: an illustration with one player moved and everyone else kept where they were, never an '
+                       'exact spot.')
+        if self.coach_marked():
+            out.append('Where you marked who had the ball, your marks are used and labelled as marked by the coach.')
+        scale = r['overview'].get('scale') or {}
+        if scale.get('source', 'assumed') == 'assumed':
+            out.append('Distances are estimates from an assumed pitch size.')
+        out.append('This PDF holds no video: use the timestamps to find each moment.')
+        return ' '.join(out)
+
+    def profile_rows(self):
+        r, p = self.r, self.p
+        rows = []
+        video = r['video']
+        rows.append(('Video', video.get('name') or video.get('key') or 'n/a'))
+        if r.get('run'):
+            rows.append(('Run', r['run']))
+        rng, seg = r['range'], r['segment']
+        if _is_num(rng.get('t0')) and _is_num(rng.get('t1')):
+            span = rng.get('seconds') if _is_num(rng.get('seconds')) else rng['t1']-rng['t0']
+            tail = (', the whole analysed segment' if rng.get('whole') else
+                    f'; the analysed segment runs {clock(seg.get("t0"))} - {clock(seg.get("t1"))}'
+                    if _is_num(seg.get('t0')) and _is_num(seg.get('t1')) else '')
+            rows.append(('Analysed range', f'{clock(rng["t0"])} - {clock(rng["t1"])} of the source video '
+                                           f'({_secs(span)}{tail})'))
+        lv = f'level {self.level} {_title(p.get("levelName") or "")}'.strip() if self.level is not None else None
+        prof = ' - '.join(x for x in (p.get('ageGroup'), lv) if x)
+        if p.get('band'):
+            prof += f' ({p["band"]})'
+        rows.append(('Coaching profile', prof or 'n/a'))
+        fm = p.get('format') or {}
+        if fm.get('name'):
+            rows.append(('Match format', f'{fm["name"]}{" without goalkeeper" if fm.get("goalkeeper") is False else ""}'
+                                         + (f' - {fm["outfield"]} outfield players' if _is_num(fm.get('outfield'))
+                                            else '')))
+        rows.append(('Intended formation', f'{p["formation"]} (a starting model, not where every player must stand)'
+                     if p.get('formation') else 'Other / not sure'))
+        rows.append(('Style of play', self.style_name(p.get('style'))))
+        if p.get('federation') in FEDERATION_UI:
+            rows.append(('Federation guidance', FEDERATION_UI[p['federation']]))
+        fs = p.get('field') if isinstance(p.get('field'), dict) else None
+        if fs and _is_num(fs.get('length')) and _is_num(fs.get('width')):
+            rows.append(('Field size', f'{fs["length"]:g} x {fs["width"]:g} m (entered in the coaching setup)'))
+        if r.get('generated'):
+            rows.append(('Generated', str(r['generated']).replace('T', ' ')[:19]))
+        return rows
+
+    def overview(self):
+        L, r = self.L, self.r
+        ov, p = r['overview'], self.p
+        self.section_heading('overview', 1, 'Match overview', keep=60)
+        rows = [('Footage', self.footage_text(ov.get('footage') or {})),
+                ('Pitch scale', self.scale_text(ov.get('scale') or {})),
+                ('Who had the ball', self.possession_text(ov.get('possession') or {}))]
+        dq = self.quality_text(ov.get('dataQuality') or {})
+        if dq:
+            rows.append(('Data quality', dq))
+        self.kv(rows, key_width=110)
+        po = ov.get('possession') or {}
+        if po.get('available') and isinstance(po.get('caveat'), str) and po['caveat'].strip():
+            L.para(self.say(po['caveat']), 8.3, INK_2, after=6)
+        seen, notices = set(), []
+        for n in ov['notices']+p['notices']:
+            if isinstance(n.get('text'), str) and n['text'].strip() and n.get('code') not in seen:
+                seen.add(n.get('code'))
+                notices.append(self.say(n['text']))
+        if notices:
+            L.heading('Notes on this profile', 3)
+            L.bullets(notices, size=8.6)
+        periods = [x for x in ov['formations'] if _is_num(x.get('t0')) and _is_num(x.get('t1'))]
+        if periods:
+            L.heading('Shape measured (described, not judged)', 3)
+            L.bullets([f'{clock(x["t0"])} - {clock(x["t1"])}: {x.get("label") or "no clear shape"}'
+                       + (f' ({x["confidence"]})' if isinstance(x.get('confidence'), str) else '') for x in periods],
+                      size=8.6)
+        dets = [d for d in ov['detectors'] if isinstance(d.get('detector'), str)]
+        if dets:
+            L.heading('What was checked', 3)
+            L.bullets([f'{self.skill_name(d["detector"])}: {self.checked_text(d)}' for d in dets], size=8.6)
+        un = [x for x in ov['unavailable'] if isinstance(x.get('category'), str) and isinstance(x.get('reason'), str)]
+        if un:
+            L.heading('Not measured by PitchIQ', 3)
+            L.bullets([f'{self.category_name(x["category"])}: {self.say(x["reason"])}'
+                       + (f' What would make it possible: {self.say(x["unlock"])}' if isinstance(x.get('unlock'), str)
+                          and x['unlock'].strip() else '') for x in un], size=8.4)
+        if r['described']:
+            L.heading('Context from this match', 3, keep=60)
+            for f in r['described']:
+                self.card(f)
+        held = len(r['withheld'])
+        if held:
+            L.para(f'{held} {"finding was" if held == 1 else "findings were"} held back: '
+                   f'{"its" if held == 1 else "their"} wording could not be checked against the measurements.',
+                   8.3, INK_2, 'oblique')
+
+    @staticmethod
+    def category_name(code):
+        """The name of a category PitchIQ does not measure (profiles.json unavailable.categories), else the code
+        in words."""
+        try:
+            from . import profiles
+            name = ((profiles.load().get('unavailable') or {}).get('categories') or {}).get(code, {}).get('category')
+        except Exception:
+            name = None
+        return name if isinstance(name, str) and name.strip() else _humanize(code)
+
+    def guidance(self, g):
+        tag = ' (PitchIQ proposal)' if g.get('tag') == 'PITCHIQ-PROPOSAL' else ''
+        ids = [s for s in _items(g.get('sources')) if isinstance(s, str)]
+        return self.say(g['text'].strip())+tag+(f' [{", ".join(ids)}]' if ids else '')
+
+    def checked_text(self, d):
+        if d.get('status') == 'assessed':
+            n = d.get('opportunities')
+            if self.numbers == 'none' or not isinstance(n, int):
+                return 'checked'
+            return (f'checked in {n} {_plural(n, "moment")}'
+                    + (f' ({_secs(d["eligibleSeconds"])} usable)' if _is_num(d.get('eligibleSeconds')) else ''))
+        if d.get('status') == 'off':
+            return REASON_UI['off']
+        why = d.get('reason')
+        if why == 'coach_marks_one_side':     # the page's words when it knows whose spells were marked (CODE M-2)
+            ov = self.r.get('overview') or {}
+            side = self.marked_side(ov.get('possession') or {}, ov.get('detectors') or [])
+            if side in ('A', 'B'):
+                return (f"not assessed: you marked only Team {side}'s possession: mark Team "
+                        f"{'B' if side == 'A' else 'A'}'s spells too to run this check")
+        n = d.get('opportunities')
+        if (why == 'too_few_situations' and self.numbers != 'none' and isinstance(n, int) and not isinstance(n, bool)
+                and n > 0):
+            return f'not assessed: only {n} {_plural(n, "situation")} of this kind happened in this range, too few to judge'
+        return 'not assessed: '+(REASON_UI.get(why) or (_humanize(why).lower() if why else 'not enough data'))
+
+    @staticmethod
+    def footage_text(fo):
+        kind = FOOTAGE_UI.get(fo.get('kind'), 'Camera type not known')
+        more = []
+        if _is_num(fo.get('smallSceneShare')) and fo['smallSceneShare'] >= .2:
+            more.append(f'players appear small in {_pct(fo["smallSceneShare"])} of it')
+        if fo.get('keyless'):
+            more.append('no pitch keyframes were set')
+        if fo.get('lensBent'):
+            more.append('a curved lens')
+        return kind+(': '+', '.join(more) if more else '')
+
+    @staticmethod
+    def scale_text(sc):
+        if not (_is_num(sc.get('lengthM')) and _is_num(sc.get('widthM'))):
+            return 'not known'
+        how = SCALE_UI.get(sc.get('source'), 'assumed')
+        tail = ('; distances between players are not judged (enter the field size in the setup)'
+                if sc.get('metresUsable') is False else '; distances are estimates' if sc.get('source') == 'assumed'
+                else '')
+        return f'{sc["lengthM"]:.0f} x {sc["widthM"]:.0f} m, {how}{tail}'
+
+    def possession_source(self, po):
+        """Where the shares come from (the page's possessionSource): the report's own word (PossessionOverview.source),
+        else the run's coach spans (option coach_spans, the answer's coachSpans) and the caveat report.py writes when
+        only the coach's marks name the phase."""
+        if po.get('source') in ('engine', 'coach', 'mixed'):
+            return po['source']
+        if not self.o.get('coach_spans'):
+            return 'engine'
+        return 'coach' if re.search('could not follow', str(po.get('caveat') or ''), re.I) else 'mixed'
+
+    def marked_side(self, po, dets=()):
+        """Whose possession the coach marked (the page's markedSide): option marked ('A', 'B', 'both', from the run's
+        stored spans, store.marked_teams), else from the report itself: shares of 100% to 0% from the coach's marks
+        alone, or a check left out for coach_marks_one_side; None when nothing says."""
+        if self.o.get('marked') in ('A', 'B', 'both'):
+            return self.o['marked']
+        rs = po.get('roughShares') if isinstance(po.get('roughShares'), dict) else None
+        if not self.o.get('coach_spans') or not rs or not (_is_num(rs.get('A')) and _is_num(rs.get('B'))):
+            return None
+        full = 'A' if rs['A'] >= .999 else 'B' if rs['B'] >= .999 else None
+        told = any(isinstance(d, dict) and d.get('reason') == 'coach_marks_one_side' for d in dets)
+        return full if full and (told or self.possession_source(po) == 'coach') else None
+
+    def possession_text(self, po):
+        """Who had the ball, said with where it comes from, in the page's words (coaching.js possessionText; CODE M-2,
+        round 2: the PDF said "estimated" of the coach's own marks: "(estimated from 42% of the time)" with marks of
+        both teams on the AM copy, "Estimated from 31% of the time" where the page gave no share for Team A's marks
+        alone, and "(estimated from 100% of the time)" with marks over PitchIQ's estimate on BC60)."""
+        if not po.get('available'):
+            why = po.get('reason') if isinstance(po.get('reason'), str) and po['reason'].strip() else None
+            return 'Not available on this footage'+(f': {why[:1].lower()+why[1:]}' if why else '')
+        dets = (self.r.get('overview') or {}).get('detectors') or []
+        source, side = self.possession_source(po), self.marked_side(po, dets)
+        one = side in ('A', 'B')
+        cover = f'{_pct(po["coverage"])} of the time' if _is_num(po.get('coverage')) else None
+        if source == 'coach':
+            how = 'from your marks'+(f', {cover}' if cover else '')
+        elif source == 'mixed':
+            how = "your marks where you made them, PitchIQ's estimate elsewhere"+(f'; from {cover}' if cover else '')
+        else:
+            how = f'estimated from {cover}' if cover else 'estimated'
+        rs = po.get('roughShares') if isinstance(po.get('roughShares'), dict) else None
+        if source == 'coach' and one:
+            other = 'B' if side == 'A' else 'A'
+            text = (f"No share given: you marked only Team {side}'s possession"+(f' ({cover})' if cover else '')
+                    + f"; mark Team {other}'s spells too for a share")
+        elif rs and _is_num(rs.get('A')) and _is_num(rs.get('B')):
+            names = {'A': self.team_names.get('A', 'Team A'), 'B': self.team_names.get('B', 'Team B')}
+            text = f'{names["A"]} about {_pct(rs["A"])}, {names["B"]} about {_pct(rs["B"])} ({how})'
+        else:
+            text = how[:1].upper()+how[1:]
+        return text+('; limited quality' if po.get('quality') == 'limited' else '')
+
+    @staticmethod
+    def quality_text(dq):
+        parts = []
+        if _is_num(dq.get('positioned')):
+            parts.append(f'about {dq["positioned"]:.1f} players per team placed on the pitch')
+        if isinstance(dq.get('lineup'), int) and not isinstance(dq.get('lineup'), bool):
+            parts.append(f'lineup of {dq["lineup"]}')
+        if dq.get('dominantCause') in CAUSE_UI:
+            parts.append(CAUSE_UI[dq['dominantCause']])
+        return '; '.join(parts)
+
+    def went_well(self):
+        items = self.r['strengths']
+        self.section_heading('strengths', 2, 'What went well', len(items), keep=110 if items else 0)
+        if not items:
+            self.L.para(V2_EMPTY['strengths'], colour=INK_2, font='oblique')
+        for f in items:
+            self.card(f)
+
+    def needs_work(self):
+        L, r = self.L, self.r
+        from . import report as R
+        work, parts = r['needsWork'], R.reviews_by_part(r)
+        issues = sum(len(fs) for part, fs in parts if part['part'] != 'moments')
+        self.section_heading('needsWork', 3, 'What needs work', len(work)+issues, keep=110)
+        mx = (self.p.get('evidence') or {}).get('maxWorkItems')
+        if isinstance(mx, int) and not isinstance(mx, bool):
+            L.para(f'At most {mx} {"item is" if mx == 1 else "items are"} shown at this level, the most important '
+                   'first; nothing is added to fill the section.', 8.4, INK_2)
+        if not work:
+            L.para(V2_EMPTY['needsWork'], colour=INK_2, font='oblique')
+        for f in work:
+            self.card(f)
+        for part, fs in parts:
+            mw = part['part'] == 'moments'
+            L.heading(part['title']+(f' ({len(fs)})' if mw else ''), 2, 'moments' if mw else 'reviews', keep=110)
+            L.para(part['intro'], 8.4, INK_2)
+            for f in fs:
+                self.card(f)
+
+    def card(self, f):
+        L, render = self.L, self.render
+        t = f.get('text') or {}
+        verdict = f.get('verdict')
+        mw = is_moments(f)
+        L.ensure(78)
+        L.anchor(f'fnd-{f["id"]}')
+        bw = self.badge(verdict, moments=mw)
+        x = L.left+bw+7
+        L.add([render.text(x, L.y+8.2, self.skill_name(f.get('observation')), 7.4, MUTED, 'bold')])
+        if isinstance(f.get('priority'), int) and verdict in ('work_on', 'try_this'):
+            L.add([render.text(L.right, L.y+8.2, f'Priority {f["priority"]}', 7.4, BRAND_DARK, 'bold', 'right')])
+        L.y += 15
+        L.para(self.say(t.get('headline')) or self.skill_name(f.get('observation')), 11, INK, 'bold', after=3)
+        if t.get('explanation'):
+            L.para(self.say(t['explanation']), 9.2, INK, after=4)
+        if t.get('action'):
+            lead = 'TO BUILD ON IT' if verdict == 'strength' else None if verdict == 'try_this' else \
+                'WHAT TO LOOK FOR' if mw else 'WHAT COULD HELP'
+            if lead:
+                L.ensure(24)
+                L.text_line(L.left, lead, 6.6, BRAND_DARK, 'bold', leading=10)
+                L.y += 10
+                L.para(self.say(without_lead(t['action']) if verdict == 'strength' else t['action']), 9.0, INK, after=4)
+            else:
+                L.box([(self.say(t['action']), 9.0, 'regular', INK)], fill='#e2f2f3', accent='#1f6f78', after=5)
+        for line in (self.fact_line(f), self.measure_line(f), *self.guard_notes(f), None if mw else self.action_note(f)):
+            if line:
+                L.para(self.say(line), 7.8, INK_2, after=2.5)
+        refs = [self.moment_ref(ts.get('evidence')) for ts in f.get('timestamps') or []]
+        self.chips('Key moments:', [(ref[0], {'dest': ref[1]}) for ref in refs if ref])
+        if verdict in ('work_on', 'try_this'):
+            names = [(self.drill_name(d), {'dest': f'drill-{d}'}) for d in dict.fromkeys(f.get('drills') or [])]
+            if names:
+                self.chips('Drill:', names)
+            else:
+                why = self.no_drill(f)
+                if why:
+                    L.para(why, 7.8, INK_2, 'oblique', after=2.5)
+        for fb in self.feedback:
+            if fb.get('thisRun') and fb.get('verdict') and fb.get('attached', fb.get('findingKey')) == f.get('key'):
+                note = fb.get('text') if isinstance(fb.get('text'), str) and fb['text'].strip() else None
+                L.para(f'Your review: {VERDICTS.get(fb["verdict"], _humanize(fb["verdict"]))}'
+                       + (f' - "{note}"' if note else '')+(f' ({str(fb.get("made"))[:10]})' if fb.get('made') else ''),
+                       7.8, BRAND_DARK, after=2.5)
+        L.add([render.path([(L.left, L.y+2), (L.right, L.y+2)], stroke=RULE, width=.6)])
+        L.y += 11
+
+    def fact_line(self, f):
+        """The counts behind a finding in the level's register (the page's factLine)."""
+        a = f.get('aggregate') or {}
+        n, ph = self.numbers, self.phase_words(f)
+        opp = a.get('opportunities')
+        m = f.get('measurements') or {}
+        mw = is_moments(f) and all(isinstance(m.get(k), int) and not isinstance(m.get(k), bool)
+                                   for k in ('clearMoments', 'clearSpells', 'decidedMoments'))
+        if not isinstance(opp, int) or isinstance(opp, bool) or opp == 0:
+            return None
+        if n == 'none':
+            return f'Looked at {ph}.' if ph else None
+        verdict = f.get('verdict')
+        if verdict == 'strength':
+            k = a.get('distinctDemonstratedSpells')
+            text = f'Shown in {a.get("demonstrated")} of {opp} moments ({k} separate {_plural(k, "spell")})'
+        elif verdict == 'describe':
+            text = f'{opp} {_plural(opp, "moment")} looked at'
+        elif mw:
+            c, d, k = m['clearMoments'], m['decidedMoments'], m['clearSpells']
+            of = f'all {d}' if c >= d else f'{c} of the {d}'
+            text = f'Clear in {of} moments PitchIQ could judge ({k} separate {_plural(k, "spell")})'
+            failing = m.get('failingMoments')       # the counts add up (critic B-3, FACTS F-4 / COACH F-10, round 2)
+            if isinstance(failing, int) and not isinstance(failing, bool) and failing > c:
+                text += f', {failing-c} more fell short less clearly'
+        else:
+            k = a.get('distinctFailingSpells')
+            text = f'Missing in {a.get("notDemonstrated")} of {opp} moments ({k} separate {_plural(k, "spell")})'
+        if a.get('unclear'):
+            text += f', {a["unclear"]} unclear'
+        if ph:
+            text += f', {ph}'
+        if n != 'counts' and _is_num(a.get('phaseSeconds')) and a['phaseSeconds'] > 0:
+            text += f', over {_secs(a["phaseSeconds"])} of that time'
+        if n == 'rates' and _is_num(a.get('ratePer10')) and not mw:
+            text += f' ({a["ratePer10"]:.1f} per 10 minutes of it)'
+        return text+'.'
+
+    def measure_line(self, f):
+        """The finding's measurements at its first key moment (the page's measure chips): from level 3, metres
+        rounded at level 3, shares from level 5; metres only where the scale is usable."""
+        n = self.numbers
+        level = f.get('level') if isinstance(f.get('level'), int) else self.level
+        m = f.get('measurements') or {}
+        if n in ('none', 'counts'):
+            return None
+        est = m.get('metres') == 'estimated'
+        parts = []
+        first = chip_levels(f)
+        for k, v in m.items():
+            ui = MEASURE_UI.get(k)
+            if not ui or v is None or first.get(k) is None or (isinstance(level, int) and level < first[k]):
+                continue
+            text = None
+            if ui[1] == 'bool':
+                text = ('yes' if v else 'no') if isinstance(v, bool) else None
+            elif not _is_num(v):
+                text = None
+            elif ui[1] == 'share':
+                text = _pct(v) if n in ('shares', 'rates') else None
+            elif ui[1] == 'm':
+                if m.get('metres') != 'unusable':
+                    text = (f'{int(math.floor(v+.5))}' if n == 'rounded_metres' else f'{v:.1f}')+' m'+(' (est.)' if est
+                                                                                                         else '')
+            elif ui[1] == 'deg':
+                text = f'{int(math.floor(v+.5))} degrees'
+            elif ui[1] == 'signed':
+                r_ = int(math.floor(v+.5))
+                text = f'+{r_}' if r_ > 0 else str(r_)
+            else:
+                text = str(int(math.floor(v+.5)))
+            if text is not None:
+                parts.append(f'{ui[0]} {text}')
+        source = m.get('phaseSource')
+        if source in ('coach', 'mixed'):
+            parts.append('who had the ball: '+('marked by the coach' if source == 'coach' else
+                                               'partly marked by the coach'))
+        return ('At the first key moment: '+'; '.join(parts)+'.') if parts else None
+
+    def guard_notes(self, f):
+        out = []
+        g = f.get('guardrails') or {}
+        failed = [k for k in GUARDRAIL_UI if g.get(k) == 'fail' and not (k == 'evidence' and is_moments(f))]
+        if failed:
+            out.append('Could not be confirmed: '+', '.join(GUARDRAIL_UI[k] for k in failed)+'.')
+        lim = [REASON_UI[c] for c in f.get('limitations') or [] if c in REASON_UI]
+        if lim:
+            out.append('Limits: '+'; '.join(lim)+'.')
+        ctx = f.get('context') or {}
+        if ctx.get('styleEffect'):
+            name = self.style_name(ctx.get('style'))
+            known = ctx.get('style') not in (None, 'unknown')
+            out.append('Read with the style you chose'+(f' ({name.lower()})' if known else '')+'.')
+        return out
+
+    @staticmethod
+    def action_note(f):
+        sa = f.get('suggestedAction')
+        if not isinstance(sa, dict) or f.get('verdict') in ('strength', 'describe'):
+            return None
+        if sa.get('mode') in ('zone', 'point'):
+            return ('A possible better area is drawn on the key moment: one player moved, everyone else kept where '
+                    'they were.')
+        if sa.get('mode') == 'direction':
+            return ('The direction of a possible movement is drawn on the key moment; the area itself was too large '
+                    'to show as one place.')
+        return 'No reachable better position could be confirmed, so only the principle is given.'
+
+    def drill_name(self, did):
+        d = self.drill_record(did)
+        return d['name'] if isinstance(d, dict) and isinstance(d.get('name'), str) else _humanize(did)
+
+    def no_drill(self, f):
+        """Why a work item shows no drill (drills.no_drill_reason, worded as report.NO_DRILL_WORDS)."""
+        try:
+            from . import drills as D, report as R
+            lib = D.load_library()
+            why = D.no_drill_reason(lib, self.p, f.get('observation'))
+            short = (f.get('text') or {}).get('short') or self.skill_name(f.get('observation'))
+            return R.NO_DRILL_WORDS[why].format(short=short[:1].lower()+short[1:])
+        except Exception:
+            return None
+
+    def key_moments(self):
+        L = self.L
+        self.section_heading('keyMoments', 4, 'Key moments', len(self.moments), keep=230 if self.moments else 0)
+        if not self.moments:
+            L.para(V2_EMPTY['keyMoments'], colour=INK_2, font='oblique')
+            return
+        L.para('In time order. Each is the exact frame of the source video at its timestamp, with the annotation '
+               'PitchIQ drew for it, beside the same moment as a top-down diagram. In PitchIQ, Replay plays it from '
+               'three seconds before to two seconds after.', 8.4, INK_2)
+        for ev in self.moments:
+            self.moment(ev)
+
+    def moment(self, ev):
+        L, render = self.L, self.render
+        col = (L.width-COLUMN_GAP)/2
+        n = self.number[ev['id']]
+        f = self.findings.get(ev.get('finding'))
+        named = self.named(ev)
+        diagram = None
+        if isinstance(ev.get('diagram'), dict):
+            diagram = render.diagram_ops(ev['diagram'], col, self.colours, self.labels, self.team_names,
+                                         palette=self.pal_print, caption=False, adjustments=self.adjust.get(ev['id']))
+            self.skipped += [dict(s, evidence=ev['id'], figure='diagram') for s in diagram['skipped']]
+        jpeg, crop, why = self.frame_jpeg(ev)
+        img_h, ov_ops, ov_note = 0.0, None, None
+        x2 = L.left+col+COLUMN_GAP
+        ov = ev.get('videoOverlay')
+        overlay_left_out = False
+        if jpeg:
+            iw, ih, _ = jpeg_info(jpeg)
+            img_h = col*ih/iw
+            if isinstance(ov, dict):
+                ow, oh = ov.get('width'), ov.get('height')
+                if not (_is_num(ow) and _is_num(oh) and oh and abs(ow/oh-iw/ih)/(iw/ih) <= .02):
+                    ov, crop, overlay_left_out = None, None, True
+            else:
+                ov, crop = None, None
+        fig_h = max(diagram['height'] if diagram else 0.0, img_h if jpeg else 34.0, 34.0)
+        head = (f.get('text') or {}).get('short') or (f.get('text') or {}).get('headline') if f else None
+        head = head or self.skill_name(ev.get('detector'))
+        lines = []
+        cap = ev.get('caption') if isinstance(ev.get('caption'), str) else ''
+        if cap and cap.strip() != str(head).strip():
+            lines.append(cap)
+        tier = ev.get('tier')
+        if jpeg and ov is not None:
+            lines.append('__overlay__')                   # replaced by the overlay's own tier sentence below
+        elif jpeg:
+            lines.append('Screenshot: the exact source frame.'+(' The overlay was left out: its image size does not '
+                                                                 'match the frame.' if overlay_left_out else
+                                                                 ' Nothing could be drawn over it at this frame.'))
+        if crop:
+            lines.append(f'Zoomed {crop[4]:.1f}x on the players involved; the frame itself is not changed.')
+        if named and ev.get('players'):
+            lines.append('Players: '+', '.join(ev['players'])+'.')      # ids: say() shows them as labels once
+        win = (ev.get('annotation') or {}).get('window') if isinstance(ev.get('annotation'), dict) else None
+        if isinstance(win, dict) and _is_num(win.get('t0')) and _is_num(win.get('t1')):
+            lines.append(f'Replay window {clock(win["t0"])} - {clock(win["t1"])}.')
+        alt = self.alts.get(ev.get('alternative')) if ev.get('alternative') else None
+        if alt:
+            lines.append(self.alternative_text(alt, named))
+        else:
+            none = next((x for x in self.r['noAlternatives'] if x.get('evidence') == ev['id']), None)
+            if none and none.get('reason') in ALT_REASON_UI and f and f.get('verdict') in ('work_on', 'try_this',
+                                                                                             'review') \
+                    and not is_moments(f):
+                lines.append(f'No area is drawn: {ALT_REASON_UI[none["reason"]]}.')
+        if jpeg and ov is not None:              # drawn at top 0 here, moved to the figure's top when placed
+            k = col/(crop[2] if crop else ov['width'])
+            ox_, oy_ = (x2-crop[0]*k, -crop[1]*k) if crop else (x2, 0.0)
+            ov_ops = render.overlay_ops(ov, ox_, oy_, ov['width']*k, ov['height']*k, self.colours, self.labels,
+                                        caption=False, palette=self.pal_video, unit=col/400.0)
+            ov_note = ov_ops['note']
+            lines[lines.index('__overlay__')] = 'Screenshot: the exact source frame. '+ov_note
+        elif not jpeg and tier in TIER_UI:
+            lines.append(f'Video tier: {TIER_UI[tier]}.')
+        text = ' '.join(self.say(x) for x in lines if x)
+        cap_lines = wrap(text, 7.6, L.width)
+        url = self.playback(ev)
+        title_h = 26
+        h = title_h+fig_h+4+len(cap_lines)*7.6*1.36+(11 if url else 0)+(11 if f else 0)+8
+        L.ensure(h)
+        L.anchor(f'ev-{ev["id"]}')
+        self.drawn_evidence.add(ev['id'])
+        seg = ev.get('segmentTime')
+        title = f'E{n}  |  {clock(ev.get("time"))}  (segment {offset(seg) if _is_num(seg) else "n/a"})'
+        if isinstance(ev.get('frame'), int):
+            title += f'  |  frame {ev["frame"]}'
+        L.text_line(L.left, title, 8.4, INK, 'bold', leading=11)
+        if f:
+            label = V2_MOMENTS[0] if is_moments(f) else V2_VERDICTS.get(f.get('verdict'), ('', ''))[0]
+            bw = text_width(label.upper(), 6.6, 'bold')+10
+            self.badge(f.get('verdict'), x=L.right-bw, moments=is_moments(f))
+        L.y += 12
+        L.text_line(L.left, fit_text(self.say(head), 8.2, L.width), 8.2, INK_2, 'regular', leading=11)
+        L.y += 14
+        top = L.y
+        if diagram:
+            L.add(_translate(diagram['ops'], L.left, top))
+        else:
+            L.add([render.rect(L.left, top, col, 34, fill=ZEBRA),
+                   render.text(L.left+6, top+20, 'No diagram for this moment.', 7.6, MUTED, 'oblique')])
+        if jpeg:
+            k = col/(crop[2] if crop else (ov['width'] if ov else iw))
+            fw = (ov['width'] if ov else iw)*k
+            fh = (ov['height'] if ov else ih)*k
+            ix, iy = (x2-crop[0]*k, top-crop[1]*k) if crop else (x2, top)
+            L.add([render.clip(x2, top, col, img_h),
+                   {'op': 'image', 'x': ix, 'y': iy, 'w': fw, 'h': fh, 'jpeg': jpeg, 'frame': ev.get('frame')}])
+            self.screenshots += 1
+            self.zoomed += 1 if crop else 0
+            if ov_ops is not None:
+                self.skipped += [dict(s, evidence=ev['id'], figure='overlay') for s in ov_ops['skipped']]
+                L.add(_translate([op for op in ov_ops['ops'] if op['op'] not in ('clip', 'unclip')], 0.0, top))
+                self.overlays += 1
+            cs = 5.0
+            cw = text_width(render.OVERLAY_CAPTION if ov_ops is not None else 'source frame', cs)+5
+            L.add([render.rect(x2+3, top+img_h-cs-6, cw, cs+3.4, fill=render.EDGE, alpha=.7),
+                   render.text(x2+5.5, top+img_h-5.2, render.OVERLAY_CAPTION if ov_ops is not None else 'source frame',
+                               cs, render.WHITE),
+                   render.unclip(), render.rect(x2, top, col, img_h, stroke=RULE, width=.5)])
+        else:
+            msg = wrap(f'Screenshot unavailable: {why}.', 7.6, col-12)
+            bh = max(34.0, 12+len(msg)*10.5)
+            L.add([render.rect(x2, top, col, bh, fill=ZEBRA)])
+            for i, line in enumerate(msg):
+                L.add([render.text(x2+6, top+14+i*10.5, line, 7.6, MUTED, 'oblique')])
+        L.y = top+fig_h+4
+        for line in cap_lines:
+            L.text_line(L.left, line, 7.6, INK_2, leading=7.6*1.36)
+            L.y += 7.6*1.36
+        if f:
+            head = (f.get('text') or {}).get('headline') or self.skill_name(f.get('observation'))
+            s = 'From: '+fit_text(self.say(head), 7.6, L.width-30)
+            L.text_line(L.left, s, 7.6, BRAND_DARK, leading=11)
+            L.add([{'op': 'link', 'x': L.left, 'y': L.y, 'w': text_width(s, 7.6), 'h': 11, 'dest': f'fnd-{f["id"]}'}])
+            L.y += 11
+        if url:
+            s = f'Open {clock(ev.get("time"))} in PitchIQ (needs the local PitchIQ server with this video open)'
+            L.text_line(L.left, s, 7.6, BRAND_DARK, leading=11)
+            L.add([render.path([(L.left, L.y+9.6), (L.left+text_width(s, 7.6), L.y+9.6)], stroke=BRAND_DARK,
+                               width=.4),
+                   {'op': 'link', 'x': L.left, 'y': L.y, 'w': text_width(s, 7.6), 'h': 11, 'uri': url}])
+            L.y += 11
+        L.add([render.path([(L.left, L.y+3), (L.right, L.y+3)], stroke=RULE, width=.4)])
+        L.y += 10
+
+    def alternative_text(self, alt, named):
+        reach, imp = alt.get('reach') or {}, alt.get('improves') or {}
+        who = alt.get('mover') if named and isinstance(alt.get('mover'), str) else None   # an id: said once
+        base = (f'The dotted area is one possibility for {who}' if who else
+                'The dotted area is one possibility for the teammate who could move')
+        base += ', with everyone else kept where they were: an illustration, not an instruction.'
+        if self.numbers in ('none', 'counts') or not (_is_num(reach.get('horizonS')) and _is_num(reach.get('speedMS'))):
+            return base
+        share = imp.get('shareOfZone')
+        return (f'{base} It is within reach of where {who or "they"} stood {reach["horizonS"]:.1f} s earlier at up '
+                f'to {reach["speedMS"]:.1f} m/s'
+                + (f', and the {_humanize(imp.get("relation") or "relation").lower()} holds in {_pct(share)} of it'
+                   if _is_num(share) else '')+'.')
+
+    def diagrams(self):
+        L, render, r = self.L, self.render, self.r
+        refs = r['diagrams']
+        self.section_heading('diagrams', 5, 'Tactical diagrams', len(refs), keep=60)
+        if not refs:
+            L.para(V2_EMPTY['diagrams'], colour=INK_2, font='oblique')
+            return
+        fdg = [d for d in refs if d.get('kind') == 'finding' and d.get('evidence') in self.ev]
+        if fdg:
+            L.para('The diagram of each key moment, with any suggested area, is drawn beside its screenshot under '
+                   'Key moments:', 8.4, INK_2, after=2)
+            items = []
+            for d in fdg:
+                ref = self.moment_ref(d['evidence'])
+                zone = any(isinstance(el, dict) and el.get('type') == 'suggestedZone'
+                           for el in d['diagram'].get('elements') or [])
+                items.append((ref[0]+(' (possible area)' if zone else ''), {'dest': ref[1]}))
+            self.chips('', items)
+        others = [d for d in refs if d.get('kind') in ('movement', 'formation')]
+        col = (L.width-COLUMN_GAP)/2
+        for kind, title, intro in (
+                ('movement', 'How our players moved', 'Arrows join where each of our players stood two seconds before '
+                 'a key moment to where they stood at it (observed positions only).'),
+                ('formation', 'Average shape', 'Average positions of our outfield players per measured shape and '
+                 'phase: described, not judged.')):
+            group = [d for d in others if d['kind'] == kind]
+            if not group:
+                continue
+            rows = []
+            for i in range(0, len(group), 2):
+                figs = []
+                for d in group[i:i+2]:
+                    dd = render.diagram_ops(d['diagram'], col, self.colours, self.labels, self.team_names,
+                                            palette=self.pal_print, caption=False)
+                    self.skipped += [dict(s, diagram=d.get('id'), figure='diagram') for s in dd['skipped']]
+                    cap = self.say(d.get('caption') or d['diagram'].get('title') or '')
+                    figs.append((d, dd, wrap(cap, 7.4, col)))
+                rows.append((figs, max(dd['height']+4+len(c)*7.4*1.36+(11 if d.get('evidence') in self.ev else 0)
+                                       for d, dd, c in figs)))
+            intro_h = len(wrap(intro, 8.4, L.width))*8.4*1.38+4
+            L.heading(title, 2, keep=intro_h+rows[0][1]+8)    # the heading stays with its first row of diagrams
+            L.para(intro, 8.4, INK_2)
+            for figs, h in rows:
+                L.ensure(h+8)
+                top = L.y
+                for k, (d, dd, cap_lines) in enumerate(figs):
+                    x = L.left+k*(col+COLUMN_GAP)
+                    L.add(_translate(dd['ops'], x, top))
+                    y = top+dd['height']+4
+                    for line in cap_lines:
+                        L.add([render.text(x, y+7.4, line, 7.4, INK_2)])
+                        y += 7.4*1.36
+                    ref = self.moment_ref(d.get('evidence')) if d.get('evidence') in self.ev else None
+                    if ref:
+                        s = f'Show {ref[0]}'
+                        L.add([render.text(x, y+8, s, 7.4, BRAND_DARK),
+                               {'op': 'link', 'x': x, 'y': y, 'w': text_width(s, 7.4), 'h': 10, 'dest': ref[1]}])
+                L.y = top+h+10
+        if any(d['diagram'].get('metresEstimated') is not False for d in refs):
+            L.para('Positions are the observed ones at each frame; distances are estimates.', 7.8, MUTED)
+
+    def drills(self):
+        L, render, r = self.L, self.render, self.r
+        picks = r['drills']
+        self.section_heading('drills', 6, 'Training drills', len({p['drill'] for p in picks}), keep=80)
+        sf = self.p.get('safety') or {}
+        notes = [self.say(x) for x in _items(sf.get('notes')) if isinstance(x, str) and x.strip()]
+        if notes:
+            L.box([(f'Safety at this age ({self.p.get("ageGroup") or "n/a"})', 8.4, 'bold', INK)]
+                  + [(x, 8.2, 'regular', INK_2) for x in notes], fill='#faf0dc', accent='#d9a961')
+        if not picks:
+            L.para(no_drill_text(r), colour=INK_2, font='oblique')
+        groups = {}
+        for pk in picks:
+            groups.setdefault(pk['drill'], []).append(pk)
+        for did, group in groups.items():
+            self.drill(did, group)
+        for f in r['needsWork']:
+            if not f.get('drills'):
+                why = self.no_drill(f)
+                if why:
+                    L.para(why, 8.4, INK_2, 'oblique')
+
+    def drill(self, did, picks):
+        L, render = self.L, self.render
+        d = self.drill_record(did)
+        L.heading(self.drill_name(did), 2, f'drill-{did}', keep=90)
+        for pk in picks:
+            f = self.findings.get(pk.get('finding')) if pk.get('finding') else None
+            if f and not pk.get('optional'):
+                head = self.say((f.get('text') or {}).get('headline') or self.skill_name(f.get('observation')))
+                prio = f' (priority {f["priority"]})' if isinstance(f.get('priority'), int) else ''
+                s = fit_text(f'For: {head}{prio}', 8.4, L.width)
+                L.ensure(12)
+                L.text_line(L.left, s, 8.4, BRAND_DARK, 'bold', leading=12)
+                L.add([{'op': 'link', 'x': L.left, 'y': L.y, 'w': text_width(s, 8.4, 'bold'), 'h': 12,
+                        'dest': f'fnd-{f["id"]}'}])
+                L.y += 13
+            else:
+                L.para(optional_label(self.r), 8.4, BRAND_DARK, 'bold', after=2)
+            fields = pk.get('fields') or {}
+            for key, title in DRILL_FIELDS_V2:
+                if key == 'easier':
+                    refs = [self.moment_ref(e) for e in _items(fields.get('moments'))]
+                    self.chips('Moments it addresses:', [(x[0], {'dest': x[1]}) for x in refs if x])
+                v = fields.get(key)
+                if isinstance(v, str) and v.strip():
+                    L.ensure(24)
+                    L.text_line(L.left, title.upper(), 6.6, BRAND_DARK, 'bold', leading=10)
+                    L.y += 10
+                    L.para(self.say(v), 8.8, INK, after=3)
+        if not isinstance(d, dict):
+            L.para('PitchIQ proposal, not validated by a coach.', 7.8, MUTED)
+            return
+        dim = (lambda v: v if _is_num(v) else v.get('value') if isinstance(v, dict) and _is_num(v.get('value'))
+               else None)
+        rows = []
+        pc = d.get('player_count') if isinstance(d.get('player_count'), dict) else {}
+        if _is_num(pc.get('min')) and _is_num(pc.get('max')):
+            span = f'{pc["min"]}' if pc['min'] == pc['max'] else f'{pc["min"]}-{pc["max"]}'
+            rows.append(('Players', f'{span} players'+(f'. {pc["note"]}' if isinstance(pc.get('note'), str) else '')))
+        du = d.get('duration') if isinstance(d.get('duration'), dict) else {}
+        if _is_num(du.get('minutes')):
+            rows.append(('Duration', f'{du["minutes"]} min'+(f' ({du["blocks"]})' if isinstance(du.get('blocks'), str)
+                                                             else '')))
+        fs = d.get('field_setup') if isinstance(d.get('field_setup'), dict) else {}
+        ln, wd = dim(fs.get('length')), dim(fs.get('width'))
+        area = '. '.join(x for x in (f'About {ln:g} x {wd:g} m' if ln is not None and wd is not None else '',
+                                     fs.get('notes') if isinstance(fs.get('notes'), str) else '') if x)
+        if area:
+            rows.append(('Area', area))
+        eq = [x for x in _items(d.get('equipment')) if isinstance(x, str)]
+        if eq:
+            rows.append(('Equipment', ', '.join(eq)))
+        sf = d.get('safety') if isinstance(d.get('safety'), dict) else {}
+        if sf:
+            rows.append(('Safety', ', '.join(x for x in (
+                'no heading' if sf.get('heading') == 'none' else 'heading only within the age limits',
+                f'{sf.get("physicalLoad") or "low"} physical load',
+                'no tackling' if sf.get('contact') == 'no_tackle' else None) if x)+'.'))
+        if rows:
+            self.kv(rows, key_width=80, size=8.4)
+        for key, title in (('instructions', 'How it runs'), ('coaching_points', 'Coaching points')):
+            items = [self.say(x) for x in _items(d.get(key)) if isinstance(x, str) and x.strip()]
+            if items:
+                L.ensure(24)
+                L.text_line(L.left, title.upper(), 6.6, BRAND_DARK, 'bold', leading=10)
+                L.y += 10
+                L.bullets(items, size=8.6, after=2)
+        refs = [x for x in _items(d.get('source_reference')) if isinstance(x, dict) and x.get('source')]
+        if refs:
+            parts = []
+            for x in refs:
+                src = self.sources.get(x['source']) or {}
+                title = src.get('title') or x['source']
+                parts.append(f'{DRILL_SOURCE_UI.get(x.get("relation"), "From")} {title}'
+                             + (f' ({x["note"]})' if isinstance(x.get('note'), str) and x['note'].strip() else ''))
+            L.para('Source: '+'; '.join(parts)+'.', 7.8, INK_2, after=3)
+        L.para('PitchIQ proposal, not validated by a coach: field sizes, durations and loads are suggestions.', 7.8,
+               MUTED, after=8)
+
+    def progression(self):
+        L, render, r = self.L, self.render, self.r
+        pr = r.get('progression')
+        skills = [k for k in _dicts((pr or {}).get('skills')) if isinstance(k.get('skill'), str)]
+        self.section_heading('progression', 7, 'Development progression', keep=80)
+        if skills:
+            name = self.o.get('squad', {}).get('name') if isinstance(self.o.get('squad'), dict) else None
+            if isinstance(name, str) and name.strip():
+                L.para(f'Squad: {name.strip()}', 9, INK, 'bold', after=3)
+            L.table([('Skill', .40, 'left'), ('State', .22, 'left'), ('Moments', .12, 'right'),
+                     ('Matches', .11, 'right'), ('Trend', .15, 'left')],
+                    [[k.get('name') or _humanize(k['skill']), MASTERY_UI.get(k.get('state'), str(k.get('state'))),
+                      str(k.get('opportunities')), str(k.get('matches')), TREND_UI.get(k.get('trend'), '-')]
+                     for k in skills])
+            if isinstance(pr.get('note'), str) and pr['note'].strip():
+                L.para(self.say(pr['note']), 8.3, INK_2)
+            L.para("States follow PitchIQ's own rules (proposals, not validated: review them with a coach). They "
+                   'count the moments where each skill was needed, so a short clip and a full match are compared '
+                   'fairly.', 7.8, MUTED)
+        else:
+            L.para('Link this team to a squad in the coaching setup to follow its skills across matches.', 8.8, INK_2,
+                   'oblique')
+        n = r['nextObjective']
+        if isinstance(n.get('text'), str) and n['text'].strip():
+            f = self.findings.get(n.get('finding')) if n.get('finding') else None
+            # (fix round 2: a next objective with no skill, where assess found none, is its text alone; the origin is
+            # not said twice when the text says it, as on the page. Fix round 3: the plain origin line only for a
+            # skill not from this match whose text names no origin at all: an objective chosen from this match's
+            # checks (critic S-3, COACH F-4 / FACTS F-9) or one from a work item whose finding is not shown must never
+            # read "not from this match"; origin_line)
+            more = origin_line(n, f)
+            focus = split_focus(n['text']) if not n.get('fromMatch') else None
+            if focus:
+                # the level's suggested focus (polish round): its label, the focus, its sources by title and id
+                label, body, ids = focus
+                src = '; '.join(f'{(self.sources.get(i) or {}).get("title") or i} ({i})' for i in ids)
+                L.box([('Next development objective', 8.6, 'bold', INK), (label+'.', 7.8, 'regular', INK_2),
+                       (self.say(body), 9.2, 'regular', INK)]
+                      + ([('Source: '+src+'.', 7.8, 'regular', INK_2)] if src else []))
+            else:
+                L.box([('Next development objective', 8.6, 'bold', INK), (self.say(n['text']), 9.2, 'regular', INK)]
+                      + ([(more, 7.8, 'regular', INK_2)] if more else []))
+            if n.get('fromMatch') and f:
+                s = fit_text('Finding: '+self.say((f.get('text') or {}).get('headline') or
+                                                  self.skill_name(f.get('observation'))), 8.2, L.width)
+                L.text_line(L.left, s, 8.2, BRAND_DARK, leading=12)
+                L.add([{'op': 'link', 'x': L.left, 'y': L.y, 'w': text_width(s, 8.2), 'h': 12,
+                        'dest': f'fnd-{f["id"]}'}])
+                L.y += 16
+
+    def sources_section(self):
+        """The sources credited, after what they say for this level. The level's guidance is the profile's
+        paraphrase of federation material for the coach (the page's 'Sources for this level' panel): it uses the
+        game's own words ('win the ball', 'pressing', 'transition'), which the report's text keeps away from at the
+        levels that ban them and never uses as a claim about the match, so it stands here, labelled, and not among
+        the findings (measured: 22 objectives, principles and not-expected items of levels 1-7, at each level's
+        typical age, trip schema.event_problems or the level's banned words; none is a statement about the match)."""
+        L, r, p = self.L, self.r, self.p
+        self.section_heading('sources', None, 'Sources', len(r['sources']), keep=60)
+        L.para("The level's guidance, notes and drills paraphrase these sources in PitchIQ's own words. No "
+               "federation reviewed or endorses PitchIQ; every check and threshold is PitchIQ's own proposal.", 8.4,
+               INK_2)
+        for key, title in (('objectives', 'What the sources aim for at this level'),
+                           ('notExpected', 'What they do not expect at this level')):
+            items = [g for g in p[key] if isinstance(g.get('text'), str) and g['text'].strip()]
+            if items:
+                L.heading(title, 3, keep=30)
+                L.bullets([self.guidance(g) for g in items], size=8.2)
+        if p['objectives'] or p['notExpected']:
+            L.para('Guidance for the coach, paraphrased with the source ids in brackets; it describes the level, not '
+                   'this match.', 7.8, MUTED)
+        if not r['sources']:
+            L.para('This report cites no source.', colour=INK_2, font='oblique')
+            return
+        rows = []
+        for s in r['sources']:
+            title = ' '.join(x for x in (s.get('title') or s.get('id') or '',
+                                         f'({s["publisher"]})' if isinstance(s.get('publisher'), str) else '') if x)
+            url = safe_uri(s.get('url'))
+            rows.append([f'[{s.get("id")}] {title}', {'text': s.get('url') or '-', 'uri': url} if url else
+                         (s.get('url') or '-')])
+        L.table([('Source', .55, 'left'), ('Link', .45, 'left')], rows, size=7.4)
+
+    def feedback_section(self):
+        L = self.L
+        fb = [f for f in self.feedback if f.get('verdict') or f.get('adjustment')]
+        if not fb:
+            return
+        self.section_heading('feedback', None, 'Coach feedback', keep=60)
+        L.para('Reviews kept with this video. They never change the measurements. Notes are printed exactly as they '
+               'were typed.', 8.4, INK_2)
+        keys = {f.get('key'): f for f in self.findings.values()}
+        groups = (('On this report', lambda f: f.get('thisRun') and f.get('attached') in keys),
+                  ('Your reviews of this run that match no finding here',
+                   lambda f: f.get('thisRun') and f.get('findingKey') and f.get('attached') not in keys),
+                  ('From an earlier run', lambda f: f.get('findingKey') and not f.get('thisRun')),
+                  ('Feedback from the previous report engine', lambda f: not f.get('findingKey')))
+        done = set()
+        for title, test in groups:
+            rows = []
+            for f in fb:
+                if id(f) in done or not test(f):
+                    continue
+                done.add(id(f))
+                g = keys.get(f.get('attached')) if f.get('thisRun') else None
+                if g is not None:
+                    finding = {'text': self.say((g.get('text') or {}).get('headline') or ''),
+                               'dest': f'fnd-{g["id"]}'}
+                else:          # another run's (or a vanished) finding keeps that run's words and ids
+                    finding = ((f.get('finding') or {}).get('headline') if isinstance(f.get('finding'), dict)
+                               else None) or 'A finding'
+                verdict = VERDICTS.get(f.get('verdict'), _humanize(f.get('verdict') or '-')) if f.get('verdict') \
+                    else 'Adjusted area'
+                note = f.get('text') if isinstance(f.get('text'), str) and f['text'].strip() else '-'
+                adj = f.get('adjustment') if isinstance(f.get('adjustment'), dict) else None
+                if adj and adj.get('evidence') in self.ev:
+                    note += f' (adjusted area on E{self.number[adj["evidence"]]})'
+                made = str(f.get('made') or '')[:10] or 'n/a'
+                if not f.get('thisRun') and isinstance(f.get('run'), str):
+                    made += f', run {f["run"]}'
+                rows.append([finding, verdict, note, made])
+            if rows:
+                L.heading(title, 3, keep=40)
+                L.table([('Finding', .36, 'left'), ('Verdict', .15, 'left'), ('Note', .31, 'left'),
+                         ('Date', .18, 'left')], rows)
+
+    def about(self):
+        L, r = self.L, self.r
+        self.section_heading('about', None, 'About this report', keep=60)
+        eng, fp = r['engine'], r['fingerprints']
+        rows = []
+        if eng.get('version'):
+            rows.append(('Engine', f'coaching v{eng["version"]}'))
+        ids = ', '.join(f'{k} {eng[k]}' for k in ('measurement', 'roles', 'interpretation')
+                        if isinstance(eng.get(k), str))
+        if ids:
+            rows.append(('Report id', ids))
+        if self.p.get('version') is not None or self.p.get('sha'):
+            parts = (f'version {self.p.get("version")}' if self.p.get('version') is not None else '',
+                     f'({self.p["sha"]})' if self.p.get('sha') else '')
+            rows.append(('Profile table', ' '.join(x for x in parts if x)))
+        if rows:
+            self.kv(rows, key_width=100, size=8.4)
+        L.bullets(["Every statement comes from this run's tracking result; nothing is said about events PitchIQ "
+                   'does not measure.',
+                   'The same measurements are read for every age group and level: changing them changes the reading, '
+                   'never the measurements.',
+                   'Each finding rests on separate moments where the behaviour was needed; a short clip says less '
+                   'than a full match.',
+                   "Every threshold is PitchIQ's own proposal, not validated by a coach.",
+                   'Screenshots are the exact frames of the source video; the drawings over them are analysis overlays '
+                   'added for this report.'], size=8.4)
 
 
 def layout_report(report, frame_provider=None, options=None):
@@ -1966,8 +3622,15 @@ def layout_report(report, frame_provider=None, options=None):
     colours {'A','B'}, playback_url (a str.format template with {frame} {seek} {time} {id} {video} {run}, or a
     callable(evidence) -> url), max_evidence_per_finding, max_screenshots, image_width, strict (refuse non-WinAnsi),
     stale (the reasons the report is out of date: a banner on the first page and a mark in every page header),
-    section_order (the shared sections' order; default: report.py's published order, else PAGE_ORDER)."""
+    section_order (the shared sections' order; default: report.py's published order, else PAGE_ORDER).
+    A coaching v2 report (is_v2) is laid out by _ReportV2: the page's seven sections; options there also take
+    feedback (the coaching answer's feedback entries: verdicts, notes and adjusted areas), squad {'id', 'name'} (the
+    linked squad's name for the progression section), zoom (False: whole frames, never magnified), coach_spans (the
+    run has coach-marked possession spans) and marked ('A', 'B', 'both' or None: whose possession they name), with
+    which the possession row says where the shares come from as the page does (fix round 3, CODE M-2)."""
     options = dict(options or {})
+    if is_v2(report):
+        return _layout_v2(report, frame_provider, options)
     r = sanitize(report)
     ov = r['overview']
     title = f'{ov.get("title") or "Coaching report"} - {r.get("teamName") or ("Team " + str(r.get("team", "")))}'
@@ -1978,6 +3641,21 @@ def layout_report(report, frame_provider=None, options=None):
     info = {'pages': len(doc.pages), 'screenshots': lay.screenshots, 'overlays': lay.overlays,
             'missingFrames': sorted(set(lay.missing)), 'skippedElements': lay.skipped,
             'evidenceShown': len(lay.drawn_evidence)}
+    return doc, info
+
+
+def _layout_v2(report, frame_provider, options):
+    r = sanitize_v2(report)
+    p = r['profile']
+    level = f', level {p["level"]}' if isinstance(p.get('level'), int) else ''
+    title = f'Coaching report - {r.get("teamName") or ("Team " + str(r.get("team") or ""))}{level}'
+    doc = Document(title=title, subject=f'PitchIQ coaching report, {r["video"].get("name") or ""}'.strip(' ,'),
+                   created=r.get('generated'), strict=bool(options.get('strict')))
+    lay = _ReportV2(report, frame_provider, options)
+    lay.layout(doc)
+    info = {'pages': len(doc.pages), 'screenshots': lay.screenshots, 'overlays': lay.overlays, 'zoomed': lay.zoomed,
+            'missingFrames': sorted(set(lay.missing)), 'skippedElements': lay.skipped,
+            'evidenceShown': len(lay.drawn_evidence), 'version': 2}
     return doc, info
 
 

@@ -1,0 +1,3505 @@
+{
+ "researcher": "levels5-7",
+ "role": "Coaching-source researcher for levels 5 (advanced youth), 6 (competitive adult / academy), 7 (professional)",
+ "accessed": "2026-10-21",
+ "method": "Pages read with a web fetch tool (no in-app browser). Image-only U.S. Soccer PDFs were read by extracting their embedded page image and reading it; text PDFs were extracted locally with pdftotext. Everything is paraphrased; no passage is copied beyond a short phrase. Items tagged FEDERATION report what the cited source says; PITCHIQ-PROPOSAL items are this researcher's suggestions.",
+ "tags": {
+  "FEDERATION": "what the source says, paraphrased",
+  "PITCHIQ-PROPOSAL": "a suggestion for how PitchIQ could operationalise it; not federation guidance"
+ },
+ "levels": [
+  {
+   "level": 5,
+   "name": "ADVANCED YOUTH",
+   "ages": "U15-U18",
+   "specSources": [
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+    "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance"
+   ],
+   "scopeNote": "The spec's three sources split this band in two: U.S. Soccer has one model for U15-U16 and another for U17+, and the England session is written for 12-16s (so it covers only U15-U16 here). The guidance changes in substance between the halves (positional rotation versus specialisation), so the mapping keeps two sub-bands.",
+   "learningObjectives": [
+    {
+     "id": "L5-OBJ-01",
+     "tag": "FEDERATION",
+     "text": "U15-U16: learn to play 11v11 through a game model, be introduced to systems of play in attack and defence, learn one's role in attack, defence and transition, and interchange positions.",
+     "sources": [
+      "USS-AGG1516"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-OBJ-02",
+     "tag": "FEDERATION",
+     "text": "U15-U16: keep playing players in different positions; build decision-making through game scenarios; individual skills linked to the playing position; quick combination play in tight areas; finding and using space.",
+     "sources": [
+      "USS-AGG1516"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-OBJ-03",
+     "tag": "FEDERATION",
+     "text": "U17+: understand the 11v11 game through a game model, develop tactical awareness, and prepare players to carry out a game strategy; support players to specialise in one or two positions.",
+     "sources": [
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-OBJ-04",
+     "tag": "FEDERATION",
+     "text": "12-16 (England programme): understand how and when to press, improve positioning, practise covering a teammate who presses; later weeks add pressing in organised zones, recovery runs, 1v1/2v2 duels, and applying it in game-like transitions.",
+     "sources": [
+      "EF-PCB25",
+      "EF-PTC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2024/Session-programme-press-tackle-and-cover",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Session-programme/Session-programme--press-cover-and-balance.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-OBJ-05",
+     "tag": "FEDERATION",
+     "text": "Players at this stage are introduced to the ideas of game state, phases and moments, with varied game scenarios and positions (teenagers).",
+     "sources": [
+      "EF-STATE"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-help-players-adapt-to-game-state-phases-and-moments"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-OBJ-06",
+     "tag": "FEDERATION",
+     "text": "Canada Soccer LTPD: Training to Train (to about U15-U16) emphasises team work with tasks per unit (defence, midfield, forwards) and positional awareness through small-sided and large-sided games; Training to Compete (from about U15-U16) adds decision-making, tactical awareness, game appreciation and game analysis under competitive conditions, with refinement of position-specific skills.",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "attackingPrinciples": [
+    {
+     "id": "L5-ATT-01",
+     "tag": "FEDERATION",
+     "text": "Create an attacking shape with height, width and depth that encourages forward play (U15-U16 and U17+).",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-ATT-02",
+     "tag": "FEDERATION",
+     "text": "Play forward into the attacking half through clever individual or combination play; if forward play is not on, keep the ball until it is (U15-U16). U17+ asks to play quickly into the attacking half.",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-ATT-03",
+     "tag": "FEDERATION",
+     "text": "U17+ only: position at least five players ahead of the ball and use clever positioning to create and exploit space.",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-ATT-04",
+     "tag": "FEDERATION",
+     "text": "While attacking, prepare for losing the ball by creating a high defensive shape behind the ball (U15-U16 and U17+; U13-U14 words the same idea as protecting against a counter-attack).",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17",
+      "USS-GM1314"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://documents.ussoccer.com/documents/file-91fed18c92b617f67c21a80cf2f7c363f8509f9b-pdf/2-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-ATT-05",
+     "tag": "FEDERATION",
+     "text": "England's attacking principles: penetration, creating space (high, wide and deep positions), movement to receive, providing support (behind, alongside or in front of the ball) and creativity.",
+     "sources": [
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "defendingPrinciples": [
+    {
+     "id": "L5-DEF-01",
+     "tag": "FEDERATION",
+     "text": "U15-U16: stop the opponent playing forward; try to win the ball high through pressing and compactness, with a high front line and back line; if the opponent plays through the pressure, recover quickly; in the defending half, close off the centre of the pitch; anticipate regaining the ball.",
+     "sources": [
+      "USS-GM1516"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-02",
+     "tag": "FEDERATION",
+     "text": "U17+: win the ball back as quickly and as high up the field as possible; reduce the opponent's space by making the field small and staying compact; recover quickly if the pressure is played through; close off the centre in the defending half.",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-03",
+     "tag": "FEDERATION",
+     "text": "Press, cover and balance (12-16s): press on triggers (heavy touch, hesitation, opponent facing their own goal; later weeks add a slow or long pass and the back to goal); position as a unit so the gaps are too small to pass through; provide cover when a teammate presses; communicate so the press and the cover behind it work together.",
+     "sources": [
+      "EF-PCB25",
+      "EF-PZ",
+      "EF-CR26",
+      "EF-DSN26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-defending-in-small-numbers"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-04",
+     "tag": "FEDERATION",
+     "text": "Approach and body shape: decelerate on approach, get side-on and low; press at an angle (a curved run) to cut a passing lane and steer the attacker; close to roughly arm's length so the ball carrier feels pressure; without a trigger, slow down and delay rather than commit.",
+     "sources": [
+      "EF-PFS",
+      "EF-PZ",
+      "EF-RR26",
+      "EF-CRS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-05",
+     "tag": "FEDERATION",
+     "text": "Roles in the press: at restarts the first presser is the guide for the team's starting positions; the first pressers usually disrupt and the second line is usually positioned to intercept; if the first presser blocks a passing lane, teammates lock onto the relevant opponents; position ball-side and goal-side (between the ball and your own goal).",
+     "sources": [
+      "EF-PFS",
+      "EF-PZ",
+      "EF-PTC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/sessions/resources/2024/Session-programme-press-tackle-and-cover",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Session-programme/Session-programme--press-cover-and-balance.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-06",
+     "tag": "FEDERATION",
+     "text": "Shape: protect the middle first; when the ball goes to one side, shift across as a unit; trying to cover the whole pitch leaves gaps; stay compact centrally; teammates give depth to cover the space behind the presser.",
+     "sources": [
+      "EF-CR26",
+      "EF-PZ",
+      "EF-CRS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-07",
+     "tag": "FEDERATION",
+     "text": "Pressing cannot be sustained for a whole game, so players decide together when to press.",
+     "sources": [
+      "EF-CRS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-DEF-08",
+     "tag": "FEDERATION",
+     "text": "England's defending principles: delaying, compactness, cover and balance (when one player presses, others cover the space left behind and keep the defence balanced), pressing, and control and restraint (an outnumbered player may rightly hold position rather than press).",
+     "sources": [
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "transitionPrinciples": [
+    {
+     "id": "L5-TRN-01",
+     "tag": "FEDERATION",
+     "text": "When the ball is lost: try immediately to win it back and stop the opponent playing forward; if that fails, recover quickly into a defending shape; delay counter-attacks so teammates can recover and reorganise (U17+: by dropping off and blocking the path to goal); anticipate regaining the ball (present from U15-U16, absent at U13-U14).",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17",
+      "USS-GM1314"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://documents.ussoccer.com/documents/file-91fed18c92b617f67c21a80cf2f7c363f8509f9b-pdf/2-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-TRN-02",
+     "tag": "FEDERATION",
+     "text": "When the ball is won: think forward and play forward; use fast attacks; provide support ahead of and behind the ball; if forward play is not on, keep the ball and move into the attacking shape (U17+ adds: prepare for losing it again with a high defensive shape behind the ball).",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-TRN-03",
+     "tag": "FEDERATION",
+     "text": "After losing the ball, or after being beaten, recover as quickly as possible; recovery runs should be curved, with deceleration and a low body near the opponent.",
+     "sources": [
+      "EF-CR26",
+      "EF-CRS",
+      "EF-DSN26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-defending-in-small-numbers"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-TRN-04",
+     "tag": "FEDERATION",
+     "text": "After a clean regain, counter: drive forward with the ball when there is space, or find a teammate in space when under pressure.",
+     "sources": [
+      "EF-DSN26",
+      "EF-RR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-defending-in-small-numbers",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "notExpected": [
+    {
+     "id": "L5-NOT-01",
+     "tag": "FEDERATION",
+     "text": "U15-U16 are not yet position specialists: the guide asks coaches to keep players in different positions and lists interchange of positions as a tactical aim.",
+     "sources": [
+      "USS-AGG1516"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-NOT-02",
+     "tag": "FEDERATION",
+     "text": "Individuals develop at different rates; coaches should support both early and late developers and find ways to include every player.",
+     "sources": [
+      "USS-AGG1516",
+      "UEFA-YB"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf",
+      "https://www.uefa.com/insideuefa/news/0268-11f1a6163371-a7ff28482e99-1000/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-NOT-03",
+     "tag": "FEDERATION",
+     "text": "Coaching style is to encourage ownership, independence and more decision freedom, with players communicating and solving problems themselves (U15-U16); U17+ adds leading their own development and reflecting on the game and their role.",
+     "sources": [
+      "USS-AGG1516",
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-NOT-04",
+     "tag": "FEDERATION",
+     "text": "Players should not be expected to press all game; without a trigger the right action can be to slow down and delay; when outnumbered, holding position can be correct.",
+     "sources": [
+      "EF-CRS",
+      "EF-PZ",
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-NOT-05",
+     "tag": "FEDERATION",
+     "text": "Game models and formations are guides to adapt to the players and club, not fixed prescriptions.",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17",
+      "USS-FORM",
+      "USS-FORM11"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/formations",
+      "https://www.ussoccer.com/us-way/player-development/game/formations/u13-plus-11v11",
+      "https://documents.ussoccer.com/documents/file-81b94d97e1033dbca00533e53a9d51eb3614a019-pdf/11v11-u13-1-4-3-3-formation.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-NOT-06",
+     "tag": "FEDERATION",
+     "text": "Heading practice is limited: U.S. Soccer says no more than 30 minutes per week and 15-20 headers per player per week (U15-U16 and U17+); The FA says U14-U16 at most one session a week and 10 headers per player per session, and at U18 contested headers are allowed within 10 headers per session and one session per week.",
+     "sources": [
+      "USS-AGG1516",
+      "USS-AGG17",
+      "EF-HEADING"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf",
+      "https://www.englandfootball.com/participate/learn/Brain-Health/Heading-in-Football"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "formatGuidance": [
+    {
+     "id": "L5-FMT-01",
+     "tag": "FEDERATION",
+     "text": "11v11 is the format from U13 (U.S. Soccer); smaller formats remain appropriate at every age, and practices should use small-sided games from 1v1 to 11v11 including unbalanced numbers.",
+     "sources": [
+      "USS-FORMATS",
+      "USS-AGG1516",
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-FMT-02",
+     "tag": "FEDERATION",
+     "text": "U.S. Soccer's example 11v11 formation for U13+ is 1-4-3-3: two blocks of five attackers and five defenders, many triangles and diamonds for passing lanes; it is one organisational structure among many variations and should be amended to the needs of the players and club.",
+     "sources": [
+      "USS-FORM",
+      "USS-FORM11"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/formations",
+      "https://www.ussoccer.com/us-way/player-development/game/formations/u13-plus-11v11",
+      "https://documents.ussoccer.com/documents/file-81b94d97e1033dbca00533e53a9d51eb3614a019-pdf/11v11-u13-1-4-3-3-formation.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-FMT-03",
+     "tag": "FEDERATION",
+     "text": "England (from 2026-27): 11v11 for U14 and above. Recommended pitches U15-U16 91 x 55 m (min 82 x 46, max 100 x 64); U17+ 100 x 64 m (min 91 x 46, max 118 x 91). Goals 24 x 8 ft from U15; size 5 ball; match length up to 70 min (U15), 80 min (U16), 90 min (U17+); offside and heading apply in matches.",
+     "sources": [
+      "EF-11V11"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-11v11-games"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-FMT-04",
+     "tag": "FEDERATION",
+     "text": "Canada Soccer PDP (highest amateur youth level): 11v11 from U14; U15-U16 2 x 40 min, U17+ 2 x 45 min; at least three training sessions a week; head coaches U14+ need a B licence (or equivalent).",
+     "sources": [
+      "CS-PDP"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/CS-PlayerDevelopmentProgram-PDP-Manual-EN-Update-9Aug2024.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-FMT-05",
+     "tag": "FEDERATION",
+     "text": "England's 11v11 article shows 1-4-4-2, 1-4-3-3, 1-4-2-3-1, 1-4-2-1-3, 1-5-3-2 and 1-3-4-3 as examples and says to choose an approach that suits the players' strengths.",
+     "sources": [
+      "EF-11V11"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-11v11-games"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-FMT-06",
+     "tag": "FEDERATION",
+     "text": "U.S. Soccer field sizes for 11v11 could not be verified (the age-appropriate formats PDF was not fetchable).",
+     "sources": [
+      "USS-AAF"
+     ],
+     "urls": [
+      "https://documents.ussoccer.com/documents/file-2984ca87a7010f04d7c41022d4ea314cb6ba6c5c-pdf/age-appropriate-formats.pdf"
+     ],
+     "accessed": "2026-10-21",
+     "verified": false
+    }
+   ],
+   "practiceDesign": [
+    {
+     "id": "L5-PRA-01",
+     "tag": "FEDERATION",
+     "text": "Six design areas: a clearly defined session objective; activities that replicate the demands of the game; opposition and competition in most activities; games that maximise time on the ball and decisions; age-appropriate small-sided games; always consider the player's ability level.",
+     "sources": [
+      "USS-DESIGN"
+     ],
+     "urls": [
+      "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-PRA-02",
+     "tag": "FEDERATION",
+     "text": "Session shape used by the 12-16 England programme: arrival small-sided games with scoring incentives (clean sheet, winning the ball in the opponent's half, scoring on the counter each worth three); a focused practice; a game with zone-based rewards for where the ball is won (3/2/1 points by third).",
+     "sources": [
+      "EF-PCB25",
+      "EF-PFS",
+      "EF-CRS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-PRA-03",
+     "tag": "FEDERATION",
+     "text": "Make it easier: smaller area, overload the struggling team, touch limits for the team in possession, force play through each third. Make it harder: bigger area, underload the successful pressing team, a floating player for the team in possession, a time limit to win the ball back, lock players into thirds.",
+     "sources": [
+      "EF-PCB25",
+      "EF-PFS",
+      "EF-PZ",
+      "EF-CR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-PRA-04",
+     "tag": "FEDERATION",
+     "text": "Example session sizes: 40 x 30 yd for 10-17 players; 15 x 15 yd squares for 4v2 positioning-to-press; 20 x 15 yd 2v2/3v3 'cover the line' pitches with a covering line 10 yd from the end line that the defending team must keep a player on; 44 x 30 yd half pitch for 13-14 players.",
+     "sources": [
+      "EF-PCB25",
+      "EF-CR26",
+      "EF-RR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-PRA-05",
+     "tag": "FEDERATION",
+     "text": "U17+: use a variety of practice types including individual positional training and game-based scenarios; engage players in conversations about tactics.",
+     "sources": [
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "sessionThemes": [
+    {
+     "id": "L5-THM-01",
+     "tag": "FEDERATION",
+     "text": "Press, cover and balance (positioning to press 4v2; defend for glory).",
+     "sources": [
+      "EF-PCB25"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-THM-02",
+     "tag": "FEDERATION",
+     "text": "Pressing zones (nine-zone game: goal value = teammates in the zone where the ball was won).",
+     "sources": [
+      "EF-PZ"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-THM-03",
+     "tag": "FEDERATION",
+     "text": "Cover and recover ('cover the line', 'locked in' to the half where the ball was lost).",
+     "sources": [
+      "EF-CR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-THM-04",
+     "tag": "FEDERATION",
+     "text": "Defending in small numbers (2v2 to breakout, emergency defending, counter after a regain).",
+     "sources": [
+      "EF-DSN26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-defending-in-small-numbers"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-THM-05",
+     "tag": "FEDERATION",
+     "text": "Quick transitions: 5v5 plus four neutral players; a regain and goal within five seconds is worth two.",
+     "sources": [
+      "EF-RR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-THM-06",
+     "tag": "FEDERATION",
+     "text": "Challenge, recover and stop: recovery-run races from different starting markers.",
+     "sources": [
+      "EF-CRS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "positioningConcepts": [
+    {
+     "id": "L5-POS-01",
+     "tag": "FEDERATION",
+     "text": "Width, height and depth in attack (U.S. Soccer 'attacking shape'; England 'creating space': high, wide and deep positions).",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17",
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-POS-02",
+     "tag": "FEDERATION",
+     "text": "Support: ahead of and behind the ball after a regain (U.S. Soccer); behind, alongside or in front of the teammate on the ball (England).",
+     "sources": [
+      "USS-GM1516",
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-POS-03",
+     "tag": "FEDERATION",
+     "text": "Cover: a teammate positioned to support the player pressing, giving depth behind the presser; distances close enough to cover but still able to engage the opponent (no yard figures given).",
+     "sources": [
+      "EF-PCB25",
+      "EF-CRS",
+      "EF-CR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-POS-04",
+     "tag": "FEDERATION",
+     "text": "Balance: covering positions that stop the team being played through; being ball-side and goal-side.",
+     "sources": [
+      "EF-PFS",
+      "EF-PTC",
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+      "https://learn.englandfootball.com/sessions/resources/2024/Session-programme-press-tackle-and-cover",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Session-programme/Session-programme--press-cover-and-balance.pdf",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-POS-05",
+     "tag": "FEDERATION",
+     "text": "Compactness: reduce space by staying close to opponents, the ball and teammates; compact in central areas.",
+     "sources": [
+      "EF-PRINC",
+      "EF-PZ",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-POS-06",
+     "tag": "FEDERATION",
+     "text": "A high defensive shape behind the ball while attacking (U.S. Soccer's wording; it does not use the term 'rest defence').",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "pitchiqProposals": [
+    {
+     "id": "L5-PIQ-01",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Give level 5 two age sub-bands. U15-U16: a player appearing in another role is first tested as a positional interchange (another teammate re-occupies the vacated zone within a few seconds) and is not criticised as out of position. U17-U18: role-specific responsibilities may be assessed once the role is confirmed by the coach or holds in team_shape's role stability.",
+     "sources": [
+      "USS-AGG1516",
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-PIQ-02",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Cover behind the player closest to the ball (press-cover-balance): in spans where the possession estimate names the OTHER team (outside the +-2 s exclusion around changes) and the ball is tracked reliably, take the evaluated team's player nearest the ball and check for a teammate goal-side of him within a covering band. The band is a PitchIQ parameter to be tuned on Metrica and checked by coaches; England gives no distance. Wording must say 'the player closest to the ball', never 'the presser' or 'pressing' (the possession rules keep those words banned).",
+     "sources": [
+      "EF-PCB25",
+      "EF-PRINC",
+      "EF-CRS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop"
+     ],
+     "accessed": "2026-10-21",
+     "dataNeeded": [
+      "possession team estimate (+-2 s exclusion)",
+      "reliable ball position",
+      "calibrated positions"
+     ],
+     "availability": "available with possession estimate; descriptive until the band is validated"
+    },
+    {
+     "id": "L5-PIQ-03",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Central protection in the defending half: when the team's block is in its own third, measure how much of the central corridor ahead of goal is occupied (U.S. Soccer 'close off the centre'). Reuse the existing third context and unit assignment.",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17",
+      "EF-CR26"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "available without possession (position-only), phrased as an observed shape"
+    },
+    {
+     "id": "L5-PIQ-04",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Shift across as a unit: reuse the existing lateral_shift detector (back line lag behind midfield), and when the ball is reliable, relate the shift to the ball side.",
+     "sources": [
+      "EF-CR26"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover"
+     ],
+     "accessed": "2026-10-21",
+     "existingComponent": "lateral_shift"
+    },
+    {
+     "id": "L5-PIQ-05",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Defensive shape behind the ball while the team is estimated in possession: count outfield players goal-side of the ball and their spread across the width; report it descriptively at U15-U16 and as a 'balance' review at U17-U18. Do not turn U.S. Soccer's U17+ 'at least five players ahead of the ball' into a fault count: it is an attacking guide, and PitchIQ cannot tell which spells are settled attacks.",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21",
+     "dataNeeded": [
+      "possession team estimate",
+      "reliable ball",
+      "all 10 outfield players observed"
+     ],
+     "availability": "available with possession estimate; partial views must abstain"
+    },
+    {
+     "id": "L5-PIQ-06",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Language register: name the federation idea plainly (pressure, cover, balance, support, recover, shape behind the ball) and frame the finding as a question for the player's decision, matching the 'ownership and decision freedom' coaching approach.",
+     "sources": [
+      "USS-AGG1516",
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L5-PIQ-07",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Mark unavailable at this level: pressing triggers (touch quality, body orientation, pass speed are not tracked), counter-pressing timing and 'recovery after losing the ball' (possession change timing is not reliable: F1 about .69 full tracking and .60 camera), tackles and duels.",
+     "sources": [
+      "EF-PCB25",
+      "EF-PZ",
+      "USS-GM1516"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "unavailable",
+     "internalBasis": [
+      "C:/Users/some1/AppData/Local/Temp/claude/C--Users-some1-Documents-PitchIQ-fork-PitchIQ/aa90db1b-272f-416c-9567-6eb5a4ba7578/scratchpad/possession/v4/reports/docs.md"
+     ]
+    },
+    {
+     "id": "L5-PIQ-08",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Drills for level 5 should be built from the England 12-16 sessions and U.S. Soccer design areas, credited as 'adapted from'; any drill with crosses or heading carries the heading caps listed above.",
+     "sources": [
+      "EF-PCB25",
+      "EF-PTC",
+      "USS-DESIGN",
+      "EF-HEADING"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2024/Session-programme-press-tackle-and-cover",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Session-programme/Session-programme--press-cover-and-balance.pdf",
+      "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf",
+      "https://www.englandfootball.com/participate/learn/Brain-Health/Heading-in-Football"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ]
+  },
+  {
+   "level": 6,
+   "name": "COMPETITIVE ADULT / ACADEMY",
+   "ages": "adult amateur, and academy / elite youth (about U16-U23)",
+   "specSources": [
+    "https://www.canadasoccer.com/coach/grassroots-coach-education/",
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+    "https://www.uefa.com/news-media/news/0252-0ce1fa42fd4c-82ce7dd3c0a0-1000--coaching/"
+   ],
+   "scopeNote": "Canada Soccer's 'Soccer for Life' is LTPD stage 7, aimed at players who play for fun and fitness, recreational players, and those who compete but not at high-performance level; the 2009 LTPD manual calls the same stage 'Active for Life' and says basic tactics are enough to enjoy the game. Academy players instead sit in LTPD stage 5 (Training to Compete), the Canada Soccer PDP, UEFA Youth B / Elite Youth A and The FA's Advanced Youth Award. 'Competitive adult' and 'academy' are therefore different audiences in the sources; the spec's separate age field is the way to tell them apart. The UEFA overview page names licences but has no tactical content.",
+   "learningObjectives": [
+    {
+     "id": "L6-OBJ-01",
+     "tag": "FEDERATION",
+     "text": "Soccer for Life (LTPD stage 7) covers boys U13+ and girls U12+ through masters soccer, including players who play for fun and fitness, recreational players, and those who compete without aiming for high performance.",
+     "sources": [
+      "CS-GCE",
+      "CS-SFL"
+     ],
+     "urls": [
+      "https://www.canadasoccer.com/coach/grassroots-coach-education/",
+      "https://canada-soccer.myshopify.com/collections/grassroots-coaching-education-program/products/soccer-for-life"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-02",
+     "tag": "FEDERATION",
+     "text": "Active for Life (same stage, 2009 manual): technical training may add skills or maintain them; basic tactics are sufficient to enjoy the game; the mental focus is fun, stress release and fitness; the format adapts to the level, numbers and space.",
+     "sources": [
+      "CS-W2WC",
+      "CS-LTPDCG"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf",
+      "https://canadasoccer.com/wp-content/uploads/2026/02/CanadaSoccerPathway_LTPDCommunityGuide_EN.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-03",
+     "tag": "FEDERATION",
+     "text": "Training to Compete (about U15-U19 female, U16-U20 male): perform skills under varied competitive conditions; a sound understanding of principles and concepts; tactical instruction in decision-making, tactical awareness, game appreciation and game analysis; refinement of position-specific skills; 11-a-side FIFA rules.",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-04",
+     "tag": "FEDERATION",
+     "text": "UEFA B Diploma (youth to senior amateur): learn the characteristics of each playing position and how players fit into team structures for a given game format; evaluate, analyse and give feedback on training and matches.",
+     "sources": [
+      "UEFA-B",
+      "UEFA-LIC"
+     ],
+     "urls": [
+      "https://www.uefa.com/insideuefa/news/0267-11ed7b4c1e13-63896dc6efc2-1000/",
+      "https://www.uefa.com/development/coaches/uefa-coaching-licences/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-05",
+     "tag": "FEDERATION",
+     "text": "UEFA A Diploma (top amateur): game-oriented sessions with an opponent focus, pressure and intensity; detailed match plans that follow the club's playing philosophy and the opponent; match analysis to evaluate individuals and the team.",
+     "sources": [
+      "UEFA-A",
+      "UEFA-LIC"
+     ],
+     "urls": [
+      "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+      "https://www.uefa.com/development/coaches/uefa-coaching-licences/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-06",
+     "tag": "FEDERATION",
+     "text": "UEFA Elite Youth A (elite youth to professional, adolescence to adulthood): prepare players for professional demands, plan pathways for players aged about 17-23, game-like sessions with opposition, pressure and intensity, match plans per club philosophy and opponent.",
+     "sources": [
+      "UEFA-EYA"
+     ],
+     "urls": [
+      "https://www.uefa.com/insideuefa/news/0268-11f1ac36684b-121f231223be-1000/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-07",
+     "tag": "FEDERATION",
+     "text": "U17+ (U.S. Soccer): develop tactical awareness and prepare players to deliver a game strategy; specialise in one or two positions; discuss tactics and help players reflect on the game and their role.",
+     "sources": [
+      "USS-AGG17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+      "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-08",
+     "tag": "FEDERATION",
+     "text": "Canada Soccer B Diploma targets development environments (youth academies, college, standards-based leagues) and names 'tactical roles' and match plans; the A Diploma targets elite youth and top senior amateur performance environments.",
+     "sources": [
+      "CS-ACEP"
+     ],
+     "urls": [
+      "https://www.canadasoccer.com/coach/advanced-coach-education-program/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-OBJ-09",
+     "tag": "FEDERATION",
+     "text": "The FA's Advanced Youth Award (coaches in EPPP boys' academies) is built on The FA's long-term player development model and the four corners (technical, physical, psychological, social), across the phases Foundation 5-11, Youth Development 12-16 and Professional Development 17-21; no tactical topics are listed on the course page.",
+     "sources": [
+      "EF-AYA"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/courses/football/advanced-youth-award"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "attackingPrinciples": [
+    {
+     "id": "L6-ATT-01",
+     "tag": "FEDERATION",
+     "text": "U17+ game model (the only U.S. Soccer model above U16): height/width/depth shape; at least five players ahead of the ball; play quickly into the attacking half; keep the ball if forward play is not on; individual and combination play to create and finish chances; a high defensive shape behind the ball in case it is lost.",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-ATT-02",
+     "tag": "FEDERATION",
+     "text": "In possession the game splits into building the attack (own third), creating it (middle third) and finishing it (final third); coaches consider how many players to commit to finishing.",
+     "sources": [
+      "EF-PHASES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-ATT-03",
+     "tag": "FEDERATION",
+     "text": "A style of play is the team's identity in how it attacks, defends and changes between the two; there is no single right style; choose it from the players' strengths; older players get detailed positional responsibilities linked to the style.",
+     "sources": [
+      "EF-STYLES",
+      "EF-TACTICS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-develop-styles-of-play",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "defendingPrinciples": [
+    {
+     "id": "L6-DEF-01",
+     "tag": "FEDERATION",
+     "text": "U17+: win the ball back as quickly and as high as possible; make the field small and stay compact; recover quickly when the pressure is played through; close off the centre in the defending half.",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-DEF-02",
+     "tag": "FEDERATION",
+     "text": "Blocks: low block (own third: compact, small gaps between defenders and midfielders, defenders cover each other, line balanced); mid block (very compact, small distance between front and back lines, tight across the three central lanes; inviting the ball wide can be the cue for an intense press); high press (nearest attacker presses the player on the ball and teammates move together in a chain to close the next options).",
+     "sources": [
+      "EF-PHASES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-DEF-03",
+     "tag": "FEDERATION",
+     "text": "Press, cover, balance roles (England senior teams): the nearest player presses; surrounding players cover so the team cannot be played through; players away from the ball provide balance against a switch; roles change as the ball moves (a wide defender can switch from pressing to cover).",
+     "sources": [
+      "EF-DLE-ROLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-roles-and-responsibilities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-DEF-04",
+     "tag": "FEDERATION",
+     "text": "Wide areas: a compact team accepts space out wide; when the ball goes wide a full-back may drop off to protect the space behind the line while a wide player recovers to help.",
+     "sources": [
+      "EF-DLE-WIDE",
+      "EF-DLE-INTRO"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-an-introduction"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-DEF-05",
+     "tag": "FEDERATION",
+     "text": "Space in behind: defenders decide to step up or drop from whether the ball carrier is under pressure and what the striker is doing (pressure plus a dropping striker: step up; time on the ball plus a run in behind: drop).",
+     "sources": [
+      "EF-DLE-BEHIND"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-space-in-behind"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-DEF-06",
+     "tag": "FEDERATION",
+     "text": "Overloads (examples 2v1 out wide, 4v3 centrally) often follow a broken press; the priority is to delay, channel play into less dangerous areas and keep both attackers in view.",
+     "sources": [
+      "EF-DLE-OVER"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-overloads"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "transitionPrinciples": [
+    {
+     "id": "L6-TRN-01",
+     "tag": "FEDERATION",
+     "text": "U17+: on losing the ball, try to win it back immediately and stop forward play; if not, recover into shape and delay the counter by dropping off and blocking the path to goal. On winning it: think and play forward, attack fast, support ahead of and behind the ball, and prepare again for losing it.",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-TRN-02",
+     "tag": "FEDERATION",
+     "text": "England senior teams: centre-backs positioned high in possession support the build-up and are placed to counter-press at once if the ball is lost; otherwise the central defenders sprint back to deny space in behind, others make recovery runs, and the team re-forms compactly with the central defenders inside the width of the goal.",
+     "sources": [
+      "EF-DLE-TRANS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-TRN-03",
+     "tag": "FEDERATION",
+     "text": "Counter-press near the ball on one side: the nearest player presses immediately to slow the attack and buy time to reset.",
+     "sources": [
+      "EF-DLE-WIDE"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-TRN-04",
+     "tag": "FEDERATION",
+     "text": "After losing the ball, players cover and recover to restore their shape; after winning it, the team moves into build, create or finish depending on where the ball was won and the space available.",
+     "sources": [
+      "EF-PHASES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "notExpected": [
+    {
+     "id": "L6-NOT-01",
+     "tag": "FEDERATION",
+     "text": "For recreational adults (Active for Life / Soccer for Life) basic tactics are sufficient; the focus is fun, fitness and stress release, not optimisation.",
+     "sources": [
+      "CS-W2WC",
+      "CS-GCE"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf",
+      "https://www.canadasoccer.com/coach/grassroots-coach-education/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-NOT-02",
+     "tag": "FEDERATION",
+     "text": "Pressing creates gaps somewhere: a compact team deliberately leaves space out wide, so a wide gap can be the accepted cost of the plan rather than a fault.",
+     "sources": [
+      "EF-DLE-WIDE",
+      "EF-DLE-INTRO"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-an-introduction"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-NOT-03",
+     "tag": "FEDERATION",
+     "text": "A block that stays narrow and invites the ball wide is described as a deliberate choice, and staying in position when outnumbered can be correct (control and restraint).",
+     "sources": [
+      "EF-PHASES",
+      "EF-PRINC"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-NOT-04",
+     "tag": "FEDERATION",
+     "text": "Line height alone is not a verdict: the step-up or drop decision depends on pressure on the ball and the striker's movement.",
+     "sources": [
+      "EF-DLE-BEHIND"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-space-in-behind"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-NOT-05",
+     "tag": "FEDERATION",
+     "text": "Coaches should not change approach every week, and the system and style should suit the players; how well a system works is judged over time (possibly seasons).",
+     "sources": [
+      "EF-TACTICS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-NOT-06",
+     "tag": "FEDERATION",
+     "text": "Development settings put development ahead of results (UEFA Youth B: no win-at-all-costs mindset, enough playing time for every squad member, training adjusted for growth and maturation).",
+     "sources": [
+      "UEFA-YB"
+     ],
+     "urls": [
+      "https://www.uefa.com/insideuefa/news/0268-11f1a6163371-a7ff28482e99-1000/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "formatGuidance": [
+    {
+     "id": "L6-FMT-01",
+     "tag": "FEDERATION",
+     "text": "11v11 under FIFA laws for Training to Compete and above; for Active for Life the format adapts to the level, numbers and space.",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-FMT-02",
+     "tag": "FEDERATION",
+     "text": "England open-age 11v11: recommended 100 x 64 m (min 91 x 46, max 118 x 91); limited substitutes in the open-age game; plan minutes across the season.",
+     "sources": [
+      "EF-11V11"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-11v11-games"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-FMT-03",
+     "tag": "FEDERATION",
+     "text": "Formation examples shown for 11v11: 1-4-4-2, 1-4-3-3, 1-4-2-3-1, 1-4-2-1-3, 1-5-3-2, 1-3-4-3; a system is where players are positioned and is distinct from strategy (the overall plan) and tactics (situational actions).",
+     "sources": [
+      "EF-11V11",
+      "EF-TACTICS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-11v11-games",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "practiceDesign": [
+    {
+     "id": "L6-PRA-01",
+     "tag": "FEDERATION",
+     "text": "The three Rs (repetition, relevance, realism) and the practice spectrum: unopposed practice for patterns, overloaded and matched practices to apply them; match scenarios to problem-solve together.",
+     "sources": [
+      "EF-STYLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-develop-styles-of-play"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-PRA-02",
+     "tag": "FEDERATION",
+     "text": "Make practices realistic and relevant to matchday (if the plan uses width, use wide areas with opposition and goals); use incentives such as three vertical channels with extra value for goals from wide; use overloads and underloads carefully; build practices around the opponent's likely behaviour; give units clear challenges (England's example: win the ball back within five seconds of losing it).",
+     "sources": [
+      "EF-TACTICS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-PRA-03",
+     "tag": "FEDERATION",
+     "text": "Area size changes the problem: small areas give more transitions and counter-press chances; large or long thin areas train tracking back and re-forming; short wide pitches train defending switches; score the behaviours you want (e.g. a point for a compact shape that forces play wide and regains).",
+     "sources": [
+      "EF-DLE-TRANS",
+      "EF-DLE-BEHIND",
+      "EF-DLE-WIDE"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-space-in-behind",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-PRA-04",
+     "tag": "FEDERATION",
+     "text": "Game-state practice: two teams with contrasting strategies (one presses high, one sits in a low block and counters); overload/underload games; set-score end-of-match scenarios.",
+     "sources": [
+      "EF-STATE"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-help-players-adapt-to-game-state-phases-and-moments"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-PRA-05",
+     "tag": "FEDERATION",
+     "text": "UEFA A / Elite Youth A: game-oriented sessions with opponent, pressure and intensity, aligned with the club's coaching philosophy; the UEFA Convention requires, from A level, a training session built on the student's own match analysis.",
+     "sources": [
+      "UEFA-A",
+      "UEFA-EYA",
+      "UEFA-CONV"
+     ],
+     "urls": [
+      "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+      "https://www.uefa.com/insideuefa/news/0268-11f1ac36684b-121f231223be-1000/",
+      "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "sessionThemes": [
+    {
+     "id": "L6-THM-01",
+     "tag": "FEDERATION",
+     "text": "Defending transition (sprint back to deny space in behind, recovery runs, compact re-forming).",
+     "sources": [
+      "EF-DLE-TRANS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-THM-02",
+     "tag": "FEDERATION",
+     "text": "Defending wide areas and switches.",
+     "sources": [
+      "EF-DLE-WIDE"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-THM-03",
+     "tag": "FEDERATION",
+     "text": "Press, cover and balance roles and the cues for changing them.",
+     "sources": [
+      "EF-DLE-ROLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-roles-and-responsibilities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-THM-04",
+     "tag": "FEDERATION",
+     "text": "Defending overloads after a broken press.",
+     "sources": [
+      "EF-DLE-OVER"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-overloads"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-THM-05",
+     "tag": "FEDERATION",
+     "text": "Contrasting styles and game-state scenarios.",
+     "sources": [
+      "EF-STATE",
+      "EF-STYLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-help-players-adapt-to-game-state-phases-and-moments",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-develop-styles-of-play"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-THM-06",
+     "tag": "FEDERATION",
+     "text": "Transition from attack to defence for 17-21s (aims only: decisions in transition, attack quickly to win the ball back, understand in- and out-of-possession principles; session content not readable).",
+     "sources": [
+      "EF-T1721"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2022/transition-from-attack-to-defence"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "positioningConcepts": [
+    {
+     "id": "L6-POS-01",
+     "tag": "FEDERATION",
+     "text": "Balance as the far-side players who stop a switch of play; cover as the players around the presser.",
+     "sources": [
+      "EF-DLE-ROLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-roles-and-responsibilities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-POS-02",
+     "tag": "FEDERATION",
+     "text": "Central defenders within the width of the goal when the team re-forms near its box.",
+     "sources": [
+      "EF-DLE-TRANS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-POS-03",
+     "tag": "FEDERATION",
+     "text": "Mid-block distances: small between front and back lines and tight across the three central lanes.",
+     "sources": [
+      "EF-PHASES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-POS-04",
+     "tag": "FEDERATION",
+     "text": "A high defensive shape behind the ball while attacking; at least five players ahead of the ball (U17+).",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-POS-05",
+     "tag": "FEDERATION",
+     "text": "Positions and team structure for a given game format (UEFA B competence).",
+     "sources": [
+      "UEFA-B"
+     ],
+     "urls": [
+      "https://www.uefa.com/insideuefa/news/0267-11ed7b4c1e13-63896dc6efc2-1000/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "pitchiqProposals": [
+    {
+     "id": "L6-PIQ-01",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Split the profile by the separate age field: 'Adult + Competitive' uses the adult-amateur expectations (UEFA B/A, England open-age) and 'U17-U21 + Academy' adds development guardrails (playing time, maturation, positional versatility, no win-at-all-costs). 'Adult + Recreational' should not use level 6 at all (Active for Life: basic tactics suffice).",
+     "sources": [
+      "CS-W2WC",
+      "CS-GCE",
+      "UEFA-YB",
+      "UEFA-A"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf",
+      "https://www.canadasoccer.com/coach/grassroots-coach-education/",
+      "https://www.uefa.com/insideuefa/news/0268-11f1a6163371-a7ff28482e99-1000/",
+      "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L6-PIQ-02",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Unsupported wide-defender advancement (spec part 5), level-6 framing: when the team is estimated in possession and a full-back (coach-confirmed, or stable in team_shape's roles on that side) is beyond the back line, check (a) a centre-back shifted toward the vacated channel, (b) a midfielder dropped into the back line, (c) another player occupying the vacated channel, (d) players goal-side of the ball. Report 'balance behind the advanced full-back' as covered (possible strength) or uncovered (review). Thresholds are PitchIQ's own, tuned on the Metrica reference and validated by coaches; no federation gives one.",
+     "sources": [
+      "USS-GM17",
+      "UEFA-FALSEFB",
+      "UEFA-PI-FB",
+      "EF-DLE-WIDE"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas"
+     ],
+     "accessed": "2026-10-21",
+     "dataNeeded": [
+      "possession estimate",
+      "confirmed or stable roles",
+      "attack direction",
+      "complete back line"
+     ],
+     "availability": "available with possession estimate; abstain when the back line is not fully seen"
+    },
+    {
+     "id": "L6-PIQ-03",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Low/mid block readings: reuse compactness, unit_gap_dm and back_line_coordination, and label the block by the team's third (existing 'third' context) using England's low/mid/high vocabulary; when a coach sets 'compact defending' or 'high pressing' as the style, compare the observed block with the declared one instead of with a universal value.",
+     "sources": [
+      "EF-PHASES",
+      "EF-STYLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-develop-styles-of-play"
+     ],
+     "accessed": "2026-10-21",
+     "existingComponent": "compactness, unit_gap_dm, back_line_coordination, line_height_and_gap"
+    },
+    {
+     "id": "L6-PIQ-04",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Far-side balance: when the ball is reliable and on one side, report whether the evaluated team kept players on the far side able to meet a switch (England's 'balance'); descriptive at level 6.",
+     "sources": [
+      "EF-DLE-ROLES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-roles-and-responsibilities"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "needs reliable ball and a full view of the far side (often missing on broadcast)"
+    },
+    {
+     "id": "L6-PIQ-05",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Repeated team-level patterns: require recurrence within the match (at least two occurrences, or one long high-confidence spell, as the current classifier does) before a pattern is called a need; single moments stay 'one observed instance'.",
+     "sources": [
+      "EF-TACTICS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems"
+     ],
+     "accessed": "2026-10-21",
+     "existingComponent": "detectors.classify"
+    },
+    {
+     "id": "L6-PIQ-06",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Mark unavailable at this level: counter-press success and time to regain, pressing triggers, step-up/drop decisions (need pressure on the ball), overload outcomes, and anything that needs passes or turnovers.",
+     "sources": [
+      "EF-DLE-BEHIND",
+      "EF-DLE-TRANS",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-space-in-behind",
+      "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "unavailable"
+    }
+   ]
+  },
+  {
+   "level": 7,
+   "name": "PROFESSIONAL / ELITE",
+   "ages": "senior professional",
+   "specSources": [
+    "https://www.uefa.com/development/coaches/uefa-coaching-licences/",
+    "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus"
+   ],
+   "scopeNote": "The UEFA licence and Pro Diploma pages describe competences (philosophy, match plans, analysis, team-tactical periodisation), not tactical content; the Coaching Convention delegates content to syllabuses that it does not publish. Tactical concepts named in the spec (rest defence, counter-pressing, cover shadows, rotations, occupation between lines, build-up structure) appear only in UEFA's editorial technical-observer analysis, without definitions or numbers. No UEFA threshold exists to borrow, and nothing here supports any 'UEFA-approved' or certified claim.",
+   "learningObjectives": [
+    {
+     "id": "L7-OBJ-01",
+     "tag": "FEDERATION",
+     "text": "UEFA Pro Diploma (360 h minimum, at least one season): develop and apply technical policy and philosophy; build a winning team and a high-performance culture; plan a season-long team-tactical and physical programme; prepare and coach matches with a match plan that reflects the playing philosophy and the opponent; analyse matches as a learning tool; work with analysts, fitness and medical staff.",
+     "sources": [
+      "UEFA-PRO",
+      "UEFA-LIC"
+     ],
+     "urls": [
+      "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+      "https://www.uefa.com/development/coaches/uefa-coaching-licences/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-OBJ-02",
+     "tag": "FEDERATION",
+     "text": "Concacaf Pro Diploma minimum content (hosted by Canada Soccer): build, implement, monitor and evaluate a game model; analyse team and opposition trends, strengths and weaknesses longitudinally over multiple matches, including individual players; set match-plan KPIs, roles and responsibilities; help players recognise the identified game situation and key moments; assessment includes analysing two matches against the game model and principles.",
+     "sources": [
+      "CS-CPRO"
+     ],
+     "urls": [
+      "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-OBJ-03",
+     "tag": "FEDERATION",
+     "text": "Canada Soccer LTPD Training to Win (about U18+ female, U19+ male): performance optimisation; players may still need tactical experience in high-pressure games for consistency; tactical training stimulates decision-making, leadership and game analysis; players adjust game plans and adapt strategies to changing demands.",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-OBJ-04",
+     "tag": "FEDERATION",
+     "text": "U17+ game model applies as U.S. Soccer's top-age model (see level 6).",
+     "sources": [
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "attackingPrinciples": [
+    {
+     "id": "L7-ATT-01",
+     "tag": "FEDERATION",
+     "text": "Positional rotations (UEFA editorial): full-backs moving into midfield, midfielders dropping into deep wide areas as 'false full-backs', wingers holding width high to pin the opposing full-back; when the winger comes inside, the full-back goes outside.",
+     "sources": [
+      "UEFA-FALSEFB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-ATT-02",
+     "tag": "FEDERATION",
+     "text": "Shape-shifting in build-up (UCL 2022/23 report): defensive midfielders dropping between centre-backs, full-backs stepping into midfield, a centre-back stepping into midfield (1-3-2-4-1; 1-4-3-3 becoming 1-3-2-5 in build-up); the purpose of interchange is numerical superiority.",
+     "sources": [
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-ATT-03",
+     "tag": "FEDERATION",
+     "text": "Wide variations (UEFA editorial): overlap or underlap chosen by where the space is; one width holder; the space behind winger and full-back as a key attacking area.",
+     "sources": [
+      "UEFA-PI-SPURS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefaeuropaleague/news/0297-1d4cf55dc517-eee22d2b5c4d-1000--uefa-europa-league-performance-insights-how-tottenham-hotsp/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-ATT-04",
+     "tag": "FEDERATION",
+     "text": "Attacking fluidity is presented as deliberate strategy, especially against high pressing and man-marking.",
+     "sources": [
+      "UEFA-PI-FB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-ATT-05",
+     "tag": "FEDERATION",
+     "text": "Occupation between the lines is mentioned descriptively (a midfielder operating between the lines in a rotation); no definition is given.",
+     "sources": [
+      "UEFA-FALSEFB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "defendingPrinciples": [
+    {
+     "id": "L7-DEF-01",
+     "tag": "FEDERATION",
+     "text": "Zonal versus man-for-man high pressing (UEFA editorial): zonal relies on reading play with local support; man-marking is more aggressive and leaves defenders 1v1 at the back, a known risk that some coaches accept from the halfway line upward.",
+     "sources": [
+      "UEFA-PI-PRESS",
+      "UEFA-TR2324"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+      "https://www.uefa.com/news-media/news/0290-1bb67e814cd7-efcec6f408f4-1000--expert-analysis-in-2023-24-uefa-technical-reports/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-DEF-02",
+     "tag": "FEDERATION",
+     "text": "Cover shadows are named as an individual skill within zonal defending (scan defensively and use cover shadows), described as often overlooked in youth development; the article gives no geometric definition.",
+     "sources": [
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-DEF-03",
+     "tag": "FEDERATION",
+     "text": "Pressing variations (UCL 2022/23): a high mid-block waiting for the right moment; wide forwards pressing diagonally on centre-backs while the central attackers screen the holding midfielder.",
+     "sources": [
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-DEF-04",
+     "tag": "FEDERATION",
+     "text": "Marking space rather than players in a mid-block, and low-block pressure without fouling, were highlighted trends in 2023/24.",
+     "sources": [
+      "UEFA-TR2324"
+     ],
+     "urls": [
+      "https://www.uefa.com/news-media/news/0290-1bb67e814cd7-efcec6f408f4-1000--expert-analysis-in-2023-24-uefa-technical-reports/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-DEF-05",
+     "tag": "FEDERATION",
+     "text": "Individual defending (body orientation side-on, anticipation, patience, steering the attacker) is described for elite full-backs and centre-backs; no team-structure guidance on that page.",
+     "sources": [
+      "UEFA-PI-DEF"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02a1-1fb856fe1b87-f47d792a3fa7-1000--champions-league-performance-insights-the-art-of-defending/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "transitionPrinciples": [
+    {
+     "id": "L7-TRN-01",
+     "tag": "FEDERATION",
+     "text": "Rest defence (UEFA editorial): the organisation left behind while the team attacks. UEFA's coaching tip is to consider how positional fluidity affects your own rest defence and to make sure players know their roles when the ball is lost. No player counts, distances or thresholds are given.",
+     "sources": [
+      "UEFA-PI-FB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-TRN-02",
+     "tag": "FEDERATION",
+     "text": "A sound defensive shape during attacks is called the basis of a good counter-press: defenders stay tight to the opposition's attackers while their team has the ball so there is no easy outlet if it is lost (clip label 'Rest defence').",
+     "sources": [
+      "UEFA-PI-1V1"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf7e6d9ae-9ea32505034e-1000--champions-league-performance-insights-going-1v1/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-TRN-03",
+     "tag": "FEDERATION",
+     "text": "Counter-pressing is described as overloading the ball area to win it back quickly, taught from a young age through small-sided games; a 'double press' is pressing again at once after being beaten.",
+     "sources": [
+      "UEFA-PI-PSG",
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/029a-1de9d126962d-87e708b9adaf-1000--champions-league-performance-insights-paris-pressing-and/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-TRN-04",
+     "tag": "FEDERATION",
+     "text": "Moving a full-back inside can also be protective: from a central position he is already placed to cover if possession is lost.",
+     "sources": [
+      "UEFA-FALSEFB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-TRN-05",
+     "tag": "FEDERATION",
+     "text": "Attacking with only two central defenders behind carries counter-attack risk; younger players need more balance and pragmatism (UEFA editorial).",
+     "sources": [
+      "UEFA-PI-SPURS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefaeuropaleague/news/0297-1d4cf55dc517-eee22d2b5c4d-1000--uefa-europa-league-performance-insights-how-tottenham-hotsp/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "notExpected": [
+    {
+     "id": "L7-NOT-01",
+     "tag": "FEDERATION",
+     "text": "No UEFA page read sets a numeric standard for positioning, pressing, rest defence or rotations; the licence pages describe competences and the technical analysis is descriptive commentary.",
+     "sources": [
+      "UEFA-LIC",
+      "UEFA-PRO",
+      "UEFA-CONV",
+      "UEFA-PI-FB",
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/development/coaches/uefa-coaching-licences/",
+      "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+      "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf",
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-NOT-02",
+     "tag": "FEDERATION",
+     "text": "Match plans depend on the club's playing philosophy and the opponent, so the same position can be right in one plan and wrong in another.",
+     "sources": [
+      "UEFA-PRO",
+      "UEFA-A",
+      "CS-CPRO"
+     ],
+     "urls": [
+      "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+      "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+      "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-NOT-03",
+     "tag": "FEDERATION",
+     "text": "A man-marking press accepts 1v1 duels at the back; a deliberately aggressive structure is not by itself a mistake.",
+     "sources": [
+      "UEFA-PI-PRESS",
+      "UEFA-TR2324"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+      "https://www.uefa.com/news-media/news/0290-1bb67e814cd7-efcec6f408f4-1000--expert-analysis-in-2023-24-uefa-technical-reports/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-NOT-04",
+     "tag": "FEDERATION",
+     "text": "Rotations and fluid positions are a deliberate strategy at elite level; a player far from his nominal position may be executing the plan.",
+     "sources": [
+      "UEFA-PI-FB",
+      "UEFA-FALSEFB",
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "formatGuidance": [
+    {
+     "id": "L7-FMT-01",
+     "tag": "FEDERATION",
+     "text": "11v11 under FIFA laws (Training to Win: 2 x 45 min).",
+     "sources": [
+      "CS-W2WC"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-FMT-02",
+     "tag": "FEDERATION",
+     "text": "Formation and in-possession shape differ (e.g. 1-4-3-3 as the starting shape becoming 1-3-2-5 in build-up), so a single formation label does not describe a professional team's structure.",
+     "sources": [
+      "UEFA-TR2223",
+      "UEFA-FALSEFB"
+     ],
+     "urls": [
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf",
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "practiceDesign": [
+    {
+     "id": "L7-PRA-01",
+     "tag": "FEDERATION",
+     "text": "Pro / A: sessions shaped around opponents, pressure and intensity; season-long team-tactical plan; from A level the UEFA Convention requires a training session built on match analysis and managing a match.",
+     "sources": [
+      "UEFA-PRO",
+      "UEFA-A",
+      "UEFA-CONV"
+     ],
+     "urls": [
+      "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+      "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+      "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-PRA-02",
+     "tag": "FEDERATION",
+     "text": "Concacaf Pro: training sessions aligned with the game model and week plan; use analysis of training and matches to decide adjustments; connect team periodisation and individual development plans.",
+     "sources": [
+      "CS-CPRO"
+     ],
+     "urls": [
+      "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-PRA-03",
+     "tag": "FEDERATION",
+     "text": "UEFA observer practices: 3v3 zonal defending (two 15 x 10 m areas; nearest defender presses at an angle that keeps the ball inside, second defender adjusts for runs in behind, roles swap as the ball moves); 4v4 man-marking (32 x 25 m, 2-3 min bouts) with double pressing.",
+     "sources": [
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-PRA-04",
+     "tag": "FEDERATION",
+     "text": "UEFA observer practices for wide play: 2v1 and 3v2 crossing drills; winger and overlapping full-back combinations; progress from 1v1 to 5v5/6v6 with overlaps when the ball goes wide.",
+     "sources": [
+      "UEFA-PI-SPURS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefaeuropaleague/news/0297-1d4cf55dc517-eee22d2b5c4d-1000--uefa-europa-league-performance-insights-how-tottenham-hotsp/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-PRA-05",
+     "tag": "FEDERATION",
+     "text": "Train players in a wider range of attacking and defending roles so fluidity does not cost rest defence.",
+     "sources": [
+      "UEFA-PI-FB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "sessionThemes": [
+    {
+     "id": "L7-THM-01",
+     "tag": "FEDERATION",
+     "text": "Rest-defence role clarity for when the ball is lost (UEFA coaching tip).",
+     "sources": [
+      "UEFA-PI-FB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-THM-02",
+     "tag": "FEDERATION",
+     "text": "Counter-press: overload the ball area; double press.",
+     "sources": [
+      "UEFA-PI-PSG",
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/029a-1de9d126962d-87e708b9adaf-1000--champions-league-performance-insights-paris-pressing-and/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-THM-03",
+     "tag": "FEDERATION",
+     "text": "Zonal versus man pressing in high, medium and low blocks.",
+     "sources": [
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-THM-04",
+     "tag": "FEDERATION",
+     "text": "Full-back / winger rotations and one width holder.",
+     "sources": [
+      "UEFA-FALSEFB",
+      "UEFA-PI-SPURS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+      "https://www.uefa.com/uefaeuropaleague/news/0297-1d4cf55dc517-eee22d2b5c4d-1000--uefa-europa-league-performance-insights-how-tottenham-hotsp/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-THM-05",
+     "tag": "FEDERATION",
+     "text": "Match-analysis-based weekly session (Convention assessment model).",
+     "sources": [
+      "UEFA-CONV",
+      "CS-CPRO"
+     ],
+     "urls": [
+      "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf",
+      "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "positioningConcepts": [
+    {
+     "id": "L7-POS-01",
+     "tag": "FEDERATION",
+     "text": "Rest defence, counter-press relationships, cover shadows, rotations, between the lines, build-up structure: named in UEFA editorial analysis only, never defined geometrically or numerically.",
+     "sources": [
+      "UEFA-PI-FB",
+      "UEFA-PI-1V1",
+      "UEFA-PI-PRESS",
+      "UEFA-FALSEFB",
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf7e6d9ae-9ea32505034e-1000--champions-league-performance-insights-going-1v1/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-POS-02",
+     "tag": "FEDERATION",
+     "text": "Opponent overloads: England's senior-team series gives 2v1 wide and 4v3 central as examples.",
+     "sources": [
+      "EF-DLE-OVER"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-overloads"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-POS-03",
+     "tag": "FEDERATION",
+     "text": "Defensive shifting: zonal teams shift together and keep their distances (UEFA); shift as a unit when the ball goes to one side (England).",
+     "sources": [
+      "UEFA-PI-PRESS",
+      "EF-CR26"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "pitchiqProposals": [
+    {
+     "id": "L7-PIQ-01",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Judge against the team's declared game model: at level 7 the coach's style, formation and confirmed roles become the reference (UEFA Pro / Concacaf Pro: match plan, KPIs, roles). With no declared model, findings stay descriptive 'review' items and never claim the team's intent.",
+     "sources": [
+      "UEFA-PRO",
+      "CS-CPRO",
+      "UEFA-A"
+     ],
+     "urls": [
+      "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+      "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf",
+      "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-PIQ-02",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Rest-defence structure (descriptive, then review): in spans where the team is estimated in possession and the ball is reliable, record the players goal-side of the ball, their lateral coverage of the channels, and how tightly the nearest of them stand to the opponent's most advanced players (UEFA's 'stay tight' idea). Call it 'rest defence (PitchIQ measure)' and never 'UEFA rest defence'.",
+     "sources": [
+      "UEFA-PI-FB",
+      "UEFA-PI-1V1"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf7e6d9ae-9ea32505034e-1000--champions-league-performance-insights-going-1v1/"
+     ],
+     "accessed": "2026-10-21",
+     "dataNeeded": [
+      "possession estimate",
+      "reliable ball",
+      "both teams' players near the opponent's front line seen"
+     ],
+     "availability": "available with possession estimate; abstain on partial views"
+    },
+    {
+     "id": "L7-PIQ-03",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Rotation recognition: two teammates exchanging their order across or along the pitch while the vacated zone is re-occupied counts as a rotation (neutral or strength), which suppresses 'out of position' wording for both players. Positions only; no ball needed.",
+     "sources": [
+      "UEFA-FALSEFB",
+      "UEFA-TR2223",
+      "USS-AGG1516"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "available (positions and identities only)"
+    },
+    {
+     "id": "L7-PIQ-04",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Occupation between the lines (descriptive only): count the evaluated team's players located between the opponent's midfield and defensive line depths and inside the opponent's width, using team_shape lines for both teams; no good/bad verdict.",
+     "sources": [
+      "UEFA-FALSEFB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "available when both teams' units are fully seen"
+    },
+    {
+     "id": "L7-PIQ-05",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Build-up structure (descriptive): split the existing formation reading by the possession estimate to show the in-possession back structure (e.g. 3 + 2) next to the out-of-possession shape.",
+     "sources": [
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21",
+     "existingComponent": "team_shape formation recognition",
+     "availability": "available with possession estimate; label confidence capped as today"
+    },
+    {
+     "id": "L7-PIQ-06",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Multi-match trends: at level 7 the progression view should foreground longitudinal team trends per measured minute (Concacaf Pro 'longitudinal study'), normalised by measured time and phase coverage.",
+     "sources": [
+      "CS-CPRO"
+     ],
+     "urls": [
+      "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "L7-PIQ-07",
+     "tag": "PITCHIQ-PROPOSAL",
+     "text": "Mark unavailable: pressing triggers, cover-shadow geometry (needs passing lanes and the ball carrier's options), counter-press success and regain time, overload outcomes, opponent-specific match-plan compliance without a declared plan.",
+     "sources": [
+      "UEFA-PI-PRESS",
+      "UEFA-PI-PSG"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+      "https://www.uefa.com/uefachampionsleague/news/029a-1de9d126962d-87e708b9adaf-1000--champions-league-performance-insights-paris-pressing-and/"
+     ],
+     "accessed": "2026-10-21",
+     "availability": "unavailable"
+    }
+   ]
+  }
+ ],
+ "advancedConcepts": [
+  {
+   "concept": "rest defence",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-01",
+     "tag": "FEDERATION",
+     "text": "U.S. Soccer does not use the term; its nearest wording is preparing for losing the ball with a high defensive shape behind the ball while attacking (U15-U16, U17+).",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-02",
+     "tag": "FEDERATION",
+     "text": "England's game-phases article does not define rest defence; the senior-team transition article describes centre-backs placed high to support and to counter-press.",
+     "sources": [
+      "EF-PHASES",
+      "EF-DLE-TRANS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football",
+      "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-03",
+     "tag": "FEDERATION",
+     "text": "UEFA uses the term in technical-observer coaching tips and a clip label, with no definition beyond roles on losing the ball and no numbers.",
+     "sources": [
+      "UEFA-PI-FB",
+      "UEFA-PI-1V1"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf7e6d9ae-9ea32505034e-1000--champions-league-performance-insights-going-1v1/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "measurable as a PitchIQ-defined structure only (needs the possession estimate)"
+  },
+  {
+   "concept": "pressing triggers",
+   "officialDefinitionFound": true,
+   "items": [
+    {
+     "id": "CON-04",
+     "tag": "FEDERATION",
+     "text": "England (12-16 sessions, principles article): heavy touch, hesitation, facing own goal or back to goal, slow or long pass, poor touch; teams can also create triggers by leaving a player free to press on receipt; a mid-block can invite the ball wide as the cue.",
+     "sources": [
+      "EF-PCB25",
+      "EF-PZ",
+      "EF-PRINC",
+      "EF-PHASES"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-05",
+     "tag": "FEDERATION",
+     "text": "U.S. Soccer and the UEFA pages read do not list triggers ('trigger' is absent from UEFA's 'setting the press').",
+     "sources": [
+      "USS-GM17",
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none (qualitative cues)",
+   "pitchiqStatus": "unavailable: touch quality, body orientation and pass speed are not tracked"
+  },
+  {
+   "concept": "counter-pressing",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-06",
+     "tag": "FEDERATION",
+     "text": "U.S. Soccer describes the behaviour without the name: try immediately to get the ball back and stop forward play.",
+     "sources": [
+      "USS-GM1516",
+      "USS-GM17"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+      "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+      "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-07",
+     "tag": "FEDERATION",
+     "text": "UEFA editorial: overloading the ball area to win it back quickly; 'double press' after being beaten.",
+     "sources": [
+      "UEFA-PI-PSG",
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/029a-1de9d126962d-87e708b9adaf-1000--champions-league-performance-insights-paris-pressing-and/",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-08",
+     "tag": "FEDERATION",
+     "text": "Five-second figures appear only as practice scoring rules or example challenges (England), not as standards.",
+     "sources": [
+      "EF-RR26",
+      "EF-TACTICS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none (5 s only as practice incentives)",
+   "pitchiqStatus": "unavailable: possession change timing is unreliable (F1 within 1 s about .64 / .50)"
+  },
+  {
+   "concept": "cover shadows",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-09",
+     "tag": "FEDERATION",
+     "text": "Named once by a UEFA guest expert as a zonal-defending skill; no definition.",
+     "sources": [
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-10",
+     "tag": "FEDERATION",
+     "text": "Related federation wording: curved runs that cut passing lanes; a first presser blocking a lane while teammates lock onto opponents; attackers screening the holding midfielder.",
+     "sources": [
+      "EF-PZ",
+      "EF-PFS",
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "unavailable (needs the ball carrier's passing options)"
+  },
+  {
+   "concept": "positional rotations",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-11",
+     "tag": "FEDERATION",
+     "text": "U.S. Soccer U15-U16 lists interchange of positions as a tactical aim.",
+     "sources": [
+      "USS-AGG1516"
+     ],
+     "urls": [
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+      "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "id": "CON-12",
+     "tag": "FEDERATION",
+     "text": "UEFA describes full-back, midfielder and winger rotations and their purposes (superiority, protection on losing the ball).",
+     "sources": [
+      "UEFA-FALSEFB",
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "measurable from positions (proposal L7-PIQ rotation recognition)"
+  },
+  {
+   "concept": "occupation between the lines",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-13",
+     "tag": "FEDERATION",
+     "text": "Mentioned descriptively by UEFA; not defined.",
+     "sources": [
+      "UEFA-FALSEFB"
+     ],
+     "urls": [
+      "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "measurable descriptively when both teams' lines are seen"
+  },
+  {
+   "concept": "defensive shifting",
+   "officialDefinitionFound": true,
+   "items": [
+    {
+     "id": "CON-14",
+     "tag": "FEDERATION",
+     "text": "Shift across as a unit when the ball goes to one side and protect the middle first (England); zonal pressing teams shift together and keep their distances (UEFA).",
+     "sources": [
+      "EF-CR26",
+      "UEFA-PI-PRESS"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+      "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "existing lateral_shift detector"
+  },
+  {
+   "concept": "opponent overloads",
+   "officialDefinitionFound": true,
+   "items": [
+    {
+     "id": "CON-15",
+     "tag": "FEDERATION",
+     "text": "An overload is more opponents than defenders in an area, often after a broken press; examples 2v1 wide and 4v3 central.",
+     "sources": [
+      "EF-DLE-OVER"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-overloads"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "examples only",
+   "pitchiqStatus": "local counts measurable near a reliable ball when both teams are in view; outcome not"
+  },
+  {
+   "concept": "build-up structure",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-16",
+     "tag": "FEDERATION",
+     "text": "England: building the attack in the own third, short or direct; UEFA: shape-shifting such as 1-3-2-5 in build-up.",
+     "sources": [
+      "EF-PHASES",
+      "UEFA-TR2223"
+     ],
+     "urls": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football",
+      "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "descriptive via formation recognition split by the possession estimate"
+  },
+  {
+   "concept": "tactical adaptations",
+   "officialDefinitionFound": false,
+   "items": [
+    {
+     "id": "CON-17",
+     "tag": "FEDERATION",
+     "text": "Adjust game plans and adapt strategies to changing demands (LTPD Training to Win); match plans per opponent (UEFA Pro/A); game state, phases and moments (England).",
+     "sources": [
+      "CS-W2WC",
+      "UEFA-PRO",
+      "EF-STATE"
+     ],
+     "urls": [
+      "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf",
+      "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-help-players-adapt-to-game-state-phases-and-moments"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "thresholdsInSources": "none",
+   "pitchiqStatus": "formation change points exist (team_shape); intent cannot be inferred"
+  }
+ ],
+ "levelDifferences": [
+  {
+   "id": "DIFF-01",
+   "tag": "FEDERATION",
+   "text": "U13-U14 to U15-U16 (U.S. Soccer game model): wording almost unchanged; U15-U16 adds 'anticipate regaining the ball' to the attack-to-defence moment and rewords the attacking item to 'prepare for losing the ball'. The tactical step up is in the age-group guide (systems of play, roles, interchange).",
+   "sources": [
+    "USS-GM1314",
+    "USS-GM1516",
+    "USS-AGG1516"
+   ],
+   "urls": [
+    "https://documents.ussoccer.com/documents/file-91fed18c92b617f67c21a80cf2f7c363f8509f9b-pdf/2-12%2085x11.pdf",
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+    "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+    "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+    "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "DIFF-02",
+   "tag": "FEDERATION",
+   "text": "U15-U16 to U17+: five players ahead of the ball; play quickly into the attacking half; delay by dropping off and blocking the path to goal; defending as 'win it back quickly and high, make the field small'; prepare for losing the ball after a regain too; players specialise in one or two positions and learn to deliver a game strategy.",
+   "sources": [
+    "USS-GM1516",
+    "USS-GM17",
+    "USS-AGG17"
+   ],
+   "urls": [
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+    "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+    "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf",
+    "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+    "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "DIFF-03",
+   "tag": "FEDERATION",
+   "text": "Academy to professional (UEFA licences): Youth B / Elite Youth A emphasise development, maturation and the pathway; A adds match plans per opponent; Pro adds philosophy, season-long tactical planning and the high-performance staff.",
+   "sources": [
+    "UEFA-YB",
+    "UEFA-EYA",
+    "UEFA-A",
+    "UEFA-PRO"
+   ],
+   "urls": [
+    "https://www.uefa.com/insideuefa/news/0268-11f1a6163371-a7ff28482e99-1000/",
+    "https://www.uefa.com/insideuefa/news/0268-11f1ac36684b-121f231223be-1000/",
+    "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+    "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/"
+   ],
+   "accessed": "2026-10-21"
+  }
+ ],
+ "unverified": [
+  {
+   "what": "U.S. Soccer 'Selecting a formation for your team' and 'Age-appropriate formats' PDFs",
+   "why": "over the fetch tool's 10 MB limit",
+   "urls": [
+    "https://documents.ussoccer.com/documents/file-dd7e6e83f102d9241c0de958b30bd977bab96bfd-pdf/SELECTING-A-FORMATION-FOR-YOUR-TEAM.pdf",
+    "https://documents.ussoccer.com/documents/file-2984ca87a7010f04d7c41022d4ea314cb6ba6c5c-pdf/age-appropriate-formats.pdf"
+   ]
+  },
+  {
+   "what": "Canada Soccer A and B Diploma syllabi",
+   "why": "over the 10 MB limit",
+   "urls": [
+    "https://www.canadasoccer.com/wp-content/uploads/2026/02/A-Diploma-Syllabus.pdf",
+    "https://www.canadasoccer.com/wp-content/uploads/2026/03/B-Diploma-Syllabus.pdf"
+   ]
+  },
+  {
+   "what": "Canada Soccer 'Soccer for Life' workshop content",
+   "why": "no syllabus is published; only the workshop listing and the LTPD stage descriptions were found",
+   "urls": [
+    "https://canada-soccer.myshopify.com/collections/grassroots-coaching-education-program/products/soccer-for-life",
+    "https://www.canadasoccer.com/coach/grassroots-coach-education/"
+   ]
+  },
+  {
+   "what": "England 17-21 'transition from attack to defence' session content",
+   "why": "video only; the page text gives aims",
+   "urls": [
+    "https://learn.englandfootball.com/sessions/resources/2022/transition-from-attack-to-defence"
+   ]
+  },
+  {
+   "what": "The FA Boot Room links in the 'defend like England' series",
+   "why": "thebootroom.thefa.com returned 404; the learn.englandfootball.com versions were read instead",
+   "urls": [
+    "http://thebootroom.thefa.com/resources/coaching/how-to-defend-like-england-roles-and-responsibilities"
+   ]
+  },
+  {
+   "what": "UEFA syllabuses of minimum content and the full technical reports",
+   "why": "the Convention does not reproduce the syllabuses; full reports are on uefatechnicalreports.com, outside the allowed domains; only the 2022/23 UCL part one PDF on editorial.uefa.com was read",
+   "urls": [
+    "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf",
+    "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf"
+   ]
+  },
+  {
+   "what": "U.S. Soccer session plans for U13+",
+   "why": "not visible on the sessions page",
+   "urls": [
+    "https://www.ussoccer.com/us-way/player-development/environment/sessions"
+   ]
+  }
+ ],
+ "cautions": [
+  "Canada Soccer names stage 7 'Soccer for Life' on the coach-education page (U13+, girls U12+; the store listing says U14+) and 'Active for Life' in the 2009 LTPD manual and community guide; the Training to Train age band also differs between the two documents (male U12-U16 vs U12-U15).",
+  "England's 'defend like England' articles show 2021 dates although their URLs say 2022; the principles article shows 5 January 2023.",
+  "The UEFA performance-insight articles are editorial analysis by technical observers and guest experts, not licence curricula; they are cited as UEFA material but must not be presented as UEFA standards.",
+  "No federation source read gives a positional distance, player count or time limit that could be a scoring threshold, except U.S. Soccer U17+ 'at least five players ahead of the ball' (an attacking guide) and practice set-up sizes. Every PitchIQ threshold must be labelled as PitchIQ's own.",
+  "The possession record (possession-4) supports 'when Team A had the ball' estimates with a +-2 s exclusion around changes; it does not support turnover, regain-time, pressing or counter wording. Several federation concepts above therefore stay unavailable."
+ ],
+ "sources": [
+  {
+   "id": "USS-GM1516",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf"
+   ],
+   "title": "U15-U16 game model",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Web page read; the one-page PDF (image only) was read visually from its embedded page image and is the reference wording, because the fetched summary of the web page mixed up two moment headings."
+  },
+  {
+   "id": "USS-GM17",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+   ],
+   "title": "U17+ game model",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Web page read; one-page image PDF read visually and used as the reference wording."
+  },
+  {
+   "id": "USS-GM1314",
+   "url": "https://documents.ussoccer.com/documents/file-91fed18c92b617f67c21a80cf2f7c363f8509f9b-pdf/2-12%2085x11.pdf",
+   "extraUrls": [],
+   "title": "U13-U14 game model (PDF)",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Read only to see what changes from U13-U14 to U15-U16 / U17+ (level 4 is another researcher's scope)."
+  },
+  {
+   "id": "USS-USINGGM",
+   "url": "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+   "extraUrls": [],
+   "title": "Using a game model to develop your players",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Image PDF read visually."
+  },
+  {
+   "id": "USS-AGG",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide",
+   "extraUrls": [],
+   "title": "Age group guides (index)",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "USS-AGG1516",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+   ],
+   "title": "Guide to coaching U15s and U16s",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Web page and the one-page image PDF (read visually) agree."
+  },
+  {
+   "id": "USS-AGG17",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+   ],
+   "title": "Guide to coaching U17s+",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Web page and the one-page image PDF (read visually) agree."
+  },
+  {
+   "id": "USS-FORM",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations",
+   "extraUrls": [],
+   "title": "Formations",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "USS-FORM11",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations/u13-plus-11v11",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-81b94d97e1033dbca00533e53a9d51eb3614a019-pdf/11v11-u13-1-4-3-3-formation.pdf"
+   ],
+   "title": "11v11: U13+ (1-4-3-3)",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Web page and the one-page image PDF (read visually)."
+  },
+  {
+   "id": "USS-FORMATS",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+   "extraUrls": [],
+   "title": "Game formats",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "USS-DESIGN",
+   "url": "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf",
+   "extraUrls": [],
+   "title": "Designing age-appropriate activities",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Image PDF read visually."
+  },
+  {
+   "id": "USS-SESSIONS",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/sessions",
+   "extraUrls": [],
+   "title": "Sessions",
+   "publisher": "U.S. Soccer (U.S. Way)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read-partial",
+   "notes": "Only U6-U12 sample sessions were visible; no U13+ session plans could be confirmed."
+  },
+  {
+   "id": "USS-SELECT",
+   "url": "https://documents.ussoccer.com/documents/file-dd7e6e83f102d9241c0de958b30bd977bab96bfd-pdf/SELECTING-A-FORMATION-FOR-YOUR-TEAM.pdf",
+   "extraUrls": [],
+   "title": "Selecting a formation for your team (PDF)",
+   "publisher": "U.S. Soccer",
+   "published": "unknown",
+   "accessed": "2026-10-21",
+   "status": "not-fetched",
+   "notes": "Larger than the fetch tool's 10 MB limit; content NOT verified."
+  },
+  {
+   "id": "USS-AAF",
+   "url": "https://documents.ussoccer.com/documents/file-2984ca87a7010f04d7c41022d4ea314cb6ba6c5c-pdf/age-appropriate-formats.pdf",
+   "extraUrls": [],
+   "title": "Age-appropriate formats (PDF)",
+   "publisher": "U.S. Soccer",
+   "published": "unknown",
+   "accessed": "2026-10-21",
+   "status": "not-fetched",
+   "notes": "Larger than the fetch tool's 10 MB limit; U.S. Soccer field sizes for 11v11 NOT verified."
+  },
+  {
+   "id": "EF-PCB25",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+   "extraUrls": [
+    "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf"
+   ],
+   "title": "Pressing session: press, cover and balance (week 1 of 'press, tackle and cover', 12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2025-11-03",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Session PDF text extracted and checked against the page."
+  },
+  {
+   "id": "EF-PTC",
+   "url": "https://learn.englandfootball.com/sessions/resources/2024/Session-programme-press-tackle-and-cover",
+   "extraUrls": [
+    "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Session-programme/Session-programme--press-cover-and-balance.pdf"
+   ],
+   "title": "Session programme: press, tackle and cover (six weeks, 12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2024-11-04",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Programme PDF text extracted (confirms the 'ball-side and goal-side' point in week 2)."
+  },
+  {
+   "id": "EF-PFS",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+   "extraUrls": [],
+   "title": "Pressing session: press for success (week 2, 12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2025-11-10",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-PZ",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+   "extraUrls": [],
+   "title": "Pressing session: pressing zones (week 3, 12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2025-11-17",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-CRS",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop",
+   "extraUrls": [],
+   "title": "Pressing and tackling session: challenge, recover and stop (week 4, 12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2025-11-24",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-RR26",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react",
+   "extraUrls": [],
+   "title": "Pressing and covering session: read and react (12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2026-02-23",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-CR26",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+   "extraUrls": [],
+   "title": "Pressing and covering session: cover and recover (12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2026-03-09",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-DSN26",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-defending-in-small-numbers",
+   "extraUrls": [],
+   "title": "Pressing and covering session: defending in small numbers (12-16s)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2026-03-23",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-PRINC",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football",
+   "extraUrls": [],
+   "title": "What are the principles of football?",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2023-01-05 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-PHASES",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football",
+   "extraUrls": [],
+   "title": "What are the game phases in football?",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2026-06-29",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-STATE",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-help-players-adapt-to-game-state-phases-and-moments",
+   "extraUrls": [],
+   "title": "How to help players adapt to game state, phases and moments",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2025-01-27",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-11V11",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-11v11-games",
+   "extraUrls": [],
+   "title": "How to play and manage 11v11 games",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2025-12-08",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-STYLES",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-develop-styles-of-play",
+   "extraUrls": [],
+   "title": "How to develop styles of play",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2024-09-30",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-TACTICS",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems",
+   "extraUrls": [],
+   "title": "How to work on tactics, strategies and systems",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2024-11-25",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-DLE-INTRO",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-an-introduction",
+   "extraUrls": [],
+   "title": "How to defend like England: an introduction",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2021-02-26 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-DLE-TRANS",
+   "url": "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition",
+   "extraUrls": [],
+   "title": "How to defend like England: transition",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2021-03-05 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-DLE-BEHIND",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-space-in-behind",
+   "extraUrls": [],
+   "title": "How to defend like England: space in behind",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2021-03-12 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "The series' own link (thebootroom.thefa.com/...space-in-behind) returned 404; this is the current address."
+  },
+  {
+   "id": "EF-DLE-WIDE",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas",
+   "extraUrls": [],
+   "title": "How to defend like England: space in wide areas",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2021-03-19 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-DLE-OVER",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-overloads",
+   "extraUrls": [],
+   "title": "How to defend like England: overloads",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2021-03-26 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-DLE-ROLES",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-roles-and-responsibilities",
+   "extraUrls": [],
+   "title": "How to defend like England: roles and responsibilities",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2021-04-01 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "The series' own link (thebootroom.thefa.com/...roles-and-responsibilities) returned 404; this is the current address."
+  },
+  {
+   "id": "EF-T1721",
+   "url": "https://learn.englandfootball.com/sessions/resources/2022/transition-from-attack-to-defence",
+   "extraUrls": [],
+   "title": "Transition: from attack to defence (players aged 17-21)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "2019-08-26 (URL says 2022)",
+   "accessed": "2026-10-21",
+   "status": "read-partial",
+   "notes": "Page gives only the aims; the session itself is a video whose content could not be read."
+  },
+  {
+   "id": "EF-HEADING",
+   "url": "https://www.englandfootball.com/participate/learn/Brain-Health/Heading-in-Football",
+   "extraUrls": [],
+   "title": "Heading in football (guidance)",
+   "publisher": "England Football / The FA",
+   "published": "not shown (linked documents dated 2021)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "EF-AYA",
+   "url": "https://learn.englandfootball.com/courses/football/advanced-youth-award",
+   "extraUrls": [],
+   "title": "Advanced Youth Award (course page)",
+   "publisher": "England Football Learning (The FA)",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "CS-GCE",
+   "url": "https://www.canadasoccer.com/coach/grassroots-coach-education/",
+   "extraUrls": [],
+   "title": "Grassroots Coach Education",
+   "publisher": "Canada Soccer",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "CS-SFL",
+   "url": "https://canada-soccer.myshopify.com/collections/grassroots-coaching-education-program/products/soccer-for-life",
+   "extraUrls": [],
+   "title": "Soccer for Life workshop (official Canada Soccer store listing)",
+   "publisher": "Canada Soccer",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Lists format only (2 h online + 4 h on-field, 'coaches of U14+'); no syllabus or content is published there."
+  },
+  {
+   "id": "CS-PATHWAY",
+   "url": "https://canadasoccer.com/play-landing/canada-soccer-pathway/",
+   "extraUrls": [],
+   "title": "Canada Soccer Pathway",
+   "publisher": "Canada Soccer",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "CS-W2WC",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf",
+   "extraUrls": [],
+   "title": "Long Term Player Development: Wellness to World Cup (stages 4-7 on pp. 51-54)",
+   "publisher": "Canadian Soccer Association",
+   "published": "2009 (file uploaded 2026-04)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Text extracted locally with pdftotext; pages 51-54 read. Two-column layout: the 2 x 40 / 2 x 45 min durations are read as stage 5 / stage 6 from the page order."
+  },
+  {
+   "id": "CS-LTPDCG",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/02/CanadaSoccerPathway_LTPDCommunityGuide_EN.pdf",
+   "extraUrls": [],
+   "title": "Long Term Player Development: a community guide",
+   "publisher": "Canada Soccer",
+   "published": "not shown (file 2026-02)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Text extracted locally; partly garbled by the layout but the stage descriptions are legible."
+  },
+  {
+   "id": "CS-ACEP",
+   "url": "https://www.canadasoccer.com/coach/advanced-coach-education-program/",
+   "extraUrls": [],
+   "title": "Advanced Coach Education Program",
+   "publisher": "Canada Soccer",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "CS-PDP",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/02/CS-PlayerDevelopmentProgram-PDP-Manual-EN-Update-9Aug2024.pdf",
+   "extraUrls": [],
+   "title": "Player Development Program (PDP) manual",
+   "publisher": "Canada Soccer",
+   "published": "2024-08-09",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Text extracted locally."
+  },
+  {
+   "id": "CS-CPRO",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf",
+   "extraUrls": [],
+   "title": "Concacaf Pro Diploma minimum content syllabus (2023 edition), hosted by Canada Soccer",
+   "publisher": "Concacaf / Canada Soccer",
+   "published": "2023 edition",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Text extracted locally."
+  },
+  {
+   "id": "CS-ADIP",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/A-Diploma-Syllabus.pdf",
+   "extraUrls": [],
+   "title": "A Diploma syllabus",
+   "publisher": "Canada Soccer",
+   "published": "unknown",
+   "accessed": "2026-10-21",
+   "status": "not-fetched",
+   "notes": "Larger than the 10 MB fetch limit; NOT verified."
+  },
+  {
+   "id": "CS-BDIP",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/03/B-Diploma-Syllabus.pdf",
+   "extraUrls": [],
+   "title": "B Diploma syllabus",
+   "publisher": "Canada Soccer",
+   "published": "unknown",
+   "accessed": "2026-10-21",
+   "status": "not-fetched",
+   "notes": "Larger than the 10 MB fetch limit; NOT verified."
+  },
+  {
+   "id": "UEFA-CE",
+   "url": "https://www.uefa.com/news-media/news/0252-0ce1fa42fd4c-82ce7dd3c0a0-1000--coaching/",
+   "extraUrls": [],
+   "title": "Coach education (overview)",
+   "publisher": "UEFA",
+   "published": "2022-01-02 (updated 2022-05-11)",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-LIC",
+   "url": "https://www.uefa.com/development/coaches/uefa-coaching-licences/",
+   "extraUrls": [],
+   "title": "UEFA coaching licences: every course for which UEFA sets minimum criteria",
+   "publisher": "UEFA",
+   "published": "not shown",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-PRO",
+   "url": "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+   "extraUrls": [],
+   "title": "Course details: the UEFA Pro Diploma",
+   "publisher": "UEFA",
+   "published": "2021-04-02",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-A",
+   "url": "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+   "extraUrls": [],
+   "title": "Course details: the UEFA A Diploma",
+   "publisher": "UEFA",
+   "published": "2021-04-02",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-EYA",
+   "url": "https://www.uefa.com/insideuefa/news/0268-11f1ac36684b-121f231223be-1000/",
+   "extraUrls": [],
+   "title": "Course details: the UEFA Elite Youth A Diploma",
+   "publisher": "UEFA",
+   "published": "2021-04-02",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-B",
+   "url": "https://www.uefa.com/insideuefa/news/0267-11ed7b4c1e13-63896dc6efc2-1000/",
+   "extraUrls": [],
+   "title": "Course details: the UEFA B Diploma",
+   "publisher": "UEFA",
+   "published": "2021-03-31",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-YB",
+   "url": "https://www.uefa.com/insideuefa/news/0268-11f1a6163371-a7ff28482e99-1000/",
+   "extraUrls": [],
+   "title": "Course details: the UEFA Youth B Diploma",
+   "publisher": "UEFA",
+   "published": "2021-04-02",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-CONV",
+   "url": "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf",
+   "extraUrls": [],
+   "title": "UEFA Coaching Convention 2020",
+   "publisher": "UEFA",
+   "published": "2020",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Text extracted locally. Course content is delegated to 'syllabuses of minimum content' that the Convention does not reproduce."
+  },
+  {
+   "id": "UEFA-PI-FB",
+   "url": "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+   "extraUrls": [],
+   "title": "Champions League Performance Insights: full-backs showcase attacking fluidity",
+   "publisher": "UEFA (technical observers)",
+   "published": "2026-10-12",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Editorial analysis by UEFA technical observers, not coach-education curriculum."
+  },
+  {
+   "id": "UEFA-PI-PRESS",
+   "url": "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+   "extraUrls": [],
+   "title": "Champions League performance insights: setting the press",
+   "publisher": "UEFA (technical observers)",
+   "published": "2024-02-05",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Editorial analysis; phrase check done: 'cover shadows' present once, 'trigger', 'rest defence', 'counter-press' absent."
+  },
+  {
+   "id": "UEFA-PI-1V1",
+   "url": "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf7e6d9ae-9ea32505034e-1000--champions-league-performance-insights-going-1v1/",
+   "extraUrls": [],
+   "title": "Champions League performance insights: going 1v1",
+   "publisher": "UEFA (technical observers)",
+   "published": "2024-02-05",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "'Rest defence' appears only as a video caption label, not in the body text."
+  },
+  {
+   "id": "UEFA-PI-PSG",
+   "url": "https://www.uefa.com/uefachampionsleague/news/029a-1de9d126962d-87e708b9adaf-1000--champions-league-performance-insights-paris-pressing-and/",
+   "extraUrls": [],
+   "title": "Champions League Performance Insights: Paris pressing and mobility inspire historic final victory",
+   "publisher": "UEFA (technical observers)",
+   "published": "2025-06-03",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-FALSEFB",
+   "url": "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+   "extraUrls": [],
+   "title": "False full-backs and full-backs in midfield (from the 2020/21 UCL technical report)",
+   "publisher": "UEFA",
+   "published": "2021-09-28",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-PI-SPURS",
+   "url": "https://www.uefa.com/uefaeuropaleague/news/0297-1d4cf55dc517-eee22d2b5c4d-1000--uefa-europa-league-performance-insights-how-tottenham-hotsp/",
+   "extraUrls": [],
+   "title": "Europa League Performance Insights: Tottenham v AZ and the variations used in the wide areas",
+   "publisher": "UEFA (technical observers)",
+   "published": "2025-03-17",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-PI-DEF",
+   "url": "https://www.uefa.com/uefachampionsleague/news/02a1-1fb856fe1b87-f47d792a3fa7-1000--champions-league-performance-insights-the-art-of-defending/",
+   "extraUrls": [],
+   "title": "Champions League Performance Insights: the art of defending",
+   "publisher": "UEFA (technical observers)",
+   "published": "2026-01-19",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  },
+  {
+   "id": "UEFA-TR2223",
+   "url": "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf",
+   "extraUrls": [],
+   "title": "UEFA Champions League technical report 2022/23, part one",
+   "publisher": "UEFA",
+   "published": "2023",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": "Text extracted locally; tactical-trends pages read. Full reports live on uefatechnicalreports.com, which was not read."
+  },
+  {
+   "id": "UEFA-TR2324",
+   "url": "https://www.uefa.com/news-media/news/0290-1bb67e814cd7-efcec6f408f4-1000--expert-analysis-in-2023-24-uefa-technical-reports/",
+   "extraUrls": [],
+   "title": "Expert analysis in 2023/24 UEFA technical reports",
+   "publisher": "UEFA",
+   "published": "2024-08-27",
+   "accessed": "2026-10-21",
+   "status": "read",
+   "notes": ""
+  }
+ ]
+}

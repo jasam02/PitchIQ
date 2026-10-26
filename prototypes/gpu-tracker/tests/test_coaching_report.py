@@ -1,4 +1,20 @@
-"""The coaching report (soccer/coaching/report.py) assembled from Observation records: nothing forced (a strength-only
+"""The coaching report: v2 (soccer/coaching/report.py, build_report_v2, DESIGN v2 9.2) and the deprecated v1
+(soccer/coaching/report_v1.py, served until wave 7; its names are forwarded from report.py).
+
+v2 (V2ReportTests, V2AssemblyTests, V2ForwardingTests), on EVAL's synthetic scenes through every real stage
+(coaching.interpret: profile, assess, alternatives, annotate, explain, drills.select, the report; tests/
+coaching_text_fixtures.py): at every level the report validates and cross-checks against its obs and roles files, no
+real finding is withheld, every text passes explain's gate (findings) or validate_free (the overview, notices,
+captions, the next objective), key moments are exactly the cited moments in time order, needsWork keeps the level's
+cap and priority order; the raw observations are the same bytes after every level and style (invariant 2); levels 1-2
+name nobody anywhere and level 1 shows no number; one family cites the same moments at levels 4-7 with explanations
+below .5 trigram Jaccard; possession unknown is said, never filled; coach-marked spans read "(coach-marked)"; a clear
+formation mismatch and a short range are notices; "nothing met the bar" says it is not proof; the shape and movement
+diagrams are described only (own players, arrows of at least 1 m); a withheld finding's moments leave the report, a
+finding whose moment was not made is withheld, ZONES' no-alternative reason reaches a work item (not a guardrail
+review), drill picks the report cannot print are left out and logged; the v2 modules never import the v1 code.
+
+v1 (ReportTests, unchanged behaviour): nothing forced (a strength-only
 report has no weaknesses, a limitations-only report no findings), insufficient and low-confidence observations
 listed as limitations with their own reason (the run's data-quality limits once, with what would help), at most three
 priorities drawn from the improvements then the reviews (a player's role check never one), drills linked only where
@@ -16,6 +32,7 @@ import os
 import re
 import sys
 import unittest
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from soccer.coaching import drills, language, report  # noqa: E402
@@ -560,6 +577,750 @@ class ReportTests(ReportShapeChecks, unittest.TestCase):
         self.assertEqual(empty['range']['seconds'], 0.0)
         self.assertEqual(empty['confidence']['overall'], 'low')
         json.loads(report.to_json(empty))
+
+
+# =====================================================================================================================
+# v2 (DESIGN v2 9.2): report.build_report_v2 through coaching.interpret on EVAL's scenes (every real stage)
+# =====================================================================================================================
+import copy as _copy  # noqa: E402
+import time as _time  # noqa: E402
+
+import coaching_text_fixtures as TX  # noqa: E402
+from soccer import coaching  # noqa: E402
+from soccer.coaching import explain as EX, language as L, language_v1, report_v1, schema as S  # noqa: E402
+from soccer.coaching import assess as AS  # noqa: E402
+
+V2_SCENES = (('unsupported_advance', 'none_behind'), ('defending', 'press_no_cover'), ('possession_unknown', None),
+             ('amateur_coach_spans', 'spans'), ('wrong_formation', 'default'), ('short_segment', None))
+LEVELS = range(1, 8)
+
+
+def _ids_in(text):
+    return language_v1.ID_TOKEN.findall(text or '')
+
+
+class V2ReportTests(unittest.TestCase):
+    """Every level on the scenes: what interpret returns is a valid, cross-checked report whose every text passes
+    the gate, and the sections hold what assess and explain gave."""
+
+    def test_every_scene_and_level_gives_a_valid_report(self):
+        for scene, variant in V2_SCENES:
+            b, st, obs, roles = TX.tiers(scene, variant)
+            for lvl in LEVELS:
+                with self.subTest(scene=scene, variant=variant, level=lvl):
+                    rep = TX.report(scene, variant, lvl)
+                    self.assertEqual(S.validate('report', rep), [])
+                    self.assertEqual(S.cross_check(rep, obs, roles), [])
+                    self.assertEqual(rep['withheld'], [], 'no real finding is withheld on these scenes')
+                    found = TX.findings_of(rep)
+                    self.assertEqual(EX.report_problems(found, rep['profile']), [])
+                    self.assertLessEqual(len(rep['needsWork']), rep['profile']['evidence']['maxWorkItems'])
+                    self.assertEqual([f['priority'] for f in rep['needsWork']],
+                                     sorted(f['priority'] for f in rep['needsWork']))
+                    times = [e['time'] for e in rep['keyMoments']]
+                    self.assertEqual(times, sorted(times))
+                    cited = {ts['evidence'] for f in found for ts in f['timestamps']}
+                    self.assertEqual(cited, {e['id'] for e in rep['keyMoments']}, 'key moments = cited moments')
+                    self.assertIsNotNone(rep['overview']['text'])
+                    short = rep['range']['seconds'] < EX.SHORT_RANGE_S
+                    for path, text in TX.texts_of(rep):
+                        self.assertEqual(S.event_problems(text), [], path)
+                        self.assertRegex(text, r'^[ -~]+$', path)
+                        if short:
+                            low = text.lower()
+                            for w in language_v1.SHORT_BANNED:
+                                self.assertNotRegex(low, r'(?<![a-z\-])'+re.escape(w)+r'(?![a-z\-])', (path, text))
+                    ov = rep['overview']
+                    self.assertEqual(EX.validate_free(ov['text'], rep['profile'], None, numbers=False,
+                                                      check_facts=False, short=short), [])
+
+    def test_raw_observations_never_change(self):
+        """Invariant 2: the obs and roles files are the same bytes after every level's report."""
+        b, st, obs, roles = TX.tiers('unsupported_advance', 'none_behind')
+        before = json.dumps([obs, roles], sort_keys=True, allow_nan=False)
+        for lvl in LEVELS:
+            for style in ('unknown', 'possession', 'compact'):
+                coaching.interpret(obs, roles, TX.settings_at(st, 'A', lvl, style=style), 'A')
+        self.assertEqual(json.dumps([obs, roles], sort_keys=True, allow_nan=False), before)
+
+    def test_levels_one_and_two_name_nobody_and_keep_their_caps(self):
+        for scene, variant in V2_SCENES:
+            for lvl in (1, 2):
+                with self.subTest(scene=scene, level=lvl):
+                    rep = TX.report(scene, variant, lvl)
+                    for path, text in TX.texts_of(rep):
+                        if '.caption' in path and path.startswith('dg-'):
+                            continue        # diagram captions name nobody either; checked below
+                        self.assertEqual(_ids_in(text), [], (path, text))
+                    for d in rep['diagrams']:
+                        self.assertEqual(_ids_in(d['caption']), [], d['caption'])
+                    self.assertLessEqual(len(rep['needsWork']), lvl)
+                    self.assertTrue(all(f['verdict'] == 'try_this' for f in rep['needsWork']))
+                    if lvl == 1:
+                        for f in TX.findings_of(rep):
+                            body = ' '.join(v for v in f['text'].values() if v)
+                            self.assertIsNone(re.search(r'\d', language_v1.TIME_TOKEN.sub(' ', body)), body)
+                        self.assertIsNone(re.search(r'\d', rep['overview']['text']), rep['overview']['text'])
+
+    def test_same_evidence_across_levels_for_one_family(self):
+        """Spec Part 16: the wide-defender family cites the same moments at levels 4-7, with different words."""
+        seen = {}
+        for lvl in (4, 5, 6, 7):
+            rep = TX.report('unsupported_advance', 'none_behind', lvl)
+            fam = [f for f in TX.findings_of(rep) if f['observation'] == 'wide_defender_advance']
+            self.assertEqual(len(fam), 1, lvl)
+            seen[lvl] = fam[0]
+        evs = {lvl: [ts['evidence'] for ts in f['timestamps']] for lvl, f in seen.items()}
+        self.assertEqual(len({tuple(v) for v in evs.values()}), 1, evs)
+        for a in (4, 5, 6):
+            for b in range(a+1, 8):
+                self.assertLess(EX.jaccard(seen[a]['text']['explanation'], seen[b]['text']['explanation']), .5)
+
+    def test_possession_unknown_is_said_and_not_filled(self):
+        rep = TX.report('possession_unknown', None, 4)
+        po = rep['overview']['possession']
+        self.assertFalse(po['available'])
+        self.assertEqual(po['quality'], 'unavailable')
+        self.assertEqual(po['reason'], report.UNAVAILABLE_REASON)
+        self.assertIn('phase_unavailable', [n['code'] for n in rep['overview']['notices']])
+        self.assertIn('could not be followed', rep['overview']['text'])
+        for f in TX.findings_of(rep):
+            self.assertEqual(f['context']['phase']['state'], 'unknown', 'only phase-free descriptions remain')
+        self.assertEqual(rep['needsWork']+rep['reviews']+rep['strengths'], [])
+
+    def test_coach_marked_spans_are_shown_as_coach_marked(self):
+        rep = TX.report('amateur_coach_spans', 'spans', 4)
+        po = rep['overview']['possession']
+        self.assertTrue(po['available'])
+        self.assertIn('coach-marked', po['caveat'])
+        self.assertIn('spans you marked', rep['overview']['text'])
+        phased = [f for f in TX.findings_of(rep) if f['context']['phase']['state'] in ('own', 'opp')]
+        self.assertTrue(phased)
+        for f in phased:
+            self.assertIn('(coach-marked)', f['text']['explanation'])
+            self.assertNotIn('(estimated)', f['text']['explanation'])
+
+    def test_a_clear_formation_mismatch_is_a_notice(self):
+        rep = TX.report('wrong_formation', 'default', 4)
+        n = [x for x in rep['overview']['notices'] if x['code'] == 'formation_mismatch']
+        self.assertEqual(len(n), 1)
+        self.assertIn('3-5-2', n[0]['text'])
+        self.assertIn('4-4-2', n[0]['text'])
+        self.assertEqual(_ids_in(n[0]['text']), [])
+
+    def test_short_range_notice_and_no_pattern_words(self):
+        rep = TX.report('short_segment', None, 4)
+        self.assertIn('short_range', [n['code'] for n in rep['overview']['notices']])
+        b, st, obs, roles = TX.tiers('unsupported_advance', 'none_behind')
+        t0 = obs['segment']['t0']+30.0
+        rep = coaching.interpret(obs, roles, TX.settings_at(st, 'A', 6), 'A', t0=t0, t1=t0+90.0)
+        self.assertIn('short_range', [n['code'] for n in rep['overview']['notices']])
+        for path, text in TX.texts_of(rep):
+            for w in ('repeated', 'pattern', 'often', 'regularly', 'consistently'):
+                self.assertNotRegex(text.lower(), r'\b'+w+r'\b', (path, text))
+
+    def test_nothing_found_says_it_is_not_proof(self):
+        rep = TX.report('possession_unknown', None, 2)
+        self.assertEqual(rep['strengths']+rep['needsWork']+rep['reviews'], [])
+        self.assertIn('not proof', rep['overview']['text'])
+
+    def test_diagrams_finding_shape_and_movement(self):
+        rep = TX.report('unsupported_advance', 'none_behind', 4)
+        kinds = Counter(d['kind'] for d in rep['diagrams'])
+        self.assertEqual(kinds['finding'], sum(1 for e in rep['keyMoments'] if e['diagram']))
+        self.assertGreaterEqual(kinds['formation'], 1)
+        self.assertGreaterEqual(kinds['movement'], 1)
+        for d in rep['diagrams']:
+            self.assertEqual(S.validate('diagram', d['diagram']), [])
+            if d['kind'] == 'formation':
+                self.assertIsNone(d['finding'])
+                self.assertRegex(d['caption'], r'\((?:estimated|coach-marked|estimated, partly coach-marked)\)')
+                self.assertIn('Described, not judged', d['caption'])
+                self.assertTrue(all(el['type'] == 'player' and el['team'] == 'A' for el in d['diagram']['elements']))
+            if d['kind'] == 'movement':
+                self.assertIn(d['evidence'], {e['id'] for e in rep['keyMoments']})
+                arrows = [el for el in d['diagram']['elements'] if el['type'] == 'arrow']
+                self.assertTrue(arrows)
+                for a in arrows:
+                    (x0, y0), (x1, y1) = a['points']
+                    moved = math.hypot((x1-x0)*105.0, (y1-y0)*68.0)
+                    self.assertGreaterEqual(moved, report.MOVEMENT_MIN_M-1e-6)
+                    self.assertTrue(a['id'].startswith('A-'), 'arrows only for our own outfield players')
+        self.assertLessEqual(kinds['formation'], report.MAX_FORMATION_DIAGRAMS)
+
+    def test_next_objective_from_the_match(self):
+        rep = TX.report('unsupported_advance', 'none_behind', 4)
+        no = rep['nextObjective']
+        self.assertTrue(no['fromMatch'])
+        self.assertEqual(no['finding'], rep['needsWork'][0]['id'])
+        self.assertIn('From this match', no['text'])
+        self.assertEqual(EX.validate_free(no['text'], rep['profile'], None, check_facts=False), [])
+
+    def test_drills_belong_to_reported_findings(self):
+        for scene, variant in V2_SCENES:
+            for lvl in (2, 4, 6):
+                rep = TX.report(scene, variant, lvl)
+                ids = {f['id'] for f in TX.findings_of(rep)}
+                keys = {e['id'] for e in rep['keyMoments']}
+                for p in rep['drills']:
+                    with self.subTest(scene=scene, level=lvl, drill=p['drill']):
+                        self.assertTrue(p['optional'] or p['finding'] in ids)
+                        self.assertTrue(set(p['fields']['moments']) <= keys)
+                        if p['finding']:
+                            f = next(x for x in TX.findings_of(rep) if x['id'] == p['finding'])
+                            self.assertIn(p['drill'], f['drills'])
+                            self.assertIn(f['verdict'], S.CRITICISM)
+
+    def test_fast_enough(self):
+        """DESIGN 1.2: a level change rebuilds only the interpretation tier, target < 300 ms (3-min clip); the
+        scene is 6 minutes."""
+        b, st, obs, roles = TX.tiers('unsupported_advance', 'none_behind')
+        took = []
+        for lvl in LEVELS:
+            a = _time.perf_counter()
+            coaching.interpret(obs, roles, TX.settings_at(st, 'A', lvl), 'A')
+            took.append(_time.perf_counter()-a)
+        self.assertLess(sorted(took)[len(took)//2], .3, took)
+
+
+class V2AssemblyTests(unittest.TestCase):
+    """build_report_v2 called directly: what it does with withheld findings, missing moments, no-alternative records
+    and drill picks it cannot print."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.obs, cls.roles = TX.tiers('unsupported_advance', 'none_behind')
+
+    def parts(self, level=4):
+        """The stage inputs interpret hands the report stage, captured with a stand-in report stage."""
+        got = {}
+
+        def capture(**kw):
+            got.update(_copy.deepcopy(kw))
+            return report.build_report_v2(**kw)
+        coaching.interpret(self.obs, self.roles, TX.settings_at(self.st, 'A', level), 'A',
+                           stages={'report': capture})
+        return got
+
+    def test_a_withheld_findings_moments_are_dropped(self):
+        kw = self.parts()
+        gone = kw['findings'][0]
+        kw['findings'] = kw['findings'][1:]
+        kw['withheld'] = kw['withheld']+[{'finding': gone['id'], 'reason': 'text_failed_validation'}]
+        log = []
+        rep = report.build_report_v2(log=log, **kw)
+        gone_evs = {ts['evidence'] for ts in gone['timestamps']}
+        still = {ts['evidence'] for f in TX.findings_of(rep) for ts in f['timestamps']}
+        self.assertFalse((gone_evs-still) & {e['id'] for e in rep['keyMoments']})
+        self.assertTrue(all(e['finding'] != gone['id'] for e in rep['keyMoments']))
+        self.assertTrue(all(d['finding'] != gone['id'] for d in rep['diagrams']))
+        self.assertEqual(S.validate('report', rep), [])
+
+    def test_a_finding_whose_moment_was_not_made_is_withheld(self):
+        kw = self.parts()
+        f = kw['findings'][0]
+        kw['evidence'] = [e for e in kw['evidence'] if e['id'] != f['timestamps'][0]['evidence']]
+        rep = report.build_report_v2(**kw)
+        self.assertIn({'finding': f['id'], 'reason': 'moment_missing'}, rep['withheld'])
+        self.assertNotIn(f['id'], {x['id'] for x in TX.findings_of(rep)})
+        self.assertEqual(S.validate('report', rep), [])
+
+    def test_no_alternative_reason_reaches_the_work_item(self):
+        kw = self.parts()
+        work = [f for f in kw['findings'] if f['verdict'] == 'work_on']
+        self.assertTrue(work)
+        f = work[0]
+        kw['alternatives'] = [a for a in kw['alternatives'] if a['finding'] != f['id']]
+        for fx_ in kw['findings']:
+            if fx_['id'] == f['id']:
+                fx_['claims'] = [c for c in fx_['claims'] if c['type'] != 'counterfactual']
+                fx_['text']['action'] = 'Keep one teammate in the left channel behind an advancing defender.'
+        kw['no_alternatives'] = [{'finding': f['id'], 'evidence': None, 't': None, 'principle': 'cover_behind_'
+                                  'advancing_defender', 'reason': 'no_reachable_fix', 'rejected': []}]
+        rep = report.build_report_v2(**kw)
+        got = next(x for x in rep['needsWork'] if x['id'] == f['id'])
+        # the wording key: no_reachable_fix, or (fix round 1, ZONES B-8) its channel-opponent variant
+        words = EX.NO_ALT_WORDS[EX.no_alt_facts(f, kw['no_alternatives'][0])['wording']][1]
+        self.assertTrue(got['text']['action'].startswith(words), got['text'])
+        self.assertTrue(any(c['type'] == 'limitation' and c['facts'].get('code') == 'no_alternative'
+                            for c in got['claims']))
+        self.assertEqual(EX.validate(got['text'], got['claims'], got, rep['profile']), [])
+
+    def test_a_guardrail_review_gets_no_second_why(self):
+        kw = self.parts(7)                      # level 7, style unknown: the wide-defender family is a review
+        rev = [f for f in kw['findings'] if f['verdict'] == 'review']
+        self.assertTrue(rev)
+        f = rev[0]
+        before = f['text']['action']
+        kw['no_alternatives'] = [{'finding': f['id'], 'evidence': None, 't': None, 'principle': 'cover_behind_'
+                                  'advancing_defender', 'reason': 'guardrail_failed', 'rejected': []}]
+        rep = report.build_report_v2(**kw)
+        self.assertEqual(next(x for x in rep['reviews'] if x['id'] == f['id'])['text']['action'], before)
+
+    def test_drill_picks_the_report_cannot_print_are_left_out(self):
+        # DETECT fix round 1 (critic B-1): level 1 judges "someone back" with the ball in the final third only; the
+        # none_behind scene's centre-back carries it in midfield (no level-1 criticism), so the level-1 try-this comes
+        # from the same advances played high (variant final_third).
+        got = {}
+
+        def capture(**kw_):
+            got.update(_copy.deepcopy(kw_))
+            return report.build_report_v2(**kw_)
+        _, st, obs, roles = TX.tiers('unsupported_advance', 'final_third')
+        coaching.interpret(obs, roles, TX.settings_at(st, 'A', 1), 'A', stages={'report': capture})
+        kw = got
+        f = next(x for x in kw['findings'] if x['verdict'] == 'try_this')
+        ev = f['timestamps'][0]['evidence']
+        good = {'finding': f['id'], 'drill': 'l1_help_your_teammate_2v2', 'optional': False,
+                'fields': {'trains': 'Someone ready to protect our goal.', 'why': 'For this match\'s focus.',
+                           'moments': [ev], 'easier': 'Play 2 v 1.', 'harder': 'Add a defender.',
+                           'progress': 'Someone stays back when we attack.'}}
+        numbers = _copy.deepcopy(good)
+        numbers['fields']['why'] = 'It happened in 16 of 16 attacks.'              # no numbers at level 1
+        unknown = _copy.deepcopy(good)
+        unknown['fields']['moments'] = ['ev-000000000000']
+        loose = _copy.deepcopy(good)
+        loose['finding'] = None                                                     # not optional: refused
+        kw['drills'] = [good, numbers, unknown, loose]
+        log = []
+        rep = report.build_report_v2(log=log, **kw)
+        self.assertEqual(len(rep['drills']), 1)
+        self.assertEqual(rep['drills'][0]['fields']['why'], good['fields']['why'])
+        self.assertEqual(len([x for x in log if x[0] == 'drill']), 3)
+        self.assertEqual(next(x for x in rep['needsWork'] if x['id'] == f['id'])['drills'],
+                         ['l1_help_your_teammate_2v2'])
+
+    def test_a_work_item_without_a_drill_says_why(self):
+        """DRILLS' request: a work item left without a drill gets a notice (library, safety, or not printable)."""
+        kw = self.parts(4)
+        work = [f for f in kw['findings'] if f['verdict'] in S.CRITICISM]
+        self.assertTrue(work)
+        shown = report.build_report_v2(**_copy.deepcopy(kw))
+        self.assertNotIn('no_drill', [n['code'] for n in shown['overview']['notices']])
+        none = _copy.deepcopy(kw)
+        none['drills'] = []
+        rep = report.build_report_v2(**none)
+        texts = [n['text'] for n in rep['overview']['notices'] if n['code'] == 'no_drill']
+        self.assertEqual(len(texts), len(work))
+        self.assertIn(work[0]['text']['short'].lower(), texts[0].lower())
+        bad = _copy.deepcopy(kw)
+        for p in bad['drills']:
+            p['fields']['why'] = 'It happened in 99 of 99 moments.'
+        rep = report.build_report_v2(**bad)
+        texts = [n['text'] for n in rep['overview']['notices'] if n['code'] == 'no_drill']
+        self.assertTrue(texts and 'could not be worded' in texts[0])
+
+    def test_the_fixed_report_sentences_pass_every_level(self):
+        """A fixed sentence the gate refuses would silently disappear (a 'never' did): every level, every one."""
+        from soccer.coaching import profiles as PR
+        for lvl in LEVELS:
+            prof = PR.resolve({'playingLevel': lvl, 'ageGroup': PR.default_age(lvl)})
+            texts = [w.format(short='someone back') for w in report.NO_DRILL_WORDS.values()]
+            texts += list(report.DATA_QUALITY_HELP.values())+[report.UNAVAILABLE_REASON]
+            for text in texts:
+                with self.subTest(level=lvl, text=text):
+                    facts = L.facts_for(extra={'advice': list(report.KEYFRAME_ADVICE)})
+                    self.assertEqual(EX.validate_free(text, prof, facts, numbers=False, short=True), [])
+
+    def test_next_objective_skips_a_withheld_top_item(self):
+        kw = self.parts()
+        top = kw['assessment']['nextObjective']['finding']
+        self.assertIsNotNone(top)
+        kw['findings'] = [f for f in kw['findings'] if f['id'] != top]
+        rep = report.build_report_v2(**kw)
+        no = rep['nextObjective']
+        self.assertNotEqual(no['finding'], top)
+        if rep['needsWork']:
+            self.assertEqual(no['finding'], rep['needsWork'][0]['id'])
+        else:
+            # fix round 2: no other work item gives no objective from the match (critic S-8), never the first
+            # unpraised check; polish round: the level's general learning objective, labelled, which names no check
+            # (this stage cannot see what the match demonstrated), else the no-objective sentence
+            self.assertFalse(no['fromMatch'])
+            self.assertIsNone(no['skill'])
+            self.assertEqual(no, report._no_objective(rep['profile']))
+        kw['findings'] = [f for f in kw['findings'] if f['verdict'] not in S.CRITICISM]
+        rep = report.build_report_v2(**kw)
+        self.assertEqual(rep['nextObjective'], report._no_objective(rep['profile']))
+        focus = AS.level_focus(rep['profile'], checks=False)
+        self.assertEqual(rep['nextObjective']['text'], focus['text'] if focus else
+                         report.no_objective_text(rep['profile']))
+        self.assertEqual([p for p in rep['drills'] if p['optional']], [])     # no check named: no optional drill
+
+    def test_the_data_quality_notice_names_the_cause_and_the_help(self):
+        """critic B4: the dominant data-quality cause and what would help (keyframes, identity corrections, a wider
+        view); nothing when no cause dominates."""
+        kw = self.parts()
+        for cause, words in (('registration', 'keyframes'), ('identity', 'identity corrections'),
+                             ('out_of_view', 'wider camera view'), (None, None)):
+            k2 = _copy.deepcopy(kw)
+            k2['obs']['timeline']['dataQuality']['dominantCause'] = cause
+            rep = report.build_report_v2(**k2)
+            got = [n['text'] for n in rep['overview']['notices'] if n['code'] == 'data_quality']
+            with self.subTest(cause=cause):
+                if cause is None:
+                    self.assertEqual(got, [])
+                else:
+                    self.assertEqual(len(got), 1)
+                    self.assertIn(words, got[0])
+
+    def test_the_overview_drops_a_name_its_level_refuses(self):
+        """The synthesis is gated like any text: a finding name the level's register bans is left out of the
+        overview (the rest stays), never printed."""
+        kw = self.parts(4)
+        prof = _copy.deepcopy(kw['profile'])
+        prof['register']['banned'] = list(prof['register']['banned'])+['cover']
+        strong = [f for f in kw['findings'] if f['verdict'] == 'strength']
+        self.assertTrue(strong)
+        for f in strong:
+            f['text']['short'] = 'Pressure with cover'
+        sections = {'strengths': strong, 'needsWork': [], 'reviews': [], 'described': []}
+        text = report._overview_text(prof, kw['assessment'], sections, kw['obs'], kw['range'])
+        self.assertIsNotNone(text)
+        self.assertNotRegex(text.lower(), r'(?<![a-z-])cover(?![a-z-])')
+        self.assertIn('checks for this level', text)
+        ok = report._overview_text(kw['profile'], kw['assessment'], sections, kw['obs'], kw['range'])
+        self.assertIn('pressure with cover', ok)
+
+    def test_work_items_follow_their_priority(self):
+        kw = self.parts(4)
+        work = [f for f in kw['findings'] if f['verdict'] == 'work_on']
+        self.assertTrue(work)
+        third, first = _copy.deepcopy(work[0]), _copy.deepcopy(work[0])
+        third['id'], first['id'] = 'fnd-'+'e'*12, 'fnd-'+'f'*12
+        work[0]['priority'], third['priority'], first['priority'] = 2, 3, 1
+        kw['findings'] = kw['findings']+[third, first]      # input order 2, 3, 1 (neither sorted nor reversed)
+        rep = report.build_report_v2(**kw)
+        self.assertEqual([f['priority'] for f in rep['needsWork']], [1, 2, 3])
+        self.assertEqual(rep['needsWork'][0]['id'], first['id'])
+
+    def test_movement_arrows_are_ours_and_outfield_only(self):
+        kw = self.parts(4)
+        f = next(x for x in kw['findings'] if x['verdict'] != 'describe' and x['timestamps'])
+        ev = next(e for e in kw['evidence'] if e['id'] == f['timestamps'][0]['evidence'])
+        m = _copy.deepcopy(next(x for x in self.obs['moments']+self.roles['moments'] if x['id'] == ev['id']))
+        self.assertIsNotNone(m['before'])
+        m['scene']['players']['B-77'] = {'team': 'B', 'x': .5, 'y': .5, 'kind': 'O', 'sigma': None,
+                                         'goalkeeper': False, 'box': None}
+        m['before']['players']['B-77'] = {'team': 'B', 'x': .3, 'y': .3, 'kind': 'O', 'sigma': None,
+                                          'goalkeeper': False, 'box': None}
+        m['scene']['players']['GK-1'] = {'team': f['team'], 'x': .05, 'y': .5, 'kind': 'O', 'sigma': None,
+                                         'goalkeeper': True, 'box': None}
+        m['before']['players']['GK-1'] = {'team': f['team'], 'x': .15, 'y': .5, 'kind': 'O', 'sigma': None,
+                                          'goalkeeper': True, 'box': None}
+        d = report.movement_diagram(f, ev, m, self.obs, kw['profile'])
+        self.assertIsNotNone(d)
+        ids = {el['id'] for el in d['diagram']['elements'] if el['type'] == 'arrow'}
+        self.assertNotIn('B-77', ids)
+        self.assertNotIn('GK-1', ids)
+        self.assertIn('B-77', {el['id'] for el in d['diagram']['elements'] if el['type'] == 'player'})
+
+    def test_sources_cover_the_claims_and_the_drills(self):
+        """report.sources = the profile's + the principle claims' + the picked drills'. Each part is checked alone
+        (the others emptied): on this scene the drill and the claims cite the same two sources, all in the profile."""
+        from soccer.coaching import drills as D
+        from soccer.coaching import profiles as PR
+        lib = D.load_library()
+        kw = self.parts(4)
+        self.assertTrue(kw['drills'])
+        claim_src = {PR.canonical_source(c['source']) for f in kw['findings'] for c in f['claims'] if c.get('source')}
+        drill_src = {PR.canonical_source(r['source']) for p in kw['drills']
+                     for r in D.get(lib, p['drill'])['source_reference']}
+        self.assertTrue(claim_src and drill_src)
+        full = report.build_report_v2(**_copy.deepcopy(kw))
+        ids = [s['id'] for s in full['sources']]
+        self.assertEqual(ids, sorted(set(ids)))
+        self.assertTrue(claim_src | drill_src | {PR.canonical_source(x) for x in kw['profile']['sources']} >= set(ids))
+        claims_only = _copy.deepcopy(kw)
+        claims_only['profile']['sources'], claims_only['drills'] = [], []
+        self.assertEqual({s['id'] for s in report.build_report_v2(**claims_only)['sources']}, claim_src)
+        drills_only = _copy.deepcopy(kw)
+        drills_only['profile']['sources'] = []
+        for f in drills_only['findings']:
+            for c in f['claims']:
+                if c.get('source'):
+                    c['tag'], c['source'] = S.ORIGIN_P, None
+        self.assertEqual({s['id'] for s in report.build_report_v2(**drills_only)['sources']}, drill_src)
+
+
+class V2FixRoundOneTests(unittest.TestCase):
+    """Fix round 1 (critic B-11 / N6, FACTS L11a, COACH L2 / L3): what the report itself now says."""
+
+    def one_sided_obs(self, marked_own=True):
+        b, st, obs, roles = TX.tiers('amateur_coach_spans', 'spans')
+        obs = _copy.deepcopy(obs)
+        pq = obs['timeline']['phaseQuality']
+        pq['available'] = False
+        pq['roughShares'] = None
+        coach = dict(pq.get('coach') or {})
+        coach.update(own=11.5 if marked_own else 0.0, opp=0.0 if marked_own else 8.0)
+        pq['coach'] = coach
+        return obs, roles, st
+
+    def test_one_sided_coach_marks_give_no_share_and_say_why(self):
+        """critic N6: Team A's two spells marked on the AM copy read "A 1.0, B 0.0"."""
+        for own in (True, False):
+            obs, roles, st = self.one_sided_obs(own)
+            po = report._possession(obs)
+            with self.subTest(marked_own=own):
+                self.assertIsNone(po['roughShares'])
+                self.assertEqual(po['source'], 'coach')
+                self.assertIn('no share is given', po['caveat'])
+                prof = PR_resolve(st, 4)
+                notes = report._report_notices(obs, roles, prof, {'t0': 0.0, 't1': 1e6}, False)
+                note = [n for n in notes if n['code'] == 'coach_marks_one_side']
+                self.assertEqual(len(note), 1)
+                marked = obs['team'] if own else ('B' if obs['team'] == 'A' else 'A')
+                self.assertIn(f'only Team {marked}', note[0]['text'])
+        b, st, obs, roles = TX.tiers('amateur_coach_spans', 'spans')     # both teams marked: a share, coach source
+        po = report._possession(obs)
+        self.assertEqual(po['source'], 'coach')
+        self.assertIsNotNone(po['roughShares'])
+        rep = TX.report('unsupported_advance', 'none_behind', 4)
+        self.assertEqual(rep['overview']['possession']['source'], 'engine')
+        self.assertEqual(S.validate('report', rep), [])
+
+    def test_a_range_just_under_three_minutes_says_so(self):
+        """FACTS L11a: 179.97 s read "This report covers 3.0 minutes" beside "shorter than three minutes"."""
+        self.assertEqual(report.duration_words(179.967), 'just under 3 minutes')
+        self.assertEqual(report.duration_words(180.0), '3.0 minutes')
+        self.assertEqual(report.duration_words(365.0), '6.1 minutes')
+        self.assertEqual(report.duration_words(59.0), '59 s')
+
+    def test_team_level_challenges_circle_nobody(self):
+        """COACH L2: levels 1-2 put the review outline on the advancing child; it is the support style now, and level
+        4's evidence-only naming keeps the review ring."""
+        for lvl, ring in ((1, False), (2, False), (4, True)):
+            rep = TX.report('unsupported_advance', 'final_third', lvl)
+            crit = {f['id'] for f in rep['needsWork']+rep['reviews']}
+            moments = [e for e in rep['keyMoments'] if e['finding'] in crit]
+            with self.subTest(level=lvl):
+                self.assertTrue(moments)
+                rings = [el for e in moments for spec in (e.get('diagram'), e.get('videoOverlay')) if spec
+                         for el in spec['elements'] if el.get('type') == 'focus' and el.get('tone') == 'review']
+                self.assertEqual(bool(rings), ring)
+                self.assertEqual(S.validate('report', rep), [])
+
+    def test_rest_defence_is_defined_once_wherever_the_report_uses_it(self):
+        """COACH L3: 77 level-6 reports used "rest defence" without its PitchIQ definition (a headline, the next
+        objective "Rest-defence margin (PitchIQ)", a drill's "Also:" line)."""
+        rx = re.compile(r'\brest[- ]defen[cs]e\b', re.I)
+        # fix round 3 (FACTS F-1): the definition carries the run's margin words; its start is said once
+        definition = EX.DEFINITION_START['rest_defence']
+        for scene, variant in (('box_edge', 'box'), ('unsupported_advance', 'none_behind'),
+                               ('amateur_coach_spans', 'no_spans')):
+            for lvl in (6, 7):
+                rep = TX.report(scene, variant, lvl)
+                allt = ' || '.join([rep['overview']['text'] or '', rep['nextObjective']['text']] +
+                                   [v for f in TX.findings_of(rep) for v in f['text'].values() if v] +
+                                   [v for p in rep['drills'] for v in p['fields'].values() if isinstance(v, str)])
+                with self.subTest(scene=scene, level=lvl):
+                    if rx.search(allt):
+                        self.assertEqual(allt.count(definition), 1, allt)
+
+    def test_the_no_drill_words_cover_the_format_reason(self):
+        self.assertIn('no_drill_for_format', report.NO_DRILL_WORDS)
+
+
+class V2MomentsTests(unittest.TestCase):
+    """Fix round 2 (LEAD decision (b)): a 'moments worth a look' review sits in section 3 (WHAT NEEDS WORK) as its own
+    part after the work items and the possible issues (REVIEW_PARTS: the page and the PDF print each part under its
+    title), is never counted or named as a possible issue in the overview, gets no drill and no zone sentence; with no
+    next objective the report says what that means (critic S-8 / ASSESS fix round 2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.obs, cls.roles = TX.tiers('unsupported_advance', 'none_behind')
+
+    def parts(self, level):
+        got = {}
+
+        def capture(**kw):
+            got.update(_copy.deepcopy(kw))
+            return report.build_report_v2(**kw)
+        coaching.interpret(self.obs, self.roles, TX.settings_at(self.st, 'A', level), 'A', stages={'report': capture})
+        return got
+
+    def with_moments(self, level):
+        """The report-stage inputs of the scene at a level with its first failing finding turned into a 'moments
+        worth a look' review as assess fix round 2 makes one (the counts, no priority, every guardrail but evidence;
+        one of its listed opportunities unclear) and worded by explain; its drill picks removed (drills attach to
+        work items only)."""
+        kw = self.parts(level)
+        f0 = next(f for f in kw['findings'] if f['verdict'] in EX.FAILURES)
+        f = _copy.deepcopy(f0)
+        n = len(f['timestamps'])
+        decided = len(f['opportunities'])-1
+        self.assertGreater(decided, n)
+        f.update(verdict='review', priority=None, limitations=[EX.MOMENTS], text=None, claims=[], drills=[])
+        f['guardrails'] = {k: 'pass' for k in S.GUARDRAILS}
+        f['guardrails']['evidence'] = 'fail'
+        f['measurements'].update(clearMoments=n, clearSpells=n, decidedMoments=decided, failingMoments=n)
+        f['aggregate'].update(opportunities=decided+1, demonstrated=decided-n, notDemonstrated=n, unclear=1,
+                              distinctFailingSpells=n)
+        out = EX.explain([f], kw['profile'], obs=kw['obs'], roles=kw['roles'])
+        self.assertEqual(out['withheld'], [])
+        kw['findings'] = [out['findings'][0] if x['id'] == f0['id'] else x for x in kw['findings']]
+        kw['drills'] = [p for p in kw['drills'] if p.get('finding') != f0['id']]
+        if kw['assessment']['nextObjective'].get('finding') == f0['id']:
+            kw['assessment']['nextObjective'] = {'skill': None, 'text': '', 'fromMatch': False, 'finding': None}
+        return kw, f0['id']
+
+    def test_its_part_in_what_needs_work_and_the_overview(self):
+        for lvl in (3, 4, 7):
+            kw, fid = self.with_moments(lvl)
+            rep = report.build_report_v2(**kw)
+            with self.subTest(level=lvl):
+                self.assertEqual(S.validate('report', rep), [])
+                self.assertEqual(S.cross_check(rep, kw['obs'], kw['roles']), [])
+                f = next(x for x in rep['reviews'] if x['id'] == fid)
+                self.assertNotIn(fid, {x['id'] for x in rep['needsWork']})
+                self.assertEqual(report.review_part(f), 'moments')
+                parts = [p['part'] for p in report.REVIEW_PARTS]
+                self.assertEqual([parts.index(report.review_part(x)) for x in rep['reviews']],
+                                 sorted(parts.index(report.review_part(x)) for x in rep['reviews']))
+                got = report.reviews_by_part(rep)
+                self.assertEqual(got[-1][0]['title'], 'Moments worth a look')
+                self.assertEqual([x['id'] for x in got[-1][1]], [fid])
+                self.assertEqual(f['drills'], [])
+                self.assertNotIn(fid, {p['finding'] for p in rep['drills']})
+                self.assertEqual(EX.moments_problems(f), [])
+                ov = rep['overview']['text']
+                self.assertIn('Moments worth a look, not a verdict: '+f['text']['short'][:1].lower(), ov)
+                n_issues = len([x for x in rep['reviews'] if report.review_part(x) == 'issues'])
+                if not n_issues:
+                    self.assertNotIn('possible issue', ov)
+                for e in rep['keyMoments']:
+                    if e['finding'] == fid:
+                        self.assertEqual(e['caption'], f['text']['short'])
+
+    def test_the_part_texts_pass_every_level(self):
+        from soccer.coaching import profiles as PR
+        for lvl in LEVELS:
+            prof = PR.resolve({'playingLevel': lvl, 'ageGroup': PR.default_age(lvl)})
+            for part in report.REVIEW_PARTS:
+                for text in (part['title'], part['intro']):
+                    with self.subTest(level=lvl, text=text):
+                        self.assertEqual(EX.validate_free(text, prof, None, numbers=False, short=True), [])
+            with self.subTest(level=lvl, text='no objective'):
+                self.assertEqual(report.no_objective_text(prof), report._at(report.NO_OBJECTIVE_WORDS, lvl))
+
+    def test_no_next_objective_is_said_plainly(self):
+        """ASSESS fix round 2 (critic S-8): 182 of the 196 run-copy reports have no next objective; the text says what
+        the rule found, not "No next objective could be chosen from this level's checks"."""
+        for lvl in (1, 2, 4, 6, 7):
+            kw = self.parts(lvl)
+            kw['assessment']['nextObjective'] = {'skill': None, 'text': 'No next objective could be chosen from this '
+                                                                       'level\'s checks.', 'fromMatch': False,
+                                                 'finding': None}
+            kw['findings'] = [f for f in kw['findings'] if f['verdict'] not in S.CRITICISM]
+            rep = report.build_report_v2(**kw)
+            no = rep['nextObjective']
+            focus = AS.level_focus(rep['profile'], checks=False)
+            with self.subTest(level=lvl):
+                self.assertIsNone(no['skill'])
+                # polish round: the level's general learning objective when it has one (levels 1-6 here), else the
+                # sentence of fix round 2 (level 7 has none a team can take: its objectives are coach education)
+                self.assertEqual(no['text'], focus['text'] if focus else
+                                 report.NO_OBJECTIVE_WORDS[1 if lvl <= 2 else 3])
+                self.assertEqual(focus is None, lvl == 7)
+                self.assertNotIn('could be chosen', no['text'])
+                self.assertEqual(S.validate('report', rep), [])
+
+
+def PR_resolve(st, level):
+    from soccer.coaching import profiles as PR
+    return PR.resolve(TX.settings_at(st, 'A', level)['teams']['A'], team='A')
+
+
+class V2ForwardingTests(unittest.TestCase):
+    """The v1 report moved to report_v1.py (served until wave 7): the old names still work through report.py, and
+    the v2 modules never import the v1 code (DESIGN 11.2)."""
+
+    def test_v1_names_are_forwarded(self):
+        self.assertIs(report.build_report, report_v1.build_report)
+        self.assertEqual(report.SECTIONS, report_v1.SECTIONS)
+        self.assertEqual(report.MAX_PRIORITIES, report_v1.MAX_PRIORITIES)
+        self.assertEqual(report.language.DEFAULT_LEVEL, 'competitive')      # __init__.build_report_for reads it
+        with self.assertRaises(AttributeError):
+            report.no_such_name
+
+    def test_v2_modules_never_import_the_v1_words(self):
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'soccer', 'coaching')
+        for name in ('report.py', 'explain.py', 'language.py'):
+            with open(os.path.join(root, name), encoding='ascii') as fh:
+                src = fh.read()
+            imports = [ln for ln in src.splitlines() if re.match(r'\s*(?:from|import)\s', ln)]
+            self.assertFalse([ln for ln in imports if 'language_v1' in ln or 'report_v1' in ln], (name, imports))
+        self.assertNotIn('report_v1', [p.split('/')[-1][:-3] for p in coaching.code_files('interpretation')])
+        self.assertNotIn('language_v1', [p.split('/')[-1][:-3] for p in coaching.code_files('interpretation')])
+
+
+class V2FixRoundThreeTests(unittest.TestCase):
+    """Fix round 3 (Oct 24; critic S-3 / B-3, FACTS F-9, COACH F-4, F-11, F-12): the next objective says where it
+    comes from, never asks for what the declared style accepts, starts with a capital; the overview's rest-defence
+    definition carries the run's margin; report.text_problems (for coaching_eval.report_problems, game-3 G1+)
+    refuses each old form. On the COACH verifier's 546 scene reports the S-8 objective read "From the level's
+    objectives, not from this match" 209 times (0 after); the compact-style far-side objective 1 (0 after)."""
+
+    def test_the_objective_from_this_match_s_checks_says_so(self):
+        rep = TX.report('small_field_scale', 'declared', 4)
+        no = rep['nextObjective']
+        self.assertEqual((no['skill'], no['fromMatch']), ('back_line_coordination', False))
+        self.assertTrue(no['text'].startswith(report.S8_LABEL), no['text'])
+        self.assertNotIn('not from this match', no['text'])
+        self.assertEqual(report.text_problems(rep), [])
+        self.assertEqual(EX.validate_free(no['text'], rep['profile'], None, numbers=False, limit=400), [])
+        old = _copy.deepcopy(rep)
+        old['nextObjective']['text'] = "From the level's objectives, not from this match: Back-line coordination."
+        self.assertEqual(len(report.text_problems(old)), 2)
+
+    def test_no_objective_on_what_the_style_accepts(self):
+        """COACH F-12: defending/weak_empty at level 7, compact: "Because the selected style is compact, open space
+        on the far side is accepted", then "Defensive balance (far side)" as the next objective."""
+        rep = TX.report('defending', 'weak_empty', 7, age='Adult', style='compact')
+        d2 = [f for f in TX.findings_of(rep) if f['observation'] == 'weak_side_balance']
+        self.assertTrue(any(EX.STYLE_EFFECT['compact_far_side_accepted'] in f['text']['explanation'] for f in d2))
+        self.assertNotEqual(rep['nextObjective']['skill'], 'far_side_protection')
+        self.assertEqual(report.style_accepted(TX.findings_of(rep), 'weak_side_balance'), 'compact')
+        self.assertEqual(report.text_problems(rep), [])
+        old = _copy.deepcopy(rep)
+        old['nextObjective'] = {'skill': 'far_side_protection', 'fromMatch': False, 'finding': None,
+                                'text': report.S8_LABEL+'Defensive balance (far side).'}
+        self.assertTrue(any('style accepts' in p for p in report.text_problems(old)))
+
+    def test_an_objective_from_a_work_item_starts_with_a_capital(self):
+        rep = TX.report('channel_threat', 'deep', 2)
+        no = rep['nextObjective']
+        self.assertTrue(no['fromMatch'])
+        self.assertTrue(no['text'][:1].isupper(), no['text'])
+        old = _copy.deepcopy(rep)
+        old['nextObjective']['text'] = no['text'][:1].lower()+no['text'][1:]
+        self.assertTrue(report.text_problems(old))
+
+    def test_the_overview_defines_rest_defence_with_the_margin(self):
+        rep = TX.report('box_edge', 'box', 7)
+        self.assertIn(EX.definition_text(EX.DEFINITIONS[1][3], 'at least 10 m'), rep['overview']['text'])
+        self.assertEqual(report.margin_words({'timeline': {'scale': {'lengthM': 105.0, 'metresUsable': True}}},
+                                             rep['profile']), 'at least 10 m')
+        self.assertEqual(report.margin_words({'timeline': {'scale': {'lengthM': 105.0, 'metresUsable': False}}},
+                                             rep['profile']), 'well')
+
+    def test_professional_is_never_said_to_a_youth_team(self):
+        rep = TX.report('defending', 'weak_empty', 5)
+        self.assertEqual(report.text_problems(rep), [])
+        old = _copy.deepcopy(rep)
+        f = TX.findings_of(old)[0]
+        f['text']['explanation'] += ' Professional teams do it too.'
+        self.assertTrue(any('professional' in p for p in report.text_problems(old)))
+
+    def test_the_far_below_drill_reason_is_worded(self):
+        """DRILLS fix round 3: drills.no_drill_detail's 'only_far_below' (the only fitting drills are much younger
+        levels') had no words and read as 'no_drill_at_level'."""
+        for lvl in (4, 7):
+            text = report.NO_DRILL_WORDS['only_far_below'].format(short='spreading the attack')
+            prof = PR_resolve(TX.tiers('box_edge', 'box')[1], lvl)
+            self.assertEqual(EX.validate_free(text, prof, None, numbers=False, limit=400), [], lvl)
 
 
 if __name__ == '__main__':

@@ -1566,3 +1566,68 @@ tracking does not record who had the ball.
 
 Tests: 1103 pass (6 skipped; test_possession.py 35, test_possession_panel.py 24, test_possession_truth.py 11, its 2
 real-data tests skipped without the Metrica folders). Nothing committed; the demo checkout untouched.
+
+## Coaching v2: the report adapts to age and playing level (2026-10-21/22)
+
+**Why.** The first coaching report (commit `1262590`) failed its critic's review, with four blockers:
+- pooled strengths counted time nobody had compared;
+- the gaps between units were measured while the units were interleaved;
+- compactness was credited whatever the phase of play;
+- some sentences were false.
+
+It also judged every team against one professional match. Its levels changed only the wording: the observation ids,
+counts and drills were identical across levels on all 8 team-runs.
+
+**What was built** (DESIGN v2 in the session scratch; worktree `.claude/worktrees/coaching-v2`, branch
+`claude/coaching-v2`, uncommitted):
+- **A coaching profile per team:** age, level 1-7, format, federation, field size, formation, style and roles.
+- **Three cached tiers:** measurement, role and interpretation.
+- **Six context checks** (D1-D6) with guardrails, explained by level.
+- **Suggested areas** where one team-mate could have reached in about 2 s.
+- **Evidence moments** on their exact frames.
+- **A 14-drill library** behind an age safety filter.
+- **Progression per squad.**
+- **A seven-section page and PDF.**
+- **A tool for coaches to mark who had the ball** while watching.
+
+Waves 0-7 each wrote their own report with measurements; the README section "Coaching report" summarises them.
+
+**Wave 8, the evaluation** (`tools/coaching_eval.py`, scratch `coaching2/build/eval/`):
+
+| What | Result |
+|---|---|
+| Golden check: `result.json`, `/api/analytics`, `/api/team-shape`, `/api/possession` on BC60, BC180, BC303, AM and VEO | 170 outputs and 8 frozen modules byte-identical to the committed code |
+| Synthetic counterexamples: 30 scene variants x levels 1-7 through `store.measure` and `coaching.interpret` (`tests/test_coaching_counterexamples.py`) | 380 checks pass, 0 fail, 1 known open defect (DETECT: level 1's reframing of D3 gives the identity-crossing scene a "try this"; DESIGN 13.1 says at most a review); 0 report invariants broken |
+| DESIGN 13.4 #4: planted unsupported advances (16 spells) at level 4 | 6 of 6 scenes give a work item; covered twins and the professional-like scene get 0 criticisms at any level |
+| #5: relation and opponent claims of the planted D3 finding | L2 1, L3 2, L4 3, L5-L7 4 (+2 over L2-L3) |
+| #12: drill picks on every scene report | 210 picks, 0 trains another check, 0 heading drills at U11 or younger; 196 age/level/drill pairs the filter allows at U6-U11, 0 with heading |
+| Same video, different levels: 30 scene variants x 14 profiles, 4 re-measured (`tests/test_coaching_levels.py`) | obs / roles bytes identical; enabled checks and verdicts match DESIGN 2.3 (written out independently); level-pair trigram Jaccard at most .368 outside 2 known defects (TEXT: the D6 describe sentence repeats, 184 scene pairs at .55-.76; DETECT: findings re-pick their moments when a level judges a different failing set, 3 families) |
+| Real run copies BC60, BC180, BC303, AM, VEO (+ AM and VEO with a SYNTHETIC coach-marked phase from the blind possession labels), both teams, 14 profiles: 196 reports | 0 invariant problems; obs / roles identical under all 14 profiles; work items only on BC180 Barcelona's attacking depth at levels 1-2; every other criticism a review with a failed evidence guardrail; no suggested area drawn; amateur and Veo "not assessed" for every phase-dependent check without marks |
+| StatsBomb open data, 4 Euro 2020 matches with 360 frames (8,576 carrier events with a visible opponent) | under pressure: nearest opponent median 2.12 m, 84% within PitchIQ's 5 m; not under pressure: 5.69 m, 44% within 5 m (precision .32, base rate .20); "nobody within 5 m" agrees with not-under-pressure on .94 (.91 in the defending third). Youden's best threshold is 3 m (J .43 vs .40 at 5 m) |
+
+**Label sheets for a coach** (`tools/annotations/coaching/labels/` and scratch `build/labels/`):
+- MOMENT: 266 moments (broadcast 200, amateur 47, Veo 19; stratified by check outcome, plus 30% random times).
+- ROLE: 60 players.
+- ADVANCE: 8 spells, from PitchIQ's own spells and a role-free rule.
+- ZONE: 48 diagrams (45 from Metrica game 1, 3 from the clips).
+
+The keys are hashed in `manifest.json`. `coaching_eval.py --labels DIR` scores them and records the sha of the frozen
+rules.
+
+**Not measured yet.**
+- **Needs filled labels:** the coach-judged criteria. #6 (held-out precision of "unsupported"), #9 (coach's area vs
+  PitchIQ's) and #11 (strength moments rated positive) wait for the labels.
+- **Too little footage:** the broadcast clips hold only 4 held-out advance candidates. PitchIQ judged 3 of them, all
+  as supported, so #6 (it needs 5 spells judged unsupported) stays unmeasurable on this footage even after labelling.
+- **Game 3:** Metrica game 3 is reserved for one test declared in advance (`build/GAME3_PREDECLARED.md`), after the
+  verification fixes and the freeze.
+
+**Open.**
+- **Defects in other modules:** the three known defects above.
+- **Reasons not given (assess.py):** a check that is not assessed because its phase never occurred gives no reason (the
+  page says "not enough data"); and "phase unknown" is given when coach marks name only one team's ball.
+- **Youth footage:** no youth footage with keyframes exists yet, so levels 1-3 are judged only on synthetic scenes.
+
+Tests: the worktree's full suite passes, 1853 tests OK (7 skipped) in 625 s. The new files are
+`test_coaching_counterexamples.py`, `test_coaching_levels.py` and `test_coaching_eval.py`. Nothing is committed, and
+the demo checkout is untouched.

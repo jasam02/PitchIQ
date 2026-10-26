@@ -12,6 +12,15 @@ Synthetic results from test_coaching_detectors (tests/team_shape_synth.py layout
 metres -> pixels x = 16 X + 100, y = 10 Y + 200, the painted lines projected through it (or shifted to fail the
 paint check), and people boxes standing on their projected feet.
 
+v2 (evidence.moments / moments_from_obs / annotate, DESIGN v2 5.4-5.6) on EVAL's synthetic scenes through the real
+tiers (coaching_detect_fixtures): one moment per opportunity at a sample of its dominant outcome (an identity doubt in
+the run is never hidden), frames exact and the scene the timeline's, the frame tiers and pixel anchors the role tier
+needs, the role tier's moments rebuilt from the obs file, the moments independent of the coaching profile; the
+annotations: every cited moment has valid evidence, elements follow the tier table and the budget, labels follow the
+level's naming, relation values its register, captions pass explain's gate, a suggested zone only on the
+alternative's moment, projected through the frame's homography, kept off the video by the disagreement rule, off the
+picture or below world (DESIGN 13.1 'calibration below world'), a direction arrow no longer than the reach.
+
 Run:  python -m unittest test_coaching_evidence          (from this directory)
 """
 import copy
@@ -451,6 +460,710 @@ class Rules(unittest.TestCase):
             self.assertTrue(m['a'][0] > max(xs) or m['a'][0] < min(xs))         # outside the team
             self.assertAlmostEqual(abs(a['y']-b['y'])*68.0, self.ev[eid]['metrics']['width'], delta=.2)
             self.assertEqual(render.diagram_ops(d)['skipped'], [])
+
+
+# =====================================================================================================================
+# v2 (DESIGN v2 5.4-5.6): evidence.moments / moments_from_obs / annotate
+# =====================================================================================================================
+import coaching_detect_fixtures as FX  # noqa: E402  (EVAL's scenes through the real tiers; cached per process)
+from soccer.coaching import assess as AS, contextual as CX, explain as EX, schema as S  # noqa: E402
+from soccer.coaching import situations as SI  # noqa: E402
+
+_V2 = {}
+
+
+def v2_tiers(scene_name, variant=None):
+    """(built, settings, cd, timeline, obs, roles, anchors) of an EVAL scene through build_observations / build_roles
+    with the REAL moments stage, the anchors stored as the orchestrator is asked to (obs['roleInputs']['evidence']);
+    cached for the process (callers that change a record copy it)."""
+    key = (scene_name, variant)
+    if key not in _V2:
+        b, st, cd, poss = FX.prepared(scene_name, variant)
+        held = {}
+
+        def moments(cd_, tl, opps):
+            out = E.moments(cd_, tl, opps)
+            held['tl'], held['ri'] = tl, out['roleInputs']
+            return out
+        stages = {'moments': moments}
+        if b.coach_spans is not None:
+            spans = b.coach_spans
+            stages['situations'] = lambda cd_, p_, tm, meas: SI.build_timeline(cd_, p_, tm, meas, coach_spans=spans)
+        obs = coaching.build_observations(b.result, 'A', coaching=st, series=cd, possession=poss, result_sha='0'*64,
+                                          stages=stages)
+        obs['roleInputs'].update(held['ri'])
+        roles = coaching.build_roles(obs, st, 'A')
+        _V2[key] = (b, st, cd, held['tl'], obs, roles, held['ri']['evidence'])
+    return _V2[key]
+
+
+def sample_of(tl, t):
+    return int(np.argmin(np.abs(np.asarray(tl.t, float)-t)))
+
+
+def d6_opportunity(widths, depths=None, channels=None):
+    """A hand-made attacking_shape opportunity (outcome per sample: width share >= .55, depth share >= .30, three
+    channels -> demonstrated, else not)."""
+    n = len(widths)
+    depths = depths or [.35]*n
+    channels = channels or [3]*n
+    t = [round(100.0+.2*k, 3) for k in range(n)]
+    return {'detector': 'attacking_shape', 'team': 'A', 'abstain': None,
+            'relations': {'t': t, 'widthShare': widths, 'depthShare': depths, 'channelsOccupied': channels,
+                          'widthM': [w*68.0 if w is not None else None for w in widths],
+                          'depthM': [d*105.0 if d is not None else None for d in depths]},
+            'actors': {'primary': [], 'supporting': [], 'opponents': [], 'carrier': None}}
+
+
+SCALE = {'lengthM': 105.0, 'widthM': 68.0, 'source': 'assumed', 'metresUsable': True}
+
+
+class V2Selection(unittest.TestCase):
+    """Which sample of an opportunity is its moment (key_run, _choose): pure rules on hand-made records."""
+
+    def test_the_dominant_outcome_decides_the_run(self):
+        good, bad = .7, .3
+        demo = d6_opportunity([good]*4+[bad]*3+[good]*6)           # 10 demonstrated, a 3-sample failing stretch
+        self.assertEqual(E.key_run(demo, SCALE), (1, 7, 12))
+        k = CX.key_sample(demo, SCALE)                                # the old pick: the failing stretch
+        self.assertEqual(CX.sample_outcomes(demo, None, SCALE)[0][k], -1)
+        fail = d6_opportunity([bad]*6+[good]*4)
+        self.assertEqual(E.key_run(fail, SCALE), (-1, 0, 5))
+        tie = d6_opportunity([good]*3+[bad]*3)
+        self.assertEqual(E.key_run(tie, SCALE)[0], -1)                 # a tie shows the failing run
+        split = d6_opportunity([bad, bad, good, bad, bad, bad, good, good, good, good])
+        self.assertEqual(E.key_run(split, SCALE), (-1, 3, 5))          # 5 and 5: the longest failing run
+        none = d6_opportunity([None]*5)
+        self.assertEqual(E.key_run(none, SCALE), (0, 0, 4))
+
+    def test_a_tie_on_length_takes_the_earliest_run(self):
+        o = d6_opportunity([.3, .3, .7, .3, .3])
+        self.assertEqual(E.key_run(o, SCALE), (-1, 0, 1))
+
+    def test_missing_relations_give_no_outcome_instead_of_an_error(self):
+        o = d6_opportunity([.7]*4)
+        del o['relations']['depthShare']
+        self.assertEqual(E.outcomes(o, None, SCALE), ([None]*4, [None]*4))
+        self.assertEqual(E.key_run(o, SCALE), (0, 0, 3))
+
+    def test_the_sample_inside_the_run(self):
+        mid = 5.0
+        cands = list(range(11))
+        # nearest the middle, the earlier one on a tie
+        self.assertEqual(E._choose(cands, mid, lambda k: None, lambda k: False, lambda k: 0), 5)
+        self.assertEqual(E._choose([4, 6], mid, lambda k: None, lambda k: False, lambda k: 0), 4)
+        # a better tier wins over the middle
+        self.assertEqual(E._choose(cands, mid, lambda k: None, lambda k: False, lambda k: 2 if k == 9 else 1), 9)
+        # a stabilizer flag is avoided while another candidate has none, kept when all are flagged
+        self.assertEqual(E._choose(cands, mid, lambda k: None, lambda k: k == 5, lambda k: 0), 4)
+        self.assertEqual(E._choose([5], mid, lambda k: None, lambda k: True, lambda k: 0), 5)
+        # an identity doubt anywhere in the run is never hidden by a cleaner frame (counterexample 'identity crossing')
+        self.assertEqual(E._choose(cands, mid, lambda k: k not in (1, 2), lambda k: False,
+                                   lambda k: 2 if k == 5 else 1), 2)
+
+    def test_at_most_max_ranked_tiers_are_evaluated(self):
+        seen = []
+
+        def rank(k):
+            seen.append(k)
+            return 0
+        k = E._choose(list(range(200)), 100.0, lambda k: None, lambda k: False, rank)
+        self.assertEqual(k, 100)
+        self.assertLessEqual(len(set(seen)), E.MAX_RANKED)
+
+
+class V2Moments(unittest.TestCase):
+    """The measurement and role tiers' moments on EVAL's unsupported-advance scene (16 uncovered left-back advances,
+    team A defending left, world-tier broadcast frames)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.cd, cls.tl, cls.obs, cls.roles, cls.anchors = v2_tiers('unsupported_advance', 'none_behind')
+
+    def test_the_files_validate_with_one_moment_per_opportunity(self):
+        self.assertEqual(S.validate('obs', self.obs), [])
+        self.assertEqual(S.validate('roles', self.roles), [])
+        for f in (self.obs, self.roles):
+            opps = [o['id'] for o in f['opportunities'] if o['abstain'] is None]
+            self.assertEqual(sorted(m['opportunity'] for m in f['moments']), sorted(opps))
+        self.assertTrue(self.roles['moments'])
+        ids = [m['id'] for m in self.obs['moments']+self.roles['moments']]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_frames_are_exact_and_the_scene_is_the_timelines(self):
+        tl, fps = self.tl, float(self.b.result['video']['fps'])
+        for m in self.obs['moments']:
+            s = sample_of(tl, m['t'])
+            self.assertAlmostEqual(float(tl.t[s]), m['t'], places=3)
+            self.assertEqual(m['frame'], int(tl.frame[s]))
+            self.assertEqual(m['fps'], fps)
+            self.assertAlmostEqual(m['seek'], (m['frame']+.5)/fps, places=4)
+            o = next(o for o in self.obs['opportunities'] if o['id'] == m['opportunity'])
+            self.assertAlmostEqual(o['relations']['t'][m['sample']], m['t'], places=3)
+            want = {pid for j, pid in enumerate(tl.ids) if tl.posOk[s, j]} | \
+                {pid for j, pid in enumerate(tl.oppIds) if tl.oppPosOk[s, j]}
+            got = {p for p, e in m['scene']['players'].items() if not e['goalkeeper']}
+            self.assertEqual(got, want)
+            for pid, e in m['scene']['players'].items():
+                if pid in tl.col:
+                    self.assertAlmostEqual(e['x'], float(tl.x[s, tl.col[pid]]), places=4)
+                    self.assertAlmostEqual(e['y'], float(tl.y[s, tl.col[pid]]), places=4)
+            self.assertTrue(set(m['players']) <= set(m['scene']['players']))
+            involved = set(E._involved(o, m['sample']))
+            for pid, e in m['scene']['players'].items():
+                if e['team'] != 'A' and e['box'] is not None:
+                    self.assertIn(pid, involved)             # opponents keep a box only when the moment is about them
+            if m['before'] is not None:
+                self.assertAlmostEqual(m['before']['t'], m['t']-E.REACH_H, delta=float(tl.step)/2+1e-6)
+                self.assertLess(m['before']['frame'], m['frame'])
+                sb = sample_of(tl, m['before']['t'])
+                own = {pid for j, pid in enumerate(tl.ids) if tl.posOk[sb, j]}
+                self.assertEqual({p for p, e in m['before']['players'].items() if not e['goalkeeper']}, own)
+                self.assertTrue(all(e['team'] == 'A' and e['box'] is None for e in m['before']['players'].values()))
+            self.assertEqual(m['calibration']['side'], str(tl.side[s]))
+
+    def test_the_moment_shows_the_dominant_outcome(self):
+        for f in (self.obs, self.roles):
+            opps = {o['id']: o for o in f['opportunities']}
+            for m in f['moments']:
+                o = opps[m['opportunity']]
+                want, i0, i1 = E.key_run(o, self.obs['timeline']['scale'])
+                self.assertTrue(i0 <= m['sample'] <= i1)
+                if want:
+                    outs, _ = CX.sample_outcomes(o, None, self.obs['timeline']['scale'])
+                    self.assertEqual(outs[m['sample']], want)
+
+    def test_world_moments_carry_the_frames_homography(self):
+        fx = E.frames_of(self.cd)
+        for m in self.obs['moments']:
+            cal = m['calibration']
+            s = sample_of(self.tl, m['t'])
+            self.assertEqual(m['tier'], fx.tier(s)[0])
+            has_h = all(f'h{i}' in cal for i in range(9))
+            self.assertEqual(has_h, m['tier'] == 'world')
+            if has_h:
+                H = np.array([cal[f'h{i}'] for i in range(9)]).reshape(3, 3)
+                np.testing.assert_allclose(H, E.oriented_h(fx.frame(s), fx.width, fx.height), rtol=1e-8)
+            self.assertEqual((cal['pitchLengthM'], cal['pitchWidthM']), (105.0, 68.0))
+
+    def test_frame_tiers_cover_every_sample_the_role_tier_stores(self):
+        fx = E.frames_of(self.cd)
+        spans = self.obs['frameTiers']
+        self.assertTrue(spans)
+        for a, b in zip(spans, spans[1:]):
+            self.assertLess(a['frame1'], b['frame0'])
+        geo = self.obs['roleInputs']['detect']['samples']
+        for t, frame in zip(geo['t'], geo['frame']):
+            span = [r for r in spans if r['frame0'] <= frame <= r['frame1']]
+            self.assertEqual(len(span), 1, frame)
+            self.assertEqual(span[0]['tier'], fx.tier(sample_of(self.tl, t))[0])
+        stored = set(geo['frame'])
+        grid = [int(f) for f in self.tl.frame]
+        for r in spans:                       # a run never claims a tier for a grid frame the role tier does not store
+            inside = [f for f in grid if r['frame0'] <= f <= r['frame1']]
+            self.assertTrue(inside and set(inside) <= stored, r)
+
+    def test_role_moments_rebuild_the_timeline_from_the_obs_file(self):
+        L = self.obs['timeline']['scale']['lengthM']
+        fx = E.frames_of(self.cd)
+        for m in self.roles['moments']:
+            s = sample_of(self.tl, m['t'])
+            self.assertEqual(m['frame'], int(self.tl.frame[s]))
+            self.assertEqual(m['calibration']['side'], str(self.tl.side[s]))
+            for pid, e in m['scene']['players'].items():
+                if pid in self.tl.col:                  # stored at 0.1 m in the attack frame
+                    self.assertAlmostEqual(e['x'], float(self.tl.x[s, self.tl.col[pid]]), delta=.06/L+1e-4)
+            if str(m['frame']) in self.anchors['frames']:
+                people = fx.people(s)
+                for pid, e in m['scene']['players'].items():
+                    if e['team'] == 'A':
+                        self.assertEqual(e['box'], [round(v, 4) for v in people[pid]['box']])
+            self.assertEqual(m['tier'], fx.tier(s)[0])
+
+    def test_role_moments_without_the_anchors_have_no_pixels(self):
+        obs = copy.deepcopy(self.obs)
+        del obs['roleInputs']['evidence']
+        out = E.moments_from_obs(obs, self.roles['opportunities'])['moments']
+        self.assertEqual(len(out), len(self.roles['moments']))
+        for m in out:
+            self.assertEqual(S.validate('moment', m), [])
+            self.assertTrue(all(e['box'] is None for e in m['scene']['players'].values()))
+            self.assertFalse(any(k.startswith('h') and k[1:].isdigit() for k in m['calibration']))
+
+    def test_anchors_are_sparse_and_in_the_stored_samples(self):
+        geo = self.obs['roleInputs']['detect']['samples']
+        frames = {str(f) for f in geo['frame']}
+        self.assertTrue(set(self.anchors['frames']) <= frames)
+        self.assertLessEqual(len(self.anchors['frames']), len(frames)//E.ANCHOR_STRIDE+1)
+        for a in self.anchors['frames'].values():
+            self.assertTrue(a['h'] is None or len(a['h']) == 9)
+
+    def test_the_moments_never_change_with_the_coaching_profile(self):
+        """Invariant 2: the measurement stages see only the format and field; the bytes of obs are the same."""
+        b, st, cd, poss = FX.prepared('unsupported_advance', 'none_behind')
+        dumps = set()
+        for level, style in ((1, 'unknown'), (7, 'compact')):
+            s2 = copy.deepcopy(st)
+            s2['teams']['A'].update(playingLevel=level, ageGroup=FX.PR.default_age(level), style=style)
+            obs = coaching.build_observations(b.result, 'A', coaching=s2, series=cd, possession=poss,
+                                              result_sha='0'*64)
+            dumps.add(json.dumps(obs['moments'], sort_keys=True)+json.dumps(obs['frameTiers'], sort_keys=True))
+        self.assertEqual(len(dumps), 1)
+        self.assertTrue(dumps.pop().startswith(json.dumps(self.obs['moments'], sort_keys=True)))
+
+
+class V2Annotate(unittest.TestCase):
+    """The annotations of the findings on the unsupported-advance scene at every level."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.cd, cls.tl, cls.obs, cls.roles, _ = v2_tiers('unsupported_advance', 'none_behind')
+        cls.out, cls.ev, cls.prof = {}, {}, {}
+        for level in range(1, 8):
+            prof = FX.profile('unsupported_advance', 'none_behind', level)
+            out = AS.assess(cls.obs, cls.roles, prof)
+            cls.prof[level], cls.out[level] = prof, out
+            cls.ev[level] = E.annotate(out['findings'], cls.obs, cls.roles, prof, alternatives=[])
+        cls.moments = {m['id']: m for m in cls.obs['moments']+cls.roles['moments']}
+
+    def finding(self, level, detector, verdicts=('work_on', 'try_this', 'review')):
+        return next(f for f in self.out[level]['findings'] if f['observation'] == detector and
+                    f['verdict'] in verdicts)
+
+    def test_every_cited_moment_has_valid_evidence(self):
+        for level, ev in self.ev.items():
+            cited = {ts['evidence'] for f in self.out[level]['findings'] for ts in f['timestamps']}
+            self.assertEqual({e['id'] for e in ev}, cited)
+            self.assertEqual([e['time'] for e in ev], sorted(e['time'] for e in ev))
+            seg = self.obs['segment']
+            for e in ev:
+                self.assertEqual(S.validate('evidence', e), [], (level, e['id']))
+                m = self.moments[e['id']]
+                self.assertEqual((e['frame'], e['seek'], e['opportunity'], e['time']),
+                                 (m['frame'], m['seek'], m['opportunity'], m['t']))
+                # DESIGN 13.4 #8: the outlined player stands where he was observed on that frame, inside the spell
+                o = next(x for x in self.obs['opportunities']+self.roles['opportunities']
+                         if x['id'] == m['opportunity'])
+                self.assertTrue(o['t0'] <= e['time'] <= o['t1'])
+                for el in e['diagram']['elements']:
+                    if el['type'] in ('focus', 'support'):
+                        seen = m['scene']['players'][el['id']]
+                        self.assertEqual((el['x'], el['y'], seen['kind']), (seen['x'], seen['y'], 'O'))
+                if e['videoOverlay'] is None:
+                    self.assertEqual(e['tier'], m['tier'])        # nothing drawn over the video: its tier stands
+                else:
+                    self.assertLessEqual(E.TIER_RANK[e['tier']], E.TIER_RANK[m['tier']])
+                a = e['annotation']
+                self.assertEqual(a['keyFrame'], e['frame'])
+                self.assertAlmostEqual(a['window']['t0'], max(seg['t0'], m['t']-3.0), places=3)
+                self.assertAlmostEqual(a['window']['t1'], min(seg['t1'], m['t']+2.0), places=3)
+                self.assertLessEqual(len(a['caption']), S.CAPTION_MAX)
+
+    def test_elements_follow_the_tier_and_the_budget(self):
+        for ev in self.ev.values():
+            for e in ev:
+                ov = e['videoOverlay']
+                for spec, gate in ((e['diagram'], 'diagram'), (ov, (ov or {}).get('tier'))):
+                    if spec is None:
+                        continue
+                    counts = {}
+                    for el in spec['elements']:
+                        self.assertIn(gate, S.TIER_ELEMENTS[el['type']], (el['type'], gate))
+                        counts[el['type']] = counts.get(el['type'], 0)+1
+                    for t, n in counts.items():
+                        self.assertLessEqual(n, S.ELEMENT_BUDGET.get(t, 10**6))
+                if e['videoOverlay']:
+                    self.assertEqual(e['videoOverlay']['tier'], e['tier'])
+
+    def test_the_wide_defender_annotation(self):
+        f = self.finding(4, 'wide_defender_advance')
+        self.assertEqual(f['verdict'], 'work_on')
+        e = next(x for x in self.ev[4] if x['id'] == f['timestamps'][0]['evidence'])
+        els = {el['type']: el for el in e['diagram']['elements']}
+        self.assertEqual(els['focus']['id'], f['players']['primary'][0])
+        self.assertEqual((els['focus']['tone'], els['channel']['kind']), ('review', 'vacated'))
+        rel = els['relation']
+        self.assertEqual((rel['kind'], rel['ok']), ('cover', False))         # nobody covered: dashed
+        xs = [p[0] for p in els['channel']['polygon']]
+        self.assertLess(max(xs), els['focus']['x'])                          # the space behind him (A defends left)
+        ys = [p[1] for p in els['channel']['polygon']]
+        self.assertAlmostEqual(min(ys), 0.0, places=3)
+        self.assertAlmostEqual(max(ys), 1/3, places=3)                        # his outer third (team's left)
+        ov = e['videoOverlay']
+        self.assertEqual(ov['tier'], 'world')
+        types = [el['type'] for el in ov['elements']]
+        self.assertIn('channel', types)
+        focus = next(el for el in ov['elements'] if el['type'] == 'focus')
+        box = focus['box']
+        self.assertAlmostEqual(focus['x'], box[0]+box[2]/2, places=0)          # on the feet
+        self.assertAlmostEqual(focus['y'], box[1]+box[3], places=0)
+
+    def test_any_cover_test_turns_the_wide_defenders_line_solid(self):
+        f = self.finding(4, 'wide_defender_advance')
+        m = self.moments[f['timestamps'][0]['evidence']]
+        o = copy.deepcopy(next(x for x in self.roles['opportunities'] if x['id'] == m['opportunity']))
+        k = m['sample']
+
+        def line(opp):
+            an = E._Annotation(f, m, opp, None, self.obs, self.prof[4])
+            return next(r for r in an.relations if r['kind'] == 'cover')
+        self.assertFalse(line(o)['ok'])
+        for test in ('cbAdjusted', 'channelOccupied', 'interchange'):    # tests (c), (a), (e)
+            o2 = copy.deepcopy(o)
+            o2['relations'][test][k] = True
+            self.assertTrue(line(o2)['ok'], test)
+
+    def test_labels_follow_the_levels_naming(self):
+        for level in range(1, 8):
+            naming = self.prof[level]['evidence']['naming']
+            for e in self.ev[level]:
+                f = next(x for x in self.out[level]['findings'] if x['id'] == e['finding'])
+                for el in e['diagram']['elements']:
+                    if el['type'] == 'focus':
+                        if naming in ('never', 'relative', 'role_words'):
+                            self.assertFalse(el['label'], (level, f['observation']))
+                        if f['guardrails']['identity'] == 'fail':
+                            self.assertFalse(el['label'])
+        f = self.finding(5, 'wide_defender_advance')
+        e = next(x for x in self.ev[5] if x['id'] == f['timestamps'][0]['evidence'])
+        self.assertTrue(next(el for el in e['diagram']['elements'] if el['type'] == 'focus')['label'])
+
+    def test_the_cover_line_only_where_the_level_requires_cover(self):
+        # DETECT fix round 1 (critic S-2): this scene's background pressing sits at 3-5 m without closing ('unclear'
+        # under the three-state call: level 4 decides 2 of 20 opportunities and reports no pressure finding), so the
+        # level-4 half reads the press-with-cover scene, whose level-4 strength shows the cover.
+        _, _, _, _, obs_c, roles_c, _ = v2_tiers('defending', 'press_cover')
+        prof_c = FX.profile('defending', 'press_cover', 4)
+        ev4 = E.annotate(AS.assess(obs_c, roles_c, prof_c)['findings'], obs_c, roles_c, prof_c, alternatives=[])
+        for level, prof, evs in ((1, self.prof[1], self.ev[1]), (4, prof_c, ev4)):
+            needs = prof['detectors']['pressure_cover']['params'].get('coverRequired', True)
+            seen = False
+            for e in evs:
+                if e['detector'] != 'pressure_cover':
+                    continue
+                kinds = [el['kind'] for el in e['diagram']['elements'] if el['type'] == 'relation']
+                self.assertIn('pressure', kinds)
+                seen = True
+                if not needs:
+                    self.assertNotIn('cover', kinds)
+            self.assertTrue(seen)
+        self.assertFalse(self.prof[1]['detectors']['pressure_cover']['params']['coverRequired'])
+        self.assertTrue(any(el['kind'] == 'cover' for e in ev4 if e['detector'] == 'pressure_cover'
+                            for el in e['diagram']['elements'] if el['type'] == 'relation'))
+
+    def test_the_behind_the_ball_annotation_is_judged_with_the_levels_parameters(self):
+        # this scene's ball never reaches the final third: judge the middle third too (profile param behindBallZone)
+        L = self.obs['timeline']['scale']['lengthM']
+        by_opp = {m['opportunity']: m for m in self.obs['moments']}
+        o = next(x for x in self.obs['opportunities'] if x['detector'] == 'behind_ball' and x['id'] in by_opp and
+                 (x['relations']['ballX'][by_opp[x['id']]['sample']] or 0) >= L/3 and
+                 x['relations']['behindN'][by_opp[x['id']]['sample']] >= 2)
+        m = by_opp[o['id']]
+        f = copy.deepcopy(self.finding(4, 'wide_defender_advance'))
+        f.update(observation='behind_ball', verdict='review', opportunities=[o['id']],
+                 timestamps=[{'evidence': m['id'], 'opportunity': o['id'], 't': m['t'], 'frame': m['frame'],
+                              'seek': m['seek']}])
+
+        def an(prof):
+            return E._Annotation(f, m, o, None, self.obs, prof)
+        prof = copy.deepcopy(self.prof[4])
+        prof['detectors']['behind_ball']['params']['behindBallZone'] = 'middle_or_final'
+        a = an(prof)
+        line = next(r for r in a.relations if r['kind'] == 'behind_ball')
+        self.assertEqual((line['b'], line['pb'], line['ok']), ('ball', m['scene']['ball'], True))
+        self.assertEqual(a.focus[0][0], o['relations']['deepest'][m['sample']])
+        behind = (o['relations']['behindIds'][m['sample']] or '').split('|')
+        self.assertTrue({p for p, _ in a.support} <= set(behind))
+        strict = copy.deepcopy(prof)
+        strict['detectors']['behind_ball']['params']['minBehind'] = 11
+        self.assertFalse(next(r for r in an(strict).relations if r['kind'] == 'behind_ball')['ok'])
+        e = E.evidence_of(f, m, o, None, self.obs, strict)
+        self.assertEqual(S.validate('evidence', e), [])
+
+    def test_relation_values_follow_the_register(self):
+        metres = E._metres_word(self.obs['timeline']['scale'])
+        for level in range(1, 8):
+            mode = self.prof[level]['register']['numbers']
+            for e in self.ev[level]:
+                for el in e['diagram']['elements']:
+                    if el['type'] != 'relation' or el['kind'] not in ('pressure', 'cover', 'gap'):
+                        continue
+                    if mode in ('none', 'counts'):
+                        self.assertNotIn('text', el)
+                    elif 'text' in el:
+                        about = mode == 'rounded_metres' or metres == 'estimated'
+                        self.assertRegex(el['text'], r'^about \d+ m$' if about else r'^\d+ m$')
+
+    def test_captions_pass_the_text_gate_at_every_level(self):
+        for level in range(1, 8):
+            prof = self.prof[level]
+            for f in self.out[level]['findings']:
+                cap = E.caption_of(f, prof)
+                self.assertLessEqual(len(cap), S.CAPTION_MAX)
+                claims = EX.build_claims(f, prof)
+                text = {'headline': cap, 'explanation': cap, 'short': cap,
+                        'action': None if f['verdict'] == 'describe' else cap}
+                self.assertEqual(EX.validate(text, claims, f, prof, short=True), [], (level, f['observation'], cap))
+                low = cap.lower()
+                for word in prof['register']['banned']:
+                    self.assertNotIn(word.lower(), low)
+
+    def test_describe_findings_outline_nobody(self):
+        found = False
+        for level, ev in self.ev.items():
+            for e in ev:
+                f = next(x for x in self.out[level]['findings'] if x['id'] == e['finding'])
+                if f['verdict'] == 'describe':
+                    found = True
+                    self.assertFalse([el for el in e['diagram']['elements'] if el['type'] == 'focus'])
+        self.assertTrue(found)
+
+    def test_the_attacking_shape_draws_its_width_or_depth(self):
+        found = overlaid = False
+        for level, ev in self.ev.items():
+            for e in ev:
+                if e['detector'] != 'attacking_shape':
+                    continue
+                ms = [el for el in e['diagram']['elements'] if el['type'] == 'measure']
+                self.assertEqual(len(ms), 1)
+                players = {el['id']: el for el in e['diagram']['elements'] if el['type'] == 'player'}
+                self.assertTrue(all(p in players and players[p]['emphasis'] for p in ms[0]['ids']))
+                self.assertFalse([el for el in e['diagram']['elements'] if el['type'] == 'focus'])
+                ov = e['videoOverlay']
+                if ov is not None:                                  # between the two players' feet on the video
+                    vm = [el for el in ov['elements'] if el['type'] == 'measure']
+                    self.assertEqual([x['ids'] for x in vm], [ms[0]['ids']])
+                    m = self.moments[e['id']]
+                    for end, pid in zip((vm[0]['a'], vm[0]['b']), ms[0]['ids']):
+                        bx = m['scene']['players'][pid]['box']
+                        self.assertAlmostEqual(end[0], (bx[0]+bx[2]/2)*1920, delta=.2)
+                    overlaid = True
+                found = True
+        self.assertTrue(found and overlaid)
+
+    def test_a_finding_citing_an_unmeasured_moment_is_refused(self):
+        f = copy.deepcopy(self.finding(4, 'wide_defender_advance'))
+        f['timestamps'][0]['evidence'] = 'ev-000000000000'
+        with self.assertRaises(ValueError):
+            E.annotate([f], self.obs, self.roles, self.prof[4])
+
+    def test_apply_captions_takes_the_findings_short_text(self):
+        f = copy.deepcopy(self.finding(4, 'wide_defender_advance'))
+        ev = E.annotate([f], self.obs, self.roles, self.prof[4])
+        f['text'] = {'headline': 'x', 'explanation': 'x', 'short': 'The left back pushed on; check the space behind.',
+                     'action': None}
+        out = E.apply_captions(ev, [f])
+        for old, new in zip(ev, out):
+            self.assertEqual(new['annotation']['caption'], f['text']['short'])
+            caps = [el['text'] for spec in (new['diagram'], new['videoOverlay']) if spec for el in spec['elements']
+                    if el['type'] == 'caption']
+            self.assertTrue(caps and all(c == f['text']['short'] for c in caps))
+            self.assertEqual(S.validate('evidence', new), [])
+            self.assertNotEqual(old['annotation']['caption'], new['annotation']['caption'])
+        self.assertEqual(E.apply_captions(ev, []), ev)
+        noted = copy.deepcopy(ev[0])
+        noted['caption'] = E._with_note(noted['annotation']['caption'])
+        new = E.apply_captions([noted], [f])[0]
+        self.assertEqual(new['caption'], f['text']['short']+' '+E.DIAGRAM_NOTE)
+
+
+def alternative_for(f, m, obs, mover, centre, half=.012, display='zone', radius=8.0):
+    """A schema-valid Alternative of a finding at a moment (a square zone around centre, normalized)."""
+    cx, cy = centre
+    poly = [[cx-half, cy-half], [cx+half, cy-half], [cx+half, cy+half], [cx-half, cy+half]]
+    e = m['scene']['players'][mover]
+    alt = {'id': S.record_id('alt', f['id'], m['id'], mover), 'finding': f['id'], 'evidence': m['id'], 't': m['t'],
+           'mover': mover, 'principle': 'cover_behind_advancing_defender',
+           'zone': {'polygon': poly, 'areaM2': 9.0, 'kind': 'zone', 'radiusM': None}, 'display': display,
+           'from': [e['x'], e['y']], 'reach': {'horizonS': 2.0, 'speedMS': radius/2.0, 'radiusM': radius},
+           'improves': {'relation': 'channel_cover', 'before': False, 'after': True, 'shareOfZone': .9},
+           'checks': {'pressureKept': True, 'centralKept': True, 'gapOk': True, 'noNewFreeOpponent': True,
+                      'noStacking': True}, 'assumption': 'single_mover', 'rejected': []}
+    assert S.validate('alternative', alt) == [], S.validate('alternative', alt)
+    return alt
+
+
+class V2Zones(unittest.TestCase):
+    """A validated alternative on the wide-defender finding: where its zone and arrow are drawn, and when not."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.cd, cls.tl, cls.obs, cls.roles, _ = v2_tiers('unsupported_advance', 'none_behind')
+        cls.prof = FX.profile('unsupported_advance', 'none_behind', 4)
+        cls.out = AS.assess(cls.obs, cls.roles, cls.prof)
+        cls.f = next(f for f in cls.out['findings'] if f['observation'] == 'wide_defender_advance')
+        cls.moments = {m['id']: m for m in cls.obs['moments']+cls.roles['moments']}
+        cls.m = cls.moments[cls.f['timestamps'][0]['evidence']]
+        sc = cls.m['scene']['players']
+        cls.mover = next(p for p in cls.f['players']['supporting'] if p in sc)
+        # a zone 6 m deeper and nearer the touchline than the mover (inside the vacated channel's direction)
+        e = sc[cls.mover]
+        cls.alt = alternative_for(cls.f, cls.m, cls.obs, cls.mover, (e['x']-6/105, max(.08, e['y']-.12)))
+
+    def annotate(self, alt, obs=None, roles=None):
+        return E.annotate([self.f], obs or self.obs, roles or self.roles, self.prof, alternatives=[alt])
+
+    def test_the_zone_is_drawn_on_the_alternatives_moment_only(self):
+        ev = self.annotate(self.alt)
+        for e in ev:
+            self.assertEqual(S.validate('evidence', e), [])
+            zones = [el for spec in (e['diagram'], e['videoOverlay']) if spec for el in spec['elements']
+                     if el['type'] in ('suggestedZone', 'moveArrow')]
+            if e['id'] == self.alt['evidence']:
+                self.assertEqual(e['alternative'], self.alt['id'])
+                self.assertEqual(len(zones), 4)                      # zone and arrow, diagram and video
+            else:
+                self.assertEqual((zones, e['alternative']), ([], None))
+        e = next(x for x in ev if x['id'] == self.alt['evidence'])
+        d = {el['type']: el for el in e['diagram']['elements']}
+        np.testing.assert_allclose(d['suggestedZone']['polygon'], self.alt['zone']['polygon'], atol=1e-4)
+        self.assertEqual(d['suggestedZone']['mover'], self.mover)
+        mover = self.m['scene']['players'][self.mover]
+        self.assertEqual(d['moveArrow']['from'], [mover['x'], mover['y']])  # from where he stood at the moment
+        moved = copy.deepcopy(self.alt)
+        moved['from'] = [mover['x']+.05, mover['y']]                      # (alt.from: his position 2 s earlier)
+        e2 = next(x for x in self.annotate(moved) if x['id'] == moved['evidence'])
+        arrow = next(el for el in e2['diagram']['elements'] if el['type'] == 'moveArrow')
+        self.assertEqual(arrow['from'], [mover['x'], mover['y']])
+        cx = sum(p[0] for p in self.alt['zone']['polygon'])/4
+        self.assertAlmostEqual(d['moveArrow']['to'][0], cx, places=4)
+        sup = [el['id'] for el in e['diagram']['elements'] if el['type'] == 'support']
+        self.assertEqual(sup[0], self.mover)
+        # the video zone is the diagram zone through the frame's homography
+        cal = self.m['calibration']
+        H = np.array([cal[f'h{i}'] for i in range(9)]).reshape(3, 3)
+        ov = next(el for el in e['videoOverlay']['elements'] if el['type'] == 'suggestedZone')
+        want = field.project(H, [[x*cal['pitchLengthM'], y*cal['pitchWidthM']]
+                                 for x, y in d['suggestedZone']['polygon']])
+        np.testing.assert_allclose(np.array(ov['polygon']), want, atol=.06)
+        self.assertNotIn(E.DIAGRAM_NOTE, e['caption'])
+
+    def test_a_direction_shows_only_an_arrow_no_longer_than_the_reach(self):
+        far = copy.deepcopy(self.alt)
+        far['display'] = 'direction'
+        sc = self.m['scene']['players'][self.mover]
+        far['zone']['polygon'] = [[x-.25, y] for x, y in far['zone']['polygon']]
+        ev = self.annotate(far)
+        e = next(x for x in ev if x['id'] == far['evidence'])
+        self.assertEqual(S.validate('evidence', e), [])
+        types = [el['type'] for el in e['diagram']['elements']]
+        self.assertNotIn('suggestedZone', types)
+        arrow = next(el for el in e['diagram']['elements'] if el['type'] == 'moveArrow')
+        L, W = self.obs['timeline']['scale']['lengthM'], self.obs['timeline']['scale']['widthM']
+        length = math.hypot((arrow['to'][0]-sc['x'])*L, (arrow['to'][1]-sc['y'])*W)
+        self.assertLessEqual(length, far['reach']['radiusM']+.05)
+        self.assertEqual(e['alternative'], far['id'])
+
+    def test_the_disagreement_rule_keeps_the_zone_off_a_misregistered_frame(self):
+        obs, roles = copy.deepcopy(self.obs), copy.deepcopy(self.roles)
+        for m in obs['moments']+roles['moments']:
+            if m['id'] == self.m['id']:
+                cal = m['calibration']
+                H = np.array([cal[f'h{i}'] for i in range(9)]).reshape(3, 3)
+                shift = np.array([[1.0, 0.0, 60.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])   # 60 px off
+                for i, v in enumerate((shift @ H).ravel()):
+                    cal[f'h{i}'] = float(v)
+        ev = self.annotate(self.alt, obs, roles)
+        e = next(x for x in ev if x['id'] == self.alt['evidence'])
+        self.assertEqual(S.validate('evidence', e), [])
+        self.assertEqual((e['tier'], e['videoOverlay']['tier']), ('pinned', 'pinned'))
+        types = [el['type'] for el in e['videoOverlay']['elements']]
+        for t in ('suggestedZone', 'channel', 'moveArrow'):
+            self.assertNotIn(t, types)
+        self.assertIn('suggestedZone', [el['type'] for el in e['diagram']['elements']])
+        self.assertTrue(e['caption'].endswith(E.DIAGRAM_NOTE))
+        self.assertEqual(e['seek'], self.m['seek'])
+
+    def test_without_pixels_the_overlay_is_absent_and_the_tier_stands(self):
+        obs = copy.deepcopy(self.obs)
+        del obs['roleInputs']['evidence']
+        roles = copy.deepcopy(self.roles)
+        roles['moments'] = E.moments_from_obs(obs, roles['opportunities'])['moments']
+        out = AS.assess(obs, roles, self.prof)
+        f = next(f for f in out['findings'] if f['observation'] == 'wide_defender_advance')
+        moments = {m['id']: m for m in roles['moments']}
+        for e in E.annotate([f], obs, roles, self.prof):
+            self.assertIsNone(e['videoOverlay'])
+            self.assertEqual(e['tier'], moments[e['id']]['tier'])
+            self.assertEqual(e['tier'], 'world')
+            self.assertTrue(e['diagram']['elements'])
+
+    def test_a_zone_behind_the_camera_or_off_the_picture_stays_on_the_diagram(self):
+        off = copy.deepcopy(self.alt)
+        off['zone']['polygon'] = [[1.05, -.08], [1.09, -.08], [1.09, -.04], [1.05, -.04]]
+        e = next(x for x in self.annotate(off) if x['id'] == off['evidence'])
+        self.assertNotIn('suggestedZone', [el['type'] for el in (e['videoOverlay'] or {}).get('elements', ())])
+        self.assertIn('suggestedZone', [el['type'] for el in e['diagram']['elements']])
+        self.assertTrue(e['caption'].endswith(E.DIAGRAM_NOTE))
+
+    def test_the_zone_label_respects_the_levels_words(self):
+        prof1 = FX.profile('unsupported_advance', 'none_behind', 1)
+        self.assertIn('cover', prof1['register']['banned'])
+        an = E._Annotation(self.f, self.m, next(o for o in self.roles['opportunities']
+                                                 if o['id'] == self.m['opportunity']), self.alt, self.obs, prof1)
+        self.assertEqual(an.zone[4], E.ZONE_LABEL_PLAIN)
+
+
+class V2LowCalibration(unittest.TestCase):
+    """DESIGN 13.1 'calibration below world at every candidate frame': no zone on the video, the zone on the
+    diagram, the seek still exact."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.cd, cls.tl, cls.obs, cls.roles, _ = v2_tiers('low_calibration')
+        cls.prof = FX.profile('low_calibration', None, 4)
+        cls.out = AS.assess(cls.obs, cls.roles, cls.prof)
+
+    def test_no_zone_on_the_video_and_the_seek_exact(self):
+        tiers = {m['tier'] for m in self.obs['moments']+self.roles['moments']}
+        self.assertNotIn('world', tiers)
+        for m in self.obs['moments']:
+            self.assertFalse(any(k in m['calibration'] for k in ('h0', 'h8')))     # no homography below world
+        f = next(f for f in self.out['findings'] if f['verdict'] in ('work_on', 'review', 'try_this'))
+        moments = {m['id']: m for m in self.obs['moments']+self.roles['moments']}
+        m = moments[f['timestamps'][0]['evidence']]
+        mover = next(p for p in m['scene']['players'] if p != (f['players']['primary'] or [None])[0] and
+                     m['scene']['players'][p]['team'] == 'A')
+        e0 = m['scene']['players'][mover]
+        alt = alternative_for(f, m, self.obs, mover, (e0['x']-.03, e0['y']))
+        ev = E.annotate([f], self.obs, self.roles, self.prof, alternatives=[alt])
+        e = next(x for x in ev if x['id'] == m['id'])
+        self.assertEqual(S.validate('evidence', e), [])
+        self.assertIn('suggestedZone', [el['type'] for el in e['diagram']['elements']])
+        for el in (e['videoOverlay'] or {}).get('elements', ()):
+            self.assertNotIn(el['type'], ('suggestedZone', 'channel', 'moveArrow'))
+        self.assertTrue(e['caption'].endswith(E.DIAGRAM_NOTE))
+        fps = float(self.b.result['video']['fps'])
+        self.assertAlmostEqual(e['seek'], (e['frame']+.5)/fps, places=4)
+        s = sample_of(self.tl, e['time'])
+        self.assertEqual(e['frame'], int(self.tl.frame[s]))
+
+
+class V2IdentityCrossing(unittest.TestCase):
+    """DESIGN 13.1 'identity crossing at the evidence moment': the moment keeps the doubt, nobody is labelled."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b, cls.st, cls.cd, cls.tl, cls.obs, cls.roles, _ = v2_tiers('identity_crossing')
+
+    def test_the_crossing_stays_visible_to_the_identity_guardrail(self):
+        # Fix round 3 (critic B-1): level 2 judges an advance left exposed (an opponent in the vacated channel) wherever
+        # the ball is, so this scene's advances (ball at 36-42 m, attack frame) are judged at level 2 as well; the
+        # crossing keeps the identity guardrail failed there as at levels 3-7: a review, no work item, and every focus
+        # ring drawn at the moment without a label (nobody is named while two identities cross).
+        for level in (2, 3, 4, 6):
+            prof = FX.profile('identity_crossing', None, level)
+            out = AS.assess(self.obs, self.roles, prof)
+            fs = [f for f in out['findings'] if f['observation'] == 'wide_defender_advance']
+            with self.subTest(level=level):
+                self.assertFalse([f for f in fs if f['verdict'] in ('work_on', 'try_this')])
+                f = next(f for f in fs if f['verdict'] != 'strength')
+                self.assertEqual((f['verdict'], f['guardrails']['identity']), ('review', 'fail'))
+                focus = [el for e in E.annotate([f], self.obs, self.roles, prof) for el in e['diagram']['elements']
+                         if el['type'] == 'focus']
+                self.assertTrue(focus)
+                for el in focus:
+                    self.assertFalse(el['label'])
 
 
 if __name__ == '__main__':

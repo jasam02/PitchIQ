@@ -1,0 +1,25 @@
+PitchIQ coaching: blind label sheets (DESIGN 13.3)
+
+Who: a coach who was not involved in tuning PitchIQ. What you see: the match video at a timestamp (or a clean diagram),
+never PitchIQ's coaching report. Do not open the Coaching tab or a coaching PDF of these videos before you finish.
+
+The sheets (open the .html files in a browser; or fill the .csv files in a spreadsheet, same columns):
+  moment_sheet.html   266 moments: who had the ball, pressure, cover, far side, back line, players behind the
+                      ball (rated for youth / intermediate / senior), spread, and whether you would raise a problem.
+  role_sheet.html     60 players: the position each played.
+  advance_sheet.html  8 spells: was a wide defender's forward run covered?
+  zone_sheet.html     48 moments on a diagram: draw where one team-mate could have stood to fix the problem.
+                      AFTER finishing: key/zone_reveal.html (rate PitchIQ's own area).
+
+Videos: the pages look for the videos in "../../../../uploads/" (the PitchIQ uploads folder seen from
+tools/annotations/coaching/labels/); type another folder at the top of a page if yours differ. Times are seconds of
+the source video.
+
+Saving: answers save in the browser as you go; press "Download answers" on each page and put the files
+(moment_labels.csv, role_labels.csv, advance_labels.csv, zone_labels.json, zone_reveal_labels.json) in one folder.
+Then: python tools/coaching_eval.py score THAT_FOLDER --sheets tools/annotations/coaching/labels
+      --keys tools/annotations/coaching/labels/key/rekeyed
+(the rekeyed keys hold PitchIQ's answers under the frozen rules of 2026-10-24; the scorer refuses any other key)
+
+About 6-8 hours in all (MOMENT about 4 of them); it can be done over several sittings, since the answers save as you
+go. Nothing PitchIQ reports is called validated until these are scored.

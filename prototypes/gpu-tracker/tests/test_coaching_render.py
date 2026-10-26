@@ -4,6 +4,11 @@ arrow is cut where its samples are more than a second apart; a team width or len
 a line through it; a video overlay draws only what its tier allows, scaled to its placement and captioned as an
 analysis overlay.
 
+Coaching v2 annotations: the page's colour rule (CIEDE2000 to Sharma's 14 pairs, the shared test vectors) and its
+print twins, the focus / support / relation / channel / suggested-area / movement-arrow / caption drawings, the
+element budget and the tier table shared with schema.py, naming, the coach's adjusted area, and dotted lines in
+the PNG preview.
+
 Run:  python -m unittest test_coaching_render          (from this directory)
 """
 import json
@@ -380,6 +385,267 @@ class PngTests(unittest.TestCase):
         b, g, r = (int(v) for v in img[int(round(y*k)), int(round(x*k))])
         self.assertEqual((r, g, b), (0xb9, 0x8c, 0xff))                              # team A's colour
         self.assertGreater(len(np.unique(img.reshape(-1, 3), axis=0)), 20)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Coaching v2 annotations (DESIGN 5.4-5.5): colours, the new elements, tier gating, budget
+
+from soccer.coaching import schema as S  # noqa: E402
+
+SHARMA = [  # Sharma, Wu and Dalal (2005), CIEDE2000 test data: (Lab 1, Lab 2, dE00)
+    ([50, 2.6772, -79.7751], [50, 0, -82.7485], 2.0425), ([50, 3.1571, -77.2803], [50, 0, -82.7485], 2.8615),
+    ([50, 2.8361, -74.02], [50, 0, -82.7485], 3.4412), ([50, -1.3802, -84.2814], [50, 0, -82.7485], 1.0),
+    ([50, 0, 0], [50, -1, 2], 2.3669), ([50, 2.49, -0.001], [50, -2.49, 0.0009], 7.1792),
+    ([50, 2.5, 0], [73, 25, -18], 27.1492), ([50, 2.5, 0], [61, -5, 29], 22.8977),
+    ([50, 2.5, 0], [56, -27, -3], 31.903),
+    ([50, 2.5, 0], [58, 24, 15], 19.4535), ([60.2574, -34.0099, 36.2677], [60.4626, -34.1751, 39.4387], 1.2644),
+    ([63.0109, -31.0961, -5.8663], [62.8187, -29.7946, -4.0864], 1.263),
+    ([22.7233, 20.0904, -46.694], [23.0331, 14.973, -42.5619], 2.0373),
+    ([90.8027, -2.0831, 1.441], [91.1528, -1.6435, 0.0447], 1.4441)]
+
+
+def v2spec(*elements, **extra):
+    """A v2 finding diagram: the reviewed player A-04 (focus), the mover A-05 (support), an opponent, the rest faint."""
+    base = [player('A-02', .3, .6), player('B-10', .21, .29),
+            {'type': 'focus', 'id': 'A-04', 'x': .22, 'y': .31, 'tone': 'review', 'label': True},
+            {'type': 'support', 'id': 'A-05', 'team': 'A', 'x': .18, 'y': .45, 'why': 'nearest teammate'}]
+    return spec(*(base+list(elements)), preset='pressure_cover', **extra)
+
+
+ZONE = {'type': 'suggestedZone', 'polygon': [[.17, .36], [.21, .36], [.21, .40], [.17, .40]], 'kind': 'zone',
+        'alternative': 'alt-ff134036e746', 'mover': 'A-05', 'label': 'possible covering area'}
+
+
+def strokes(d, colour):
+    return [o for o in d['ops'] if o.get('stroke') == colour]
+
+
+class PaletteTests(unittest.TestCase):
+    def test_ciede2000_reproduces_the_published_pairs(self):
+        for a, b, want in SHARMA:
+            self.assertAlmostEqual(render.ciede2000(a, b), want, 4)
+            self.assertAlmostEqual(render.ciede2000(b, a), want, 4)
+
+    def test_the_page_rule_and_its_test_vectors(self):
+        p = render.annotation_palette('#b98cff', '#f6b564')         # the default teams
+        self.assertEqual((p['review'], p['zone'], p['reviewFallback'], p['zoneFallback']),
+                         ('#ff4d6d', '#7dffb0', False, False))
+        self.assertEqual(p['scores']['review'], 32.1)
+        p = render.annotation_palette('#ff0000', '#00ff00')
+        self.assertEqual((p['review'], p['zone'], p['zoneFallback']), ('#ff2fd1', '#5cf2ff', True))
+        p = render.annotation_palette('#ff3c9f', '#ffffff')
+        self.assertEqual((p['review'], p['reviewFallback'], p['scores']['review']), ('#ffffff', True, 13.1))
+        self.assertLess(render.delta_e('#c6ff4d', render.PALETTE['ball']), 10)   # lime is the ball's colour
+        self.assertAlmostEqual(render.contrast_ratio('#ffffff', '#000000'), 21.0)
+
+    def test_the_print_twins_keep_the_hue_and_pass_the_rule_on_the_print_pitch(self):
+        greens = (render.PITCH_FILL, render.PITCH_STRIPE)
+        for screen, twin in render.PRINT_ZONE.items():
+            self.assertTrue(all(render.contrast_ratio(screen, g) < 3 for g in greens))   # the page's colour fails
+            self.assertTrue(all(render.contrast_ratio(twin, g) >= 3.3 for g in greens))
+            self.assertLess(abs(render.lab_of(twin)[2]/max(1e-6, abs(render.lab_of(twin)[1]))
+                                - render.lab_of(screen)[2]/max(1e-6, abs(render.lab_of(screen)[1]))), 1.0)
+        p = render.print_palette({'A': '#b98cff', 'B': '#f6b564'})
+        self.assertEqual((p['review'], p['zone'], p['zoneFallback']), ('#ff4d6d', '#448a5f', False))
+        self.assertEqual(p['halo'], render.WHITE)
+        for a, b in (('#ff0000', '#00ff00'), ('#448a5f', '#678528'), ('#ffffff', '#ff3c9f'), ('#34888f', '#ff4d6d')):
+            p = render.print_palette({'A': a, 'B': b})
+            ok = min(render.contrast_ratio(p['zone'], g) for g in greens) >= 3 and \
+                min(render.delta_e(p['zone'], t) for t in (a, b)) >= 20
+            self.assertTrue(ok or p['zoneFallback'], (a, b))
+            self.assertNotEqual(p['review'], render.WHITE)              # white vanishes on paper: the ink instead
+        self.assertEqual(render.print_palette({'A': '#ff3c9f', 'B': '#ffffff'})['review'], render.INK)
+
+
+class V2DiagramTests(unittest.TestCase):
+    def test_the_reviewed_player_is_ringed_in_the_review_colour_and_the_others_are_faint(self):
+        d = render.diagram_ops(v2spec(), 243)
+        rings = [o for o in strokes(d, '#ff4d6d') if o['op'] == 'circle' and o['cy'] < d['height']-40]   # no legend
+        self.assertEqual(len(rings), 1)
+        self.assertAlmostEqual(rings[0]['cx'], at(d, .22, .31)[0], 1)
+        support = [o for o in d['ops'] if o['op'] == 'circle' and o.get('dash') and o.get('stroke') == render.INK_2
+                   and o['cy'] < d['height']-40]
+        self.assertEqual(len(support), 1)
+        self.assertAlmostEqual(support[0]['cy'], at(d, .18, .45)[1], 1)
+        faint = [o for o in d['ops'] if o['op'] == 'circle' and o.get('fill') and o['alpha'] == .5]
+        self.assertEqual(len(faint), 2)                                 # A-02 and B-10 are not about the moment
+        texts = [o['text'] for o in ops_of(d, 'text')]
+        self.assertIn('A-04', texts)
+        self.assertNotIn('A-02', texts)
+        self.assertIn('player the moment is about', d['legend'])
+
+    def test_a_level_that_names_nobody_gets_no_label_of_the_people(self):
+        s = v2spec()
+        s['elements'][2]['label'] = False
+        texts = [o['text'] for o in ops_of(render.diagram_ops(s, 243), 'text')]
+        self.assertNotIn('A-04', texts)
+        self.assertNotIn('A-05', texts)
+
+    def test_relations_are_dashed_when_missing_and_find_their_ends(self):
+        rel = {'type': 'relation', 'a': 'A-04', 'b': 'A-05', 'kind': 'cover', 'ok': False, 'text': '14 m'}
+        d = render.diagram_ops(v2spec(rel), 243)
+        line = [o for o in d['ops'] if o['op'] == 'path' and o.get('stroke') == render.INK and o['alpha'] == .6]
+        self.assertEqual(len(line), 1)
+        self.assertTrue(line[0]['dash'])
+        self.assertEqual([round(v, 1) for v in line[0]['points'][0]], [round(v, 1) for v in at(d, .22, .31)])
+        self.assertIn('14 m', [o['text'] for o in ops_of(d, 'text')])
+        d = render.diagram_ops(v2spec(dict(rel, ok=True)), 243)
+        self.assertFalse([o for o in d['ops'] if o.get('stroke') == render.INK and o['alpha'] == .6][0]['dash'])
+        d = render.diagram_ops(v2spec(ZONE, dict(rel, b='zone'), dict(rel, b='goal'), dict(rel, b='ball', pb=[.5, .5])),
+                               243)
+        ends = [o['points'][1] for o in d['ops'] if o.get('stroke') == render.INK and o['alpha'] == .6]
+        self.assertEqual(len(ends), 3)
+        self.assertAlmostEqual(ends[0][0], at(d, .19, .38)[0], 1)       # the area's centre
+        self.assertAlmostEqual(ends[1][0], at(d, 0.0, .5)[0], 1)        # attacking right: the own goal is on the left
+        self.assertAlmostEqual(ends[2][1], at(d, .5, .5)[1], 1)
+        d = render.diagram_ops(v2spec(dict(rel, b='A-99')), 243)
+        self.assertEqual(d['skipped'][0]['reason'], 'relation end not placed on the pitch')
+
+    def test_a_suggested_area_is_dotted_hatched_and_faintly_filled_over_a_halo(self):
+        d = render.diagram_ops(v2spec(ZONE), 243)
+        zone = '#448a5f'
+        outline = [o for o in strokes(d, zone) if o['op'] == 'path' and o.get('closed')]
+        self.assertEqual(len(outline), 1)
+        self.assertEqual(outline[0]['dash'][0], render.DOT)             # round dots (round caps)
+        hatch = [o for o in strokes(d, zone) if o['op'] == 'path' and not o.get('closed')]
+        self.assertGreater(len(hatch), 1)
+        x0, y0 = at(d, .17, .36)
+        x1, y1 = at(d, .21, .40)
+        for o in hatch:
+            for x, y in o['points']:
+                self.assertTrue(x0-.02 <= x <= x1+.02 and y0-.02 <= y <= y1+.02)
+        self.assertTrue([o for o in d['ops'] if o.get('fill') == zone and o['alpha'] == .1])
+        self.assertTrue([o for o in d['ops'] if o.get('stroke') == render.WHITE and o.get('closed')])
+        self.assertIn('possible covering area', [o['text'] for o in ops_of(d, 'text')])
+        self.assertIn('possible area (a suggestion, not tracked data)', d['legend'])
+        point = render.diagram_ops(v2spec(dict(ZONE, kind='point')), 243)
+        self.assertTrue([o for o in strokes(point, zone) if o['op'] == 'circle' and o['dash']])
+        self.assertIn('possible spot (a suggestion, not tracked data)', point['legend'])
+
+    def test_a_movement_arrow_is_dashed_with_its_head_at_the_area(self):
+        arrow = {'type': 'moveArrow', 'id': 'A-05', 'from': [.18, .45], 'to': [.19, .38]}
+        d = render.diagram_ops(v2spec(arrow), 243)
+        line = [o for o in strokes(d, '#448a5f') if o['op'] == 'path']
+        self.assertTrue(line[0]['dash'])
+        head = [o for o in d['ops'] if o.get('fill') == '#448a5f' and o['op'] == 'path' and o['closed']
+                and o['points'][0][1] < d['height']-40]
+        self.assertEqual(len(head), 1)
+        self.assertEqual([round(v, 1) for v in head[0]['points'][0]], [round(v, 1) for v in at(d, .19, .38)])
+
+    def test_the_channel_is_the_review_colour_faint(self):
+        ch = {'type': 'channel', 'polygon': [[.3, 0], [.45, 0], [.45, .33], [.3, .33]], 'kind': 'vacated'}
+        d = render.diagram_ops(v2spec(ch), 243)
+        self.assertTrue([o for o in d['ops'] if o.get('fill') == '#ff4d6d' and o['alpha'] == .12])
+        self.assertIn('area the check is about', d['legend'])
+
+    def test_the_element_budget_is_kept(self):
+        extra = [{'type': 'support', 'id': f'A-{k:02d}', 'team': 'A', 'x': .1*k, 'y': .5, 'why': 'x'}
+                 for k in (6, 7, 8)]
+        d = render.diagram_ops(v2spec(*extra, ZONE, dict(ZONE)), 243)
+        self.assertEqual(d['drawn']['support'], 3)
+        self.assertEqual(d['drawn']['suggestedZone'], 1)
+        self.assertEqual(sorted(s['type'] for s in d['skipped']), ['suggestedZone', 'support'])
+        self.assertEqual(render.V2_BUDGET, S.ELEMENT_BUDGET)
+        self.assertEqual(render.V2_TIERS, S.TIER_ELEMENTS)
+
+    def test_the_caption_stands_in_a_strip_above_the_pitch(self):
+        cap = {'type': 'caption', 'text': 'Pressure on the ball; nobody covered behind it.', 'anchor': 'top-left'}
+        plain = render.diagram_ops(v2spec(), 243)
+        d = render.diagram_ops(v2spec(cap), 243)
+        strip = d['height']-plain['height']
+        self.assertGreater(strip, 5)
+        text = next(o for o in ops_of(d, 'text') if o['text'].startswith('Pressure on the ball'))
+        self.assertLess(text['y'], strip)                                # above the pitch, never over it
+        self.assertAlmostEqual(next(o for o in ops_of(d, 'circle') if o.get('stroke') == '#ff4d6d')['cy'],
+                               at(plain, .22, .31)[1]+strip, 1)
+        self.assertEqual(render.diagram_ops(v2spec(cap), 243, caption=False)['height'], plain['height'])
+        strong = v2spec(cap)
+        strong['elements'][2]['tone'] = 'strength'
+        d = render.diagram_ops(strong, 243)
+        self.assertTrue([o for o in ops_of(d, 'path')
+                         if o.get('stroke') == render.BRAND_DARK and o['points'][0][1] < strip])
+
+    def test_the_coachs_adjusted_area_is_thin_and_solid_beside_pitchiqs(self):
+        d = render.diagram_ops(v2spec(ZONE), 243, adjustments=[{'polygon': [[.16, .35], [.22, .35], [.22, .41]]}])
+        adj = [o for o in d['ops'] if o.get('stroke') == render.INK_2 and o['op'] == 'path' and o.get('closed')]
+        self.assertEqual(len(adj), 1)
+        self.assertFalse(adj[0]['dash'])
+        self.assertIn(render.COACH_AREA, [o['text'] for o in ops_of(d, 'text')])
+
+    def test_v1_diagrams_are_unchanged_by_the_v2_code(self):
+        s = spec(player('A-03', .4, .3, emphasis=True), player('B-07', .6, .7))
+        d = render.diagram_ops(s, 243)
+        self.assertIn('highlighted', d['legend'])
+        self.assertTrue([o for o in d['ops'] if o.get('stroke') == render.BRAND_DARK and o['op'] == 'circle'])
+
+
+class V2OverlayTests(unittest.TestCase):
+    OV = {'tier': 'world', 'width': 1920, 'height': 1080, 'elements': [
+        {'type': 'focus', 'id': 'A-04', 'x': 787.2, 'y': 626.4, 'tone': 'review', 'label': True,
+         'box': [768.0, 540.0, 38.4, 86.4]},
+        {'type': 'support', 'id': 'A-05', 'team': 'A', 'x': 640.0, 'y': 700.0, 'why': 'x', 'box': [622, 610, 36, 90]},
+        {'type': 'relation', 'a': 'A-04', 'b': 'A-05', 'kind': 'cover', 'ok': False, 'text': '14 m',
+         'pa': [787.2, 626.4], 'pb': [640.0, 700.0]},
+        {'type': 'channel', 'polygon': [[500, 500], [900, 500], [900, 800], [500, 800]], 'kind': 'vacated'},
+        {'type': 'suggestedZone', 'polygon': [[600.0, 700.0], [680.0, 700.0], [690.0, 760.0], [590.0, 760.0]],
+         'kind': 'zone', 'alternative': 'alt-ff134036e746', 'mover': 'A-05', 'label': 'possible covering area'},
+        {'type': 'moveArrow', 'id': 'A-05', 'from': [640, 700], 'to': [640, 730]},
+        {'type': 'caption', 'text': 'Pressure without cover', 'anchor': 'top-left'}]}
+
+    def overlay(self, tier, **kw):
+        return render.overlay_ops(dict(self.OV, tier=tier), 0, 0, 243, 136.7, **kw)
+
+    def test_each_tier_draws_only_what_it_allows(self):
+        world = self.overlay('world')
+        self.assertEqual(world['skipped'], [])
+        self.assertTrue(strokes(world, '#7dffb0'))                      # the page's mint over the video
+        self.assertEqual(world['note'], render.V2_TIER_NOTES['world'])
+        pinned = self.overlay('pinned')
+        self.assertEqual(sorted(s['type'] for s in pinned['skipped']), ['channel', 'moveArrow', 'suggestedZone'])
+        self.assertFalse(strokes(pinned, '#7dffb0'))
+        self.assertEqual(pinned['note'], render.V2_TIER_NOTES['pinned'])
+        image = self.overlay('image')
+        self.assertEqual(sorted(s['type'] for s in image['skipped']),
+                         ['channel', 'moveArrow', 'relation', 'suggestedZone'])
+        box = [o for o in strokes(image, '#ff4d6d') if o['op'] == 'rect']
+        self.assertEqual(len(box), 1)                                   # the box outlined, no ellipse
+        self.assertLess(box[0]['x'], 768*243/1920)
+        self.assertNotIn('Pressure without cover', [o['text'] for o in ops_of(world, 'text')])   # printed beside
+
+    def test_the_reviewed_player_is_ringed_at_the_feet_with_a_label(self):
+        world = self.overlay('world', labels={'A-04': 'A-03'})
+        ring = [o for o in strokes(world, '#ff4d6d') if o['op'] == 'path' and o['closed'] and o['alpha'] == 1]
+        self.assertEqual(len(ring), 1)
+        ys = [p[1] for p in ring[0]['points']]
+        self.assertAlmostEqual((min(ys)+max(ys))/2, 626.4*136.7/1080, 0)
+        self.assertIn('A-03', [o['text'] for o in ops_of(world, 'text')])
+        quiet = dict(self.OV)
+        quiet['elements'] = [dict(e, label=False) if e['type'] == 'focus' else e for e in self.OV['elements']]
+        texts = [o['text'] for o in ops_of(render.overlay_ops(quiet, 0, 0, 243, 136.7), 'text')]
+        self.assertNotIn('A-04', texts)
+
+    def test_strokes_keep_their_printed_weight_when_the_frame_is_magnified(self):
+        a = self.overlay('world', unit=.6)
+        b = render.overlay_ops(self.OV, -100, -50, 486, 273.4, unit=.6)
+        wa = sorted({o['width'] for o in strokes(a, '#ff4d6d')})
+        wb = sorted({o['width'] for o in strokes(b, '#ff4d6d')})
+        self.assertEqual(wa, wb)
+
+    def test_a_projected_area_may_reach_past_the_frame_edge(self):
+        far = [[-900, 500], [900, 500], [900, 2600], [-900, 2600]]
+        ov = dict(self.OV, elements=[{'type': 'channel', 'polygon': far, 'kind': 'weak_side'}])
+        self.assertEqual(render.overlay_ops(ov, 0, 0, 243, 136.7)['skipped'], [])
+        ov['elements'][0]['polygon'][0] = [-1e7, 0]
+        self.assertEqual(len(render.overlay_ops(ov, 0, 0, 243, 136.7)['skipped']), 1)
+
+
+class DotTests(unittest.TestCase):
+    def test_a_dash_shorter_than_its_line_rasterizes_as_round_dots(self):
+        ops = [render.path([(5, 10), (95, 10)], stroke='#000000', width=2.0, dash=[render.DOT, 4.0])]
+        img = render.ops_to_png(ops, 100, 20, 4)
+        row = (img[38:42, :, 0] < 128).any(axis=0)
+        runs = int(np.sum(row[1:] & ~row[:-1]))
+        self.assertGreaterEqual(runs, 15)                               # about 90 / 4 dots, each a separate blob
 
 
 if __name__ == '__main__':

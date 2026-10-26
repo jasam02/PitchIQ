@@ -6,6 +6,14 @@ sections; a professional comparison claimed only where the baseline was availabl
 in words, the page's section order, feedback of another run shown as that run's, rows taller than a page continued
 on the next one, a linear wrap(), and a download name with the context level.
 
+Coaching v2 reports (schema 'report' version 2): the seven sections in the page's order and words, key moments in
+time order with exact frames zoomed on the players involved (clipped, never re-encoded), overlays at what their tier
+allows with the area kept on the diagram, the dotted-area sentence only when a report holds one, the level's
+register for every added number, coach-marked possession labelled, no player named where the level names nobody,
+drills with their six fields, library card and source credit, the progression table or how to get one, sources
+linked, coach notes as typed with adjusted areas drawn, the viewer's team colours, fixed words that pass the event
+and banned-word checks at levels 1-7, real scene reports through every stage, and critic N1 / N2 / N5 / N8 / R4.
+
 Run:  python -m unittest test_coaching_pdf          (from this directory)
 """
 import copy
@@ -763,6 +771,544 @@ class WrapTests(unittest.TestCase):
         self.assertLess(time.perf_counter()-t0, .5)                          # 34.9 s before
         self.assertEqual(''.join(lines), 'W'*2000)
         self.assertTrue(all(pdf.text_width(x, 7.8) <= 150 for x in lines))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Coaching v2 reports (schema 'report' version 2): the page's seven sections, for print
+
+from soccer.coaching import schema as S  # noqa: E402
+
+COLUMN = (pdf.A4[0]-pdf.MARGINS[0]-pdf.MARGINS[2]-pdf.COLUMN_GAP)/2
+
+
+def v2_report():
+    """The schema's example report (one consistent mini-run; S.cross_check passes on it) with a strength, a review,
+    a described finding, a formation diagram, a progression and a coach review added; still schema-valid."""
+    r = S.example('report')
+    work = r['needsWork'][0]
+    strength = copy.deepcopy(work)
+    strength.update(id='fnd-00000000aaaa', key='D1|A|team|775.0|790.0', verdict='strength', priority=None, drills=[],
+                    suggestedAction=None, timestamps=work['timestamps'][1:2], opportunities=work['opportunities'][1:2])
+    strength['aggregate'] = dict(work['aggregate'], opportunities=1, demonstrated=1, notDemonstrated=0, unclear=0,
+                                 distinctFailingSpells=0, distinctDemonstratedSpells=1)
+    strength['text'] = {'headline': 'A-05 covered behind A-04', 'explanation': 'A-05 stood behind A-04 at 12:55.00.',
+                        'short': 'Cover in place', 'action': 'To build on it, keep the cover close.'}
+    r['strengths'] = [strength]
+    r['progression'] = {'squad': 'sq-0123456789ab', 'note': 'Read per moment, never on match totals (2 matches).',
+                        'skills': [{'skill': 'pressure_and_cover', 'name': 'Pressure and cover', 'state': 'DEVELOPING',
+                                    'opportunities': 31, 'matches': 3, 'trend': 'up'}]}
+    return r
+
+
+class Frames2(Frames):
+    """Frames of the asked width in the video's 16:9 (a zoomed screenshot asks for 1280 px)."""
+
+    def __call__(self, frame, width):
+        self.calls.append((frame, width))
+        if frame in self.missing:
+            return None
+        img = np.full((width*9//16, width, 3), (40, 120, 60), np.uint8)
+        cv2.putText(img, str(frame), (40, width//4), cv2.FONT_HERSHEY_SIMPLEX, width/200, (255, 255, 255), 5)
+        return cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+
+
+def build2(report=None, frames=None, **options):
+    return pdf.build_report_pdf(v2_report() if report is None else report, frames, options)
+
+
+def text_of(data):
+    return ' '.join(t for p in page_texts(data) for t in p)
+
+
+def doc_ops(report, frames=None, **options):
+    doc, info = pdf.layout_report(report, frames, options)
+    return doc, info, [op for page in doc.pages for op in page]
+
+
+class V2StructureTests(unittest.TestCase):
+    def test_a_v2_report_is_a_valid_deterministic_pdf_with_the_seven_sections_in_order(self):
+        r = v2_report()
+        self.assertEqual(S.validate('report', r), [])
+        data, info = build2(r, Frames2(), playback_url=URL)
+        objs, _ = parse(data)
+        for num, (body, _) in objs.items():
+            for ref in re.findall(rb'(\d+) 0 R', body):
+                self.assertIn(int(ref), objs)
+        self.assertEqual(data, build2(r, Frames2(), playback_url=URL)[0])
+        self.assertEqual(info['version'], 2)
+        self.assertEqual(info['droppedLinks'], 0)                       # every internal link has its anchor
+        self.assertEqual(info['replaced'], 0)
+        text = text_of(data)
+        heads = ['1. Match overview', '2. What went well (1)', '3. What needs work (1)', '4. Key moments (3)',
+                 '5. Tactical diagrams (1)', '6. Training drills (1)', '7. Development progression', 'Sources (1)',
+                 'About this report']
+        at = text.index('How to read this report')                  # past the contents, which name them too
+        for h in heads:
+            at = text.index(h, at)
+        for title in heads:                                             # the viewer's sidebar has them all
+            self.assertIn(pdf._string(title.encode('ascii')), data)
+        texts = page_texts(data)
+        for i, page in enumerate(texts, 1):
+            self.assertIn(f'Page {i} of {len(texts)}', page)
+        self.assertNotIn('COACHING ILLUSTRATION', text)
+
+    def test_the_key_moments_are_chronological_with_absolute_and_segment_times_and_exact_frames(self):
+        r = v2_report()
+        r['keyMoments'] = list(reversed(r['keyMoments']))               # given out of order
+        data, info = build2(r, Frames2())
+        text = text_of(data)
+        times = []
+        for ev in sorted(r['keyMoments'], key=lambda e: e['time']):
+            n = len(times)+1
+            line = (f'E{n}  |  {pdf.clock(ev["time"])}  (segment {pdf.offset(ev["segmentTime"])})  |  '
+                    f'frame {ev["frame"]}')
+            self.assertIn(line, text)
+            times.append(text.index(line))
+        self.assertEqual(times, sorted(times))
+        self.assertEqual(info['evidenceShown'], 3)
+        self.assertIn('Replay window 12:38.00 - 12:43.00.', text)       # the annotation window (DESIGN 5.6)
+        self.assertIn('Key moments: E1 12:41.00 E2 12:55.00 E3 13:09.00', text)
+
+    def test_screenshots_pass_through_capped_and_zoomed_on_the_players_involved(self):
+        frames = Frames2()
+        data, info = build2(frames=frames)
+        self.assertEqual(info['screenshots'], 3)
+        self.assertEqual(info['images'], 3)
+        self.assertGreaterEqual(info['zoomed'], 1)
+        self.assertIn((22830, pdf.ZOOM_WIDTH), frames.calls)            # the zoomed moment asks for the 1280 px frame
+        self.assertIn(frames(22830, pdf.ZOOM_WIDTH), data)              # passed through as it came (/DCTDecode)
+        doc, info, ops = doc_ops(v2_report(), Frames2())
+        image = next(op for op in ops if op['op'] == 'image' and op['frame'] == 22830)
+        self.assertGreater(image['w'], COLUMN*1.3)                      # magnified, then clipped to the column
+        clip = next(op for op in ops if op['op'] == 'clip' and abs(op['w']-COLUMN) < .01)
+        self.assertLessEqual(image['x'], clip['x'])
+        self.assertGreaterEqual(image['x']+image['w'], clip['x']+clip['w'])
+        _, plain, _ = doc_ops(v2_report(), Frames2(), zoom=False)
+        self.assertEqual(plain['zoomed'], 0)
+        _, few, _ = doc_ops(v2_report(), Frames2(), max_screenshots=1)
+        self.assertEqual(few['screenshots'], 1)
+        _, none, _ = doc_ops(v2_report(), None)
+        self.assertEqual(none['screenshots'], 0)
+        self.assertIn('Screenshot unavailable: no source video was available when this PDF was made.',
+                      text_of(build2()[0]))
+
+    def test_the_zoom_keeps_every_person_of_the_annotation_in_the_crop(self):
+        ov = v2_report()['keyMoments'][0]['videoOverlay']
+        box = pdf.focus_box(ov)
+        crop = pdf.zoom_crop(box, ov['width'], ov['height'])
+        x0, y0, w, h, zoom = crop
+        self.assertTrue(x0 <= box[0] and box[2] <= x0+w and y0 <= box[1] and box[3] <= y0+h)
+        self.assertAlmostEqual(w/h, 16/9, 3)
+        self.assertLessEqual(zoom, 1/pdf.ZOOM_MIN_SHARE+1e-9)
+        self.assertGreaterEqual(zoom, pdf.ZOOM_FROM)
+        self.assertIsNone(pdf.zoom_crop((0, 0, 1900, 1000), 1920, 1080))   # people across the frame: no zoom
+        tight = pdf.zoom_crop((900, 500, 920, 540), 1920, 1080)          # one player: the zoom is capped
+        self.assertAlmostEqual(tight[4], 1/pdf.ZOOM_MIN_SHARE, 6)
+        self.assertTrue(tight[0] <= 900 and 920 <= tight[0]+tight[2] and tight[1] <= 500 and 540 <= tight[1]+tight[3])
+        self.assertIsNone(pdf.focus_box({'width': 1920, 'height': 1080, 'elements': []}))
+
+    def test_an_overlay_draws_only_what_its_tier_allows_and_the_diagram_keeps_the_area(self):
+        r = v2_report()
+        ev = r['keyMoments'][0]
+        ev['tier'] = ev['videoOverlay']['tier'] = 'pinned'
+        doc, info, ops = doc_ops(r, Frames2())
+        skipped = [s for s in info['skippedElements'] if s['evidence'] == ev['id']]
+        zone = [s for s in skipped if s['type'] == 'suggestedZone']
+        self.assertEqual([s['figure'] for s in zone], ['overlay'])
+        self.assertIn('pinned-tier frame (shown on the 2D diagram)', zone[0]['reason'])
+        text = ' '.join(op['text'] for op in ops if op['op'] == 'text')
+        self.assertIn("From the players' feet", text)
+        self.assertIn('possible covering area', text)                   # still on the diagram
+
+    def test_the_dotted_area_is_described_only_when_the_report_has_one(self):
+        sentence = 'A dotted area is a possible better position'
+        self.assertIn(sentence, text_of(build2()[0]))
+        r = v2_report()
+        for ev in r['keyMoments']+[d for d in r['diagrams']]:
+            for spec in (ev.get('diagram'), ev.get('videoOverlay')):
+                if spec:
+                    spec['elements'] = [e for e in spec['elements'] if e['type'] not in ('suggestedZone', 'moveArrow')]
+        self.assertNotIn(sentence, text_of(build2(r)[0]))
+
+    def test_an_out_of_date_report_says_so_once_without_a_double_full_stop(self):
+        data, _ = build2(stale=['The tracking result changed.', 'The team settings changed.'])
+        text = text_of(data)
+        self.assertIn('OUT OF DATE  |  Team A', text)
+        self.assertIn('made: The tracking result changed; The team settings changed. Regenerate', text)
+        self.assertNotIn('..', text.replace('...', ''))
+
+    def test_malformed_fields_never_break_the_export(self):
+        base = v2_report()
+        for key in list(base):
+            for junk in (None, 'text', 7, [None, 3, 'x'], {'x': 1}):
+                r = copy.deepcopy(base)
+                r[key] = junk
+                parse(build2(r, Frames2())[0])
+        r = copy.deepcopy(base)
+        r['keyMoments'][0].update(frame=None, diagram='x', videoOverlay=[1], time=None, annotation=7)
+        r['keyMoments'][1]['videoOverlay'] = {'tier': 'world', 'width': 1920, 'height': 1080, 'elements': [
+            None, {'type': 'focus'}, {'type': 'relation', 'pa': 'x'}, {'type': 'suggestedZone', 'polygon': 'x'}]}
+        r['needsWork'][0].update(text=None, timestamps='x', aggregate=[], measurements=None, drills=[3])
+        r['drills'][0]['fields'] = None
+        r['overview'].update(possession=None, detectors=[None, {'detector': 7}], notices='x')
+        r['profile'].update(level='4', register=None, skills=[])
+        data, info = build2(r, Frames2())
+        parse(data)
+        parse(build2({'kind': 'coaching-report', 'version': 2}, None)[0])
+
+
+class V2ContentTests(unittest.TestCase):
+    def test_cards_follow_the_level_register(self):
+        r = v2_report()
+        text = text_of(build2(r)[0])
+        self.assertIn('Missing in 5 of 9 moments (3 separate spells), 1 unclear, when the other team had the ball '
+                      '(estimated), over 88.2 s of that time.', text)
+        self.assertIn('At the first key moment: Nearest player to the ball 3.1 m (est.).', text)   # share hidden at L4
+        self.assertIn('WORK ON', text)
+        self.assertIn('Priority 1', text)
+        r['profile']['register']['numbers'] = 'none'
+        quiet = text_of(build2(r)[0])
+        for s in ('Missing in', 'At the first key moment', 'checked in'):
+            self.assertNotIn(s, quiet)
+        self.assertIn('Looked at when the other team had the ball (estimated).', quiet)
+        r = v2_report()                                                 # a level-5 measure stays hidden at level 4
+        r['needsWork'][0]['measurements']['nearCbShiftM'] = 4.2
+        self.assertNotIn('Near centre-back shift', text_of(build2(r)[0]))
+        r['profile']['level'] = r['needsWork'][0]['level'] = 5
+        self.assertIn('Near centre-back shift 4.2 m (est.)', text_of(build2(r)[0]))
+        r = v2_report()
+        r['profile']['register']['numbers'] = 'rates'
+        r['profile']['level'] = r['needsWork'][0]['level'] = 7
+        self.assertIn('per 10 minutes of it', text_of(build2(r)[0]))
+
+    def test_coach_marked_phases_are_labelled(self):
+        r = v2_report()
+        r['needsWork'][0]['measurements']['phaseSource'] = 'coach'
+        text = text_of(build2(r)[0])
+        self.assertIn('when the other team had the ball (marked by the coach)', text)
+        self.assertIn('who had the ball: marked by the coach', text)
+        self.assertIn('Where you marked who had the ball, your marks are used and labelled as marked by the coach.',
+                      text)
+        self.assertNotIn('labelled as marked by the coach', text_of(build2()[0]))
+
+    def test_ids_are_shown_as_display_labels_but_a_level_that_names_nobody_gets_no_labels(self):
+        labels = {'A-04': 'A-03', 'A-05': 'A-07', 'B-10': 'B-02'}
+        data, _ = build2(None, Frames2(), labels=labels)
+        text = text_of(data)
+        self.assertIn('A-07 covered behind A-03', text)
+        self.assertIn('Players: A-03, A-07, B-02.', text)
+        r = v2_report()
+        for ev in r['keyMoments']:
+            for spec in (ev['diagram'], ev['videoOverlay']):
+                for el in (spec or {}).get('elements', []):
+                    if el['type'] == 'focus':
+                        el['label'] = False
+        doc, info, ops = doc_ops(r, Frames2(), labels=labels)
+        shown = [op['text'] for op in ops if op['op'] == 'text']
+        self.assertNotIn('A-03', shown)                                 # no marker or overlay label of the player
+        self.assertNotIn('Players:', ' '.join(shown))
+        self.assertIn('one possibility for the teammate who could move', ' '.join(shown))
+
+    def test_drills_print_the_six_fields_the_library_card_and_the_source_credit(self):
+        r = v2_report()
+        r['drills'].append(copy.deepcopy(r['drills'][0]))               # the same drill for a second finding
+        text = text_of(build2(r)[0])
+        self.assertEqual(text.count('Cover the Line'), 1+text.count('Drill: '+'3v3 Cover the Line'))
+        for title in ('WHAT IT TRAINS', 'WHY IT WAS CHOSEN', 'MAKE IT EASIER', 'MAKE IT HARDER',
+                      'WHAT PROGRESS LOOKS LIKE NEXT MATCH', 'HOW IT RUNS', 'COACHING POINTS'):
+            self.assertIn(title, text)
+        self.assertIn('Moments it addresses: E1 12:41.00', text)
+        self.assertIn('Source: Adapted from', text)
+        self.assertIn('PitchIQ proposal, not validated by a coach', text)
+        self.assertIn('Safety at this age', text)
+        r = v2_report()
+        r['drills'][0].update(finding=None, optional=True)
+        self.assertIn("Optional: for the next objective, not from this match's evidence.", text_of(build2(r)[0]))
+
+    def test_progression_table_or_the_way_to_get_one_and_the_next_objective(self):
+        text = text_of(build2()[0])
+        for s in ('Pressure and cover', 'Developing', '31', 'improving', 'Next development objective',
+                  'Read per moment, never on match totals'):
+            self.assertIn(s, text)
+        r = v2_report()
+        r['progression'] = None
+        self.assertIn('Link this team to a squad in the coaching setup to follow its skills across matches.',
+                      text_of(build2(r)[0]))
+
+    def test_sources_are_credited_with_working_links(self):
+        data, info = build2()
+        self.assertIn(b'/URI (https://learn.englandfootball.com/)', data)
+        text = text_of(data)
+        self.assertIn('[EF-COVER-RECOVER] Cover and recover (England Football)', text)
+        self.assertIn('No federation reviewed or endorses PitchIQ', text)
+        goal = ('Cover is the angle and distance that make you the next protection behind the presser. '
+                '[EF-COVER-RECOVER]')
+        self.assertGreater(text.index(goal), text.rindex('Sources ('))  # the level's guidance stands with its sources
+
+    def test_feedback_notes_are_printed_as_typed_and_an_adjusted_area_is_drawn(self):
+        r = v2_report()
+        ev = r['keyMoments'][0]['id']
+        fb = [{'id': 'f1', 'findingKey': r['needsWork'][0]['key'], 'attached': r['needsWork'][0]['key'],
+               'thisRun': True, 'verdict': 'partial', 'text': 'A-04 was screened, B-10 unlikely', 'made':
+               '2026-10-22T10:00:00', 'run': 'run-x'},
+              {'id': 'f2', 'findingKey': r['needsWork'][0]['key'], 'attached': None, 'thisRun': True, 'verdict': None,
+               'text': '', 'made': '2026-10-22T10:01:00', 'run': 'run-x',
+               'adjustment': {'evidence': ev, 'polygon': [[.16, .35], [.22, .35], [.22, .41], [.16, .41]],
+                              'mover': 'A-05', 'note': None}},
+              {'id': 'f3', 'findingKey': None, 'thisRun': False, 'verdict': 'correct', 'text': 'old engine',
+               'made': '2026-10-01', 'run': 'run-old', 'finding': {'headline': 'Old'}}]
+        doc, info, ops = doc_ops(r, None, feedback=fb, labels={'A-04': 'A-09'})
+        text = ' '.join(op['text'] for op in ops if op['op'] == 'text')
+        self.assertIn('Your review: Partially correct - "A-04 was screened, B-10 unlikely"', text)   # never relabelled
+        self.assertIn("coach's area", text)
+        self.assertIn('Feedback from the previous report engine', text)
+        self.assertIn('(adjusted area on E1)', text)
+
+    def test_the_viewers_team_colours_choose_the_annotation_colours(self):
+        _, _, ops = doc_ops(v2_report(), Frames2())
+        strokes = {op.get('stroke') for op in ops}
+        self.assertIn('#ff4d6d', strokes)                               # default teams: rose review outline
+        self.assertIn('#448a5f', strokes)                               # the print twin of mint on the diagram
+        self.assertIn('#7dffb0', strokes)                               # mint over the screenshot
+        _, _, ops = doc_ops(v2_report(), Frames2(), colours={'A': '#ff0000', 'B': '#00ff00'})
+        strokes = {op.get('stroke') for op in ops}
+        self.assertIn('#ff2fd1', strokes)
+        self.assertNotIn('#ff4d6d', strokes)
+
+    def test_fixed_words_never_name_an_unmeasured_event_or_a_banned_word(self):
+        import coaching_text_fixtures as TX
+        for level in (1, 2, 4, 7):
+            r = TX.report('unsupported_advance', 'none_behind', level=level)
+            r['overview']['unavailable'] = []                       # profiles.json's reasons (INTERFACES: PDF)
+            data, info = pdf.build_report_pdf(r, None, {})
+            text = text_of(data)
+            text = text[:text.rindex('Sources (')]+text[text.rindex('About this report'):]   # credits and guidance
+            text = re.sub(r'Source: .*?PitchIQ proposal, not validated', '', text)            # drill credits
+            self.assertEqual(S.event_problems(text), [], level)
+            banned = [w for w in r['profile']['register']['banned']
+                      if re.search(r'(?<![a-z])'+re.escape(w)+r'(?![a-z])', text, re.I)]
+            self.assertEqual(banned, [], level)
+            self.assertEqual(info['skippedElements'], [], level)
+            self.assertEqual(info['evidenceShown'], len(r['keyMoments']))
+
+    def test_real_scene_reports_through_every_stage(self):
+        import coaching_text_fixtures as TX
+        for scene, variant, level in (('unsupported_advance', 'none_behind', 4), ('low_calibration', 'default', 4),
+                                      ('defending', 'press_no_cover', 2), ('kids_swarm', 'default', 1)):
+            r = TX.report(scene, variant, level=level)
+            data, info = pdf.build_report_pdf(r, Frames2(), {})
+            parse(data)
+            self.assertEqual(info['droppedLinks'], 0, scene)
+            self.assertEqual(info['evidenceShown'], len(r['keyMoments']), scene)
+            text = text_of(data)
+            for f in r['needsWork']+r['reviews']+r['strengths']:
+                self.assertIn(f['text']['headline'][:40], text, scene)
+        r = TX.report('low_calibration', 'default', level=4)
+        zones = [ev for ev in r['keyMoments'] if ev['alternative']]
+        self.assertTrue(zones and all(ev['tier'] != 'world' for ev in zones))
+        _, info, _ = doc_ops(r, Frames2())
+        self.assertTrue(all(s['figure'] == 'overlay' for s in info['skippedElements'] if s['type'] == 'suggestedZone'))
+
+    def test_the_page_and_the_pdf_cover_the_same_codes(self):
+        self.assertEqual(set(pdf.REASON_UI), set(S.ABSTAIN_REASONS) | {'off'})
+        self.assertEqual(set(pdf.GUARDRAIL_UI), set(S.GUARDRAILS))
+        self.assertEqual(set(pdf.SKILL_OF.values()), set(S.SKILLS))
+        self.assertEqual(set(pdf.DETECTOR_UI), set(S.DETECTORS))
+        self.assertEqual(set(pdf.V2_VERDICTS), set(S.FINDING_VERDICTS))
+        js = (ROOT/'coaching.js').read_text(encoding='utf-8')
+        for name, table in (('REASON_UI', pdf.REASON_UI), ('GUARDRAIL_UI', pdf.GUARDRAIL_UI),
+                            ('MEASURE_UI', pdf.MEASURE_UI), ('MASTERY_UI', pdf.MASTERY_UI),
+                            ('ALT_REASON_UI', pdf.ALT_REASON_UI), ('DRILL_SOURCE_UI', pdf.DRILL_SOURCE_UI)):
+            m = re.search(r'const '+name+r' = \{(.*?)\};', js, re.S)
+            if m is None:
+                self.skipTest(f'coaching.js has no {name} (FRONTEND changed it)')
+            keys = set(re.findall(r"(?:^|[{,\s])'?([A-Za-z_][A-Za-z0-9_ ]*)'?:", m.group(1)))
+            self.assertEqual(set(table) - keys, set(), name)
+
+
+class V2FixesTests(unittest.TestCase):
+    def test_clock_rounds_before_splitting_minutes(self):
+        self.assertEqual(pdf.clock(59.999), '01:00.00')                 # critic N8 ('00:60.00' before)
+        self.assertEqual(pdf.clock(3599.995), '60:00.00')
+        self.assertEqual(pdf.clock(61.005), '01:01.01')
+        self.assertEqual(pdf.clock(-2), '-00:02.00')
+        self.assertEqual(pdf.offset(0.004), '+00:00.00')
+
+    def test_a_long_video_name_never_runs_into_the_page_number(self):
+        r = v2_report()
+        r['video']['name'] = 'a very long upload name '*8+'.mp4'
+        doc, _, _ = doc_ops(r)
+        for page in doc.pages:
+            foot = [op for op in page if op['op'] == 'text' and op['size'] == 7 and op['y'] > pdf.A4[1]-40]
+            left = next(op for op in foot if op['align'] == 'left')
+            right = next(op for op in foot if op['align'] == 'right')
+            self.assertTrue(left['text'].endswith('...'))
+            self.assertLess(left['x']+pdf.text_width(left['text'], 7), right['x']-pdf.text_width(right['text'], 7))
+        fb = fixture_report()
+        fb['video']['name'] = 'b'*300+'.mp4'
+        doc, _ = pdf.layout_report(fb, None, {})
+        foot = [op for op in doc.pages[0] if op['op'] == 'text' and op['size'] == 7 and op['y'] > pdf.A4[1]-40]
+        self.assertTrue(next(op for op in foot if op['align'] == 'left')['text'].endswith('...'))
+
+    def test_a_heading_keeps_the_block_that_follows_it(self):
+        doc = pdf.Document()
+        L = pdf._Layout(doc, 'header')
+        L.y = L.bottom-80                                             # room for the heading, not for a card
+        L.heading('Observed strengths', 1, keep=90)
+        self.assertEqual(L.page, 1)                                   # critic N5: moved to the next page
+        L.y = L.bottom-80
+        L.heading('Short section', 1)
+        self.assertEqual(L.page, 1)                                   # nothing to keep: it stays
+
+    def test_a_section_heading_is_never_the_last_thing_on_a_page(self):
+        for report in (v2_report(), fixture_report()):
+            doc, _ = pdf.layout_report(report, Frames2(), {})
+            for page in doc.pages[:-1]:
+                body = [op for op in page if op['op'] == 'text' and op['y'] < pdf.A4[1]-pdf.MARGINS[3]]
+                self.assertFalse(body and body[-1]['size'] >= 11.5, body[-1]['text'] if body else '')
+
+    def test_the_v1_cover_mentions_illustrations_only_when_one_is_drawn(self):
+        text = text_of(build(frames=Frames())[0])
+        self.assertNotIn('COACHING ILLUSTRATION', text)
+        r = fixture_report()
+        r['evidence'][0]['diagram']['elements'].append({'type': 'suggested', 'id': 'A-01', 'x': .3, 'y': .3})
+        self.assertIn('COACHING ILLUSTRATION', text_of(build(r, Frames())[0]))
+
+    def test_the_file_name_carries_the_level_and_a_custom_range(self):
+        r = v2_report()
+        self.assertEqual(pdf.report_filename(r), 'pitchiq-coaching-example-run-20261021-A-level4.pdf')
+        r['range'].update(t0=742.43, t1=800.01, whole=False)
+        self.assertEqual(pdf.report_filename(r), 'pitchiq-coaching-example-run-20261021-A-level4-742-801s.pdf')
+        self.assertEqual(pdf.pdf_filename('clip.avi', 'r1', 'A', 'competitive'),
+                         'pitchiq-coaching-clip-r1-A-competitive.pdf')
+
+
+COACH_ONLY = ('Who had the ball comes from the spans you marked (coach-marked); PitchIQ could not follow it on this '
+              'footage.')
+
+
+class V2FixRound3Tests(unittest.TestCase):
+    """Verification round 2's CODE findings on the PDF: M-2 (the coach's possession marks were called an estimate),
+    L-3 ("To build on it" twice), L-4 (the chips of the cited back-line failure mode), L-5 (the stale "No drill"
+    sentence)."""
+
+    @staticmethod
+    def lay(report=None, **options):
+        return pdf._ReportV2(v2_report() if report is None else report, None, options)
+
+    def test_the_possession_row_says_where_the_shares_come_from(self):
+        po = {'available': True, 'quality': 'limited', 'reason': None, 'roughShares': {'A': .75, 'B': .25},
+              'coverage': .42, 'caveat': COACH_ONLY, 'source': 'coach'}
+        say = self.lay(coach_spans=True, marked='both').possession_text
+        self.assertEqual(say(po), 'Team A about 75%, Team B about 25% (from your marks, 42% of the time); limited quality')
+        one = dict(po, roughShares=None, coverage=.31)
+        self.assertEqual(self.lay(coach_spans=True, marked='A').possession_text(one),
+                         "No share given: you marked only Team A's possession (31% of the time); mark Team B's spells too "
+                         'for a share; limited quality')
+        self.assertEqual(self.lay(coach_spans=True).possession_text(one), 'From your marks, 31% of the time; limited quality',
+                         'the side unknown: still the coach\'s marks, never an estimate')
+        mixed = dict(po, source='mixed', roughShares={'A': .35, 'B': .65}, coverage=1.0, quality='good')
+        self.assertEqual(say(mixed), "Team A about 35%, Team B about 65% (your marks where you made them, PitchIQ's estimate "
+                                     'elsewhere; from 100% of the time)')
+        engine = dict(po, source='engine', roughShares={'A': .45, 'B': .55}, coverage=.79, quality='good')
+        self.assertEqual(say(engine), 'Team A about 45%, Team B about 55% (estimated from 79% of the time)')
+        old = {k: v for k, v in po.items() if k != 'source'}                    # a report stored before 'source' existed
+        self.assertEqual(self.lay(coach_spans=True).possession_text(old),
+                         'Team A about 75%, Team B about 25% (from your marks, 42% of the time); limited quality')
+        self.assertEqual(self.lay().possession_text(dict(old, caveat=None)),
+                         'Team A about 75%, Team B about 25% (estimated from 42% of the time); limited quality')
+        full = dict(old, roughShares={'A': 1.0, 'B': 0.0})                       # the report's own one-sided signal
+        self.assertTrue(self.lay(coach_spans=True).possession_text(full).startswith("No share given: you marked only Team A's"))
+
+    def test_the_printed_overview_of_one_sided_marks(self):
+        r = v2_report()
+        r['overview']['possession'] = {'available': True, 'quality': 'limited', 'reason': None, 'roughShares': None,
+                                       'coverage': .31, 'caveat': COACH_ONLY, 'source': 'coach'}
+        r['overview']['detectors'][0].update(status='not_assessed', reason='coach_marks_one_side', opportunities=0)
+        text = text_of(build2(r, coach_spans=True, marked='A')[0])
+        self.assertIn("No share given: you marked only Team A's possession (31% of the time)", text)
+        self.assertIn("not assessed: you marked only Team A's possession: mark Team B's spells too to run this check", text)
+        self.assertNotIn('stimated from', text.split('Who had the ball')[1][:200])
+
+    def test_a_strength_says_to_build_on_it_once(self):
+        self.assertEqual(pdf.without_lead('To build on it, keep the cover close.'), 'Keep the cover close.')
+        self.assertEqual(pdf.without_lead('Keep the cover close.'), 'Keep the cover close.')
+        text = text_of(build2()[0])
+        self.assertIn('TO BUILD ON IT Keep the cover close.', text)
+        self.assertNotIn('To build on it,', text)
+
+    def test_the_chips_of_the_cited_back_line_failure_mode(self):
+        lay = self.lay()
+        m = {'lateralGapM': 8.8, 'gapBallSide': False, 'opponentInGap': False, 'dmGapM': 12.2, 'dmGapOpponents': 1,
+             'metres': 'estimated'}
+        dm = {'observation': 'defensive_spacing', 'verdict': 'review', 'level': 4, 'measurements': dict(m, failureMode='dm_gap')}
+        # (pre-freeze, critic N-4: the count is of the ball's side only, as contextual measures it)
+        self.assertEqual(lay.measure_line(dm), 'At the first key moment: Widest gap in the back line 8.8 m (est.); Defence '
+                                               'to midfield gap 12.2 m (est.); Opponents between defence and midfield '
+                                               "on the ball's side 1.")
+        lateral = dict(dm, measurements=dict(m, failureMode='lateral_gap', opponentInGap=True))
+        self.assertEqual(lay.measure_line(lateral), 'At the first key moment: Widest gap in the back line 8.8 m (est.); Gap on '
+                                                    'the ball side no; Opponent in the gap yes.')
+        inferred = dict(dm, measurements={k: v for k, v in m.items() if k != 'lateralGapM'})   # no failureMode, no lateral gap
+        self.assertIn("Opponents between defence and midfield on the ball's side 1", lay.measure_line(inferred))
+        strength = dict(lateral, verdict='strength', level=5)
+        self.assertNotIn('Opponents between', lay.measure_line(strength))
+
+    def test_the_objective_origin_never_contradicts_its_text(self):
+        # critic S-3 (COACH F-4 / FACTS F-9): an objective chosen from this match's checks must not read "not from this
+        # match"; nor one from a work item whose finding is not shown.
+        say = pdf.origin_line
+        self.assertIsNone(say({'skill': 'spread_when_attacking', 'fromMatch': False,
+                               'text': "From this match's checks (not a work item): Spread out."}, None))
+        self.assertIsNone(say({'skill': 'pressure_and_cover', 'fromMatch': True, 'text': 'Pressure and cover.'}, None))
+        self.assertEqual(say({'skill': 'pressure_and_cover', 'fromMatch': True, 'text': 'Pressure and cover.'}, {'id': 'f'}),
+                         'From this match: see the finding linked below.')
+        self.assertIsNone(say({'skill': 'pressure_and_cover', 'fromMatch': False,
+                               'text': "From the level's objectives, not from this match: Pressure and cover."}, None))
+        self.assertEqual(say({'skill': 'pressure_and_cover', 'fromMatch': False, 'text': 'Pressure and cover.'}, None),
+                         "From the level's objectives, not from this match.")
+        self.assertIsNone(say({'skill': None, 'fromMatch': False, 'text': 'Every player experiences all positions.'}, None))
+        r = v2_report()
+        r['nextObjective'] = {'skill': 'spread_when_attacking', 'fromMatch': False, 'finding': None,
+                              'text': "From this match's checks (not a work item): Spread out."}
+        self.assertNotIn('not from this match', text_of(build2(r)[0]))
+
+    def test_too_few_situations_is_not_a_short_range(self):
+        # critic S-2 / COACH F-14: 4 clear advances in 6.1 minutes read "the range is too short".
+        lay = self.lay()
+        d = {'detector': 'wide_defender_advance', 'status': 'not_assessed', 'reason': 'too_few_situations', 'opportunities': 4}
+        self.assertEqual(lay.checked_text(d), 'not assessed: only 4 situations of this kind happened in this range, too few to judge')
+        self.assertEqual(lay.checked_text(dict(d, opportunities=None)),
+                         'not assessed: too few of these situations happened in this range to judge')
+        lay.numbers = 'none'
+        self.assertEqual(lay.checked_text(d), 'not assessed: too few of these situations happened in this range to judge')
+
+    def test_the_moments_counts_add_up(self):
+        # critic B-3 (FACTS F-4 / COACH F-10, round 2): failures that were not clear were left out of the count.
+        f = {'observation': 'defensive_spacing', 'verdict': 'review', 'level': 4, 'limitations': ['moments_worth_a_look'],
+             'aggregate': {'opportunities': 34, 'unclear': 24},
+             'measurements': {'clearMoments': 7, 'clearSpells': 6, 'decidedMoments': 10, 'failingMoments': 8}}
+        self.assertTrue(self.lay().fact_line(f).startswith('Clear in 7 of the 10 moments PitchIQ could judge (6 separate spells), 1 more '
+                                                           'fell short less clearly, 24 unclear'))
+        f['measurements']['failingMoments'] = 7
+        self.assertNotIn('more fell short', self.lay().fact_line(f))
+
+    def test_the_empty_drills_section_says_why(self):
+        r = v2_report()
+        r['drills'] = []
+        self.assertIn("No drill: PitchIQ has none that fits the work items in this range for this team's age, level and "
+                      'format.', text_of(build2(r)[0]))
+        r['needsWork'] = []
+        text = text_of(build2(r)[0])
+        self.assertIn('No drill: there is no work item in this range, and PitchIQ has none that fits the next objective for '
+                      "this team's age, level, format and range.", text)
+        self.assertNotIn('never at random', text)
+        r['nextObjective'] = {'skill': None, 'text': 'Every player experiences all positions.', 'fromMatch': False,
+                              'finding': None}
+        self.assertEqual(pdf.no_drill_text(r), 'No drill: there is no work item in this range, and the next objective is a '
+                                               'general one with no drill tied to it.')
+        r['nextObjective'] = None
+        self.assertEqual(pdf.no_drill_text(r), 'No drill: there is no work item in this range and no next objective.')
 
 
 if __name__ == '__main__':

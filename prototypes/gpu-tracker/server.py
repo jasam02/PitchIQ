@@ -625,9 +625,15 @@ def main():
 
     def coaching_route(handler):
         """A coaching route: soccer/coaching/store.py is imported first (lazily, see coaching_store), and a coaching
-        package that fails to import answers 503 here and nowhere else."""
+        package that fails to import answers 503 here and nowhere else. A request another site's page makes is refused
+        (403) when the browser says so (Sec-Fetch-Site cross-site or same-site): GET /api/coaching builds and stores
+        roles, reports and progress entries from the stored measurements, and a plain cross-site <img> GET sends no
+        Origin, so the Host check alone let one through (CODE L7). The page's own requests are same-origin, and tools
+        such as curl send no such header."""
         @functools.wraps(handler)
         def wrapped(*args, **kwargs):
+            if request.headers.get('Sec-Fetch-Site') in ('cross-site', 'same-site'):
+                return jsonify(error='Coaching requests are answered for this page only.'), 403
             try:
                 coaching_store()
             except Exception as error:   # noqa: BLE001 - whatever broke in the coaching package stays in its routes
@@ -640,6 +646,15 @@ def main():
         """A coaching answer as JSON without a NaN or Infinity token (store.json_text): Flask's jsonify writes them, the
         page's JSON.parse rejects them, and the answers carry values read from the stored report and feedback files."""
         return app.response_class(coaching_store().json_text(data), status=status, mimetype='application/json')
+
+    def coaching_body():
+        """The JSON object of a coaching POST, or None. A body nested deeper than the parser's recursion limit raised
+        RecursionError through get_json(silent=True) and answered 500 (CODE L6, a checkout behaviour every POST route
+        shares); the coaching routes answer it as any other unreadable body, 400."""
+        try:
+            return request.get_json(silent=True)
+        except RecursionError:
+            return None
 
     def result_sha(path):
         """The sha256 of the result file's bytes, remembered per (path, mtime, size): a status request hashes nothing."""
@@ -711,11 +726,167 @@ def main():
     def coaching_fail(error):
         return jsonify(error=str(error)), error.status
 
+    # ---------- coaching v2 (adaptive coaching, DESIGN v2 1.2 and 12.1): three cache tiers, settings, coach-marked
+    # possession, squads and progress. A request without a v1 'context' level is a v2 request; the v1 report stays
+    # reachable with one (the page's legacy mode and the v1 tools). ----------
+    runs_root = ROOT/'runs'           # squads and progress live in runs/_coaching/ (soccer/coaching/progress.py)
+
+    def coaching_v2(handler):
+        """A v2 coaching route: a v2 module that is missing or does not import (profiles, progress, a stage) answers 503
+        on the v2 routes only; the v1 report and every other view keep working. A coaching table that does not
+        validate (profiles.json, sources.json, drills.json, progress_rules.json: store.table_failure) answers a JSON 503
+        with its problems: it answered Flask's HTML 500, which the page took for a server without the v2 routes, and
+        the coach got the v1 professional-reference report without a word (CODE M-1, round 2)."""
+        @functools.wraps(handler)
+        def wrapped(*args, **kwargs):
+            try:
+                return handler(*args, **kwargs)
+            except Refused as error:
+                return coaching_fail(error)
+            except (ImportError, SyntaxError, NotImplementedError) as error:   # NotImplementedError: StageUnavailable
+                traceback.print_exc()
+                return jsonify(error=f'The adaptive coaching report is not available in this version: {error}'), 503
+            except ValueError as error:
+                broken = coaching_store().table_failure(error)
+                if broken is None:
+                    raise
+                traceback.print_exc()
+                shown = '; '.join(broken['problems'][:3]) or 'no detail'
+                return coaching_json({'error': f'The adaptive coaching report is not available: {broken["table"]} does '
+                                               f'not validate ({shown}). Fix or restore the file, then reload the page.',
+                                      'table': broken['table'], 'problems': broken['problems']}, 503)
+        return wrapped
+
+    def coaching_progress():
+        """soccer/coaching/progress.py, imported when a v2 route first needs it (see coaching_v2)."""
+        return importlib.import_module('soccer.coaching.progress')
+
+    def v2_now(v):
+        """What a v2 answer is keyed on, read once per request: the analysed segment and its bounds, the result file's
+        sha (hashed once per file version), the team-shape settings, the video's coaching settings, this run's coach
+        spans and the corrections the result lists."""
+        cs = coaching_store()
+        slim = samples_entry(v)[2]
+        frames = slim['frames']
+        return {'bounds': (float(frames[0]['time']), float(frames[-1]['time'])) if frames else None,
+                'segment': cs.segment_of(frames), 'sha': result_sha(v.result_dir/'result.json'),
+                'shape': shape_settings(v), 'settings': cs.read_settings(v.directory),
+                'spans': cs.read_spans(v.directory, v.result_dir.name)[0],
+                'corrections': cs.applied_corrections(slim.get('corrections'))}
+
+    def v2_options(now, source):
+        """The v2 report options {team, t0, t1} of a request (the range clamped to the analysed segment)."""
+        try:
+            return coaching_store().clean_range(source.get('team', 'A'), source.get('t0'), source.get('t1'), now['bounds'])
+        except ValueError as error:
+            raise Refused(str(error), 400) from None
+
+    def v2_keys(now, options):
+        return coaching_store().tier_keys(now['sha'], now['shape'], now['settings'], options['team'], now['spans'],
+                                          now['segment'], options['t0'], options['t1'])
+
+    def v2_meta(v):
+        return {'run': v.result_dir.name, 'video': {'key': v.key[:16], 'name': v.meta.get('name')}}
+
+    def v2_after(v, now, keys):
+        """What runs once a new v2 report is stored: progress (progress.record for the squad confirmed as this team in
+        this run, the entries of an older measurement of the run marked stale). Progress never fails a report."""
+        cs = coaching_store()
+
+        def after(record, obs, roles):
+            try:
+                cs.mark_progress_stale(runs_root, now['settings'], v.result_dir.name, v.key[:16], keys['team'], keys['mfp'])
+                cs.record_progress(runs_root, now['settings'], v.result_dir.name, v.key[:16], keys['team'], obs, roles,
+                                   keys['range'], video_path=v.source, coach_date=cs.read_match_date(v.directory))
+            except Exception:   # noqa: BLE001 - logged; the report is stored either way
+                traceback.print_exc()
+        return after
+
+    def remember_error(key, error):
+        with coaching_lock:
+            if len(coaching['errors']) >= 32:          # the failures of the latest builds are enough to report
+                coaching['errors'].pop(next(iter(coaching['errors'])))
+            coaching['errors'][key] = error
+
+    def v2_answer(v, source):
+        """The v2 answer of GET /api/coaching (FRONTEND's route table): {engine 2, state missing|building|ready|stale|
+        error, tiers {measurement, role, interpretation}, report, feedback, reasons, reasonCodes, busy, error, options,
+        saved, run, drills, fingerprints, coachSpans, inferred (the team's measured roles when its roles file is stored,
+        else None)}. When the obs file of the current settings is stored, a missing
+        roles file and report are made here at once (a level, age, style or role change: tens of milliseconds to a
+        second, DESIGN 1.2); a missing obs file needs POST /api/coaching/build (a format, field size, coach-span,
+        team-shape or tracking change)."""
+        cs = coaching_store()
+        now = v2_now(v)
+        options = v2_options(now, source)
+        keys = v2_keys(now, options)
+        run_dir, run = v.result_dir, v.result_dir.name
+        record, fresh = cs.find_report_v2(run_dir, keys, options)
+        tiers = cs.tier_states(run_dir, keys)
+        with coaching_lock:
+            build = coaching['build']
+            error = coaching['errors'].get(keys['ifp']) or coaching['errors'].get(keys['mfp'])
+        building = bool(build and build.get('engine') == 2 and build['runDir'] == str(run_dir)
+                        and (build.get('mfps') or {}).get(keys['team']) == keys['mfp'])
+        if building:
+            tiers['measurement'] = 'building'
+        if not fresh and not building and not error and tiers['measurement'] == 'ready':
+            try:
+                made = cs.ensure_report(run_dir, keys, options, now['settings'], meta=v2_meta(v),
+                                        corrections=now['corrections'], after=v2_after(v, now, keys))
+            except (ImportError, SyntaxError, NotImplementedError):
+                raise
+            except Exception as failure:   # noqa: BLE001 - reported to the page, remembered until the next build
+                traceback.print_exc()
+                error = f'The coaching report could not be built: {failure}'
+                remember_error(keys['ifp'], error)
+            else:
+                if made is not None:
+                    record, fresh = made, True
+                    tiers = cs.tier_states(run_dir, keys)
+        state_name = 'building' if building else 'ready' if fresh else 'error' if error else 'stale' if record else 'missing'
+        reasons = cs.staleness_v2(record['inputs'], keys['inputs'], record.get('corrections'), now['corrections']) \
+            if record and not fresh else []
+        progression = team_name = None
+        if record:
+            try:
+                if fresh:
+                    cs.mark_progress_stale(runs_root, now['settings'], run, v.key[:16], keys['team'], keys['mfp'])
+                    cs.record_progress_if_missing(runs_root, now['settings'], run, v.key[:16], run_dir, keys,
+                                                  record['report'], video_path=v.source,
+                                                  coach_date=cs.read_match_date(v.directory))
+                progression, team_name = cs.progression_for(runs_root, now['settings'], run, keys['team'])
+            except (ImportError, SyntaxError):
+                raise
+            except Exception:   # noqa: BLE001 - a progress store that cannot be read leaves the section out
+                traceback.print_exc()
+                progression = team_name = None
+        report = cs.served_report(record, progression=progression, team_name=team_name) if record else None
+        # The measured roles of this team once its roles file is stored: the roles editor asked GET
+        # /api/coaching/settings once per run, before anything was measured, and showed "no stable role" for every player after the first
+        # Generate (CODE M3); the answer now carries them (one roles file read, 1-49 KB on the run copies).
+        # A player the coach confirmed keeps his measured reading (read from the obs file only then; CODE L-2).
+        inferred = None
+        if tiers['role'] == 'ready':
+            inferred = cs.measured_roles(cs.load_tier(cs.tier_path(run_dir, 'roles', keys)),
+                                         obs=lambda: cs.load_tier(cs.tier_path(run_dir, 'obs', keys)))
+        return {'engine': 2, 'state': state_name, 'tiers': tiers, 'report': report, 'inferred': inferred,
+                'feedback': cs.feedback_answer(report, cs.read_feedback_doc(v.directory), run),
+                'reasons': [r['text'] for r in reasons], 'reasonCodes': [r['code'] for r in reasons],
+                'busy': build is not None and not building, 'error': error if state_name == 'error' else None,
+                'options': options, 'saved': record['saved'] if record else None, 'run': run,
+                'drills': cs.drills_of(report) if report else {},
+                'fingerprints': {'measurement': keys['mfp'], 'roles': keys['rfp'], 'interpretation': keys['ifp']},
+                'coachSpans': now['spans'] is not None}
+
     @app.get('/api/coaching')
     @coaching_route
     def coaching_report():
         """The coaching report of one team for the shown run (state missing, building, ready, stale or error), with the
-        reasons a stored report is stale and the coach's feedback attached to its findings."""
+        reasons a stored report is stale and the coach's feedback attached to its findings: v2 (adaptive coaching), or
+        the v1 report when the request names a v1 context level."""
+        if 'context' not in request.args:
+            return coaching_report_v2()
         try:
             v = coaching_video(request.args.get('run'))
             options = coaching_options(v, request.args)
@@ -723,14 +894,310 @@ def main():
             return coaching_fail(error)
         return coaching_json(coaching_answer(v, options))
 
+    @coaching_v2
+    def coaching_report_v2():
+        v = coaching_video(request.args.get('run'))
+        return coaching_json(v2_answer(v, request.args))
+
+    @app.get('/api/coaching/profiles')
+    @coaching_route
+    @coaching_v2
+    def coaching_profiles():
+        """The coaching profile catalogue (levels, ages, formats and their formations and roles, format defaults, styles,
+        unavailable categories, sources): profiles.catalog(), static per version of profiles.json and sources.json."""
+        return app.response_class(coaching_store().profiles_catalog_text(), mimetype='application/json')
+
+    @app.get('/api/coaching/settings')
+    @coaching_route
+    @coaching_v2
+    def coaching_settings_get():
+        """The video's coaching settings (cleaned), the measured role of each player of the current measurement (from the
+        newest roles file of each team, coach confirmations left out: what the roles editor shows as "Measured"), the
+        squads, this run's squad links and the coach's match date."""
+        cs, PG = coaching_store(), coaching_progress()
+        v = coaching_video(request.args.get('run'))
+        now = v2_now(v)
+        inferred = {}
+        for team in ('A', 'B'):
+            keys = v2_keys(now, {'team': team, 't0': None, 't1': None})
+            newest = None
+            for p in sorted(cs.tier_dir(v.result_dir).glob(f'roles-{team}-{keys["mfp"][:16]}-*.json'),
+                            key=lambda q: q.stat().st_mtime_ns, reverse=True):
+                newest = cs.load_tier(p)
+                if newest is not None:
+                    break
+            obs_path = cs.tier_path(v.result_dir, 'obs', keys)
+            inferred[team] = cs.measured_roles(newest, obs=lambda path=obs_path: cs.load_tier(path))
+        return coaching_json({'run': v.result_dir.name, 'settings': now['settings'], 'inferred': inferred,
+                              'squads': PG.read_squads(runs_root), 'links': PG.links(now['settings'], v.result_dir.name),
+                              'matchDate': cs.read_match_date(v.directory)})
+
+    @app.post('/api/coaching/settings')
+    @coaching_route
+    @coaching_v2
+    def coaching_settings_post():
+        """Save one team's coaching settings block {run, team, settings} (validated: anything the cleaning would drop is
+        refused with the problems listed); the answer says which cache tiers became stale. A squad confirmed as this
+        team of this run is kept in step with the block's age group, level and format (its progress is read with them)."""
+        cs, PG = coaching_store(), coaching_progress()
+        body = coaching_body()
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        v = coaching_video(body.get('run'))
+        team, raw = body.get('team'), body.get('settings')
+        if team not in ('A', 'B'):
+            return jsonify(error='team must be A or B'), 400
+        if not isinstance(raw, dict):
+            return jsonify(error='settings must be the team settings object'), 400
+        try:
+            saved = cs.save_team_settings(v.directory, team, raw,
+                                          squad_exists=lambda sq: PG.squad(runs_root, sq) is not None)
+        except cs.SettingsRefused as error:
+            return coaching_json({'error': f'The settings were not saved: {error}', 'problems': error.problems}, 400)
+        except cs.SettingsUnreadable as error:
+            return jsonify(error=str(error)), 503
+        except OSError:
+            return jsonify(error='The coaching settings could not be saved; try again.'), 503
+        block, squad, note = saved['new'], None, None
+        run = v.result_dir.name
+        if block.get('squad') and any(link['run'] == run and link['team'] == team and link['confirmed']
+                                      for link in block['runLinks']):
+            try:
+                squad = PG.update_squad(runs_root, block['squad']['id'], age_group=block['ageGroup'],
+                                        level=block['playingLevel'], fmt=block['format'])
+            except PG.ProgressError as error:
+                note = f'The squad was not updated: {error}'
+        return coaching_json({'ok': True, 'settings': saved['settings'], 'stale': saved['stale'], 'squad': squad,
+                              'note': note})
+
+    def spans_answer(v, now, stored=None, saved=None):
+        cs = coaching_store()
+        return {'run': v.result_dir.name, 'spans': stored if stored is not None else cs.empty_spans(),
+                'segment': now['segment'], 'saved': saved}
+
+    @app.get('/api/coaching/spans')
+    @coaching_route
+    @coaching_v2
+    def coaching_spans_get():
+        """This run's coach-marked possession spans (who had the ball, or a dead ball, from t0 to t1; absolute source
+        seconds), stored per video apart from the tracking, and the analysed segment they must lie in."""
+        cs = coaching_store()
+        v = coaching_video(request.args.get('run'))
+        now = v2_now(v)
+        stored, saved = cs.read_spans(v.directory, v.result_dir.name)
+        return coaching_json(spans_answer(v, now, stored, saved))
+
+    def spans_save(v, raw):
+        cs = coaching_store()
+        now = v2_now(v)
+        try:
+            out = cs.save_spans(v.directory, v.result_dir.name, raw, now['segment'])
+        except cs.SettingsRefused as error:
+            return coaching_json({'error': f'The marked possession was not saved: {error}', 'problems': error.problems}, 400)
+        except cs.SettingsUnreadable as error:
+            return jsonify(error=str(error)), 503
+        except OSError:
+            return jsonify(error='The marked possession could not be saved; try again.'), 503
+        return coaching_json(dict(spans_answer(v, now, out['spans'], out['saved']), ok=True, dropped=out['dropped'],
+                                  stale=['measurement', 'role', 'interpretation'] if out['changed'] else []))
+
+    @app.post('/api/coaching/spans')
+    @coaching_route
+    @coaching_v2
+    def coaching_spans_post():
+        """Replace this run's coach-marked spans {run, spans: schema 'coach_spans' record}. They override possession-4
+        for the phase wherever they lie, so every cache tier of both teams goes stale (the answer says so)."""
+        body = coaching_body()
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        return spans_save(coaching_video(body.get('run')), body.get('spans'))
+
+    @app.post('/api/coaching/spans/remove')
+    @coaching_route
+    @coaching_v2
+    def coaching_spans_remove():
+        """Remove all of this run's coach-marked spans {run} (the engine's possession estimate decides the phase again)."""
+        body = coaching_body()
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        return spans_save(coaching_video(body.get('run')), coaching_store().empty_spans())
+
+    @app.get('/api/coaching/squads')
+    @coaching_route
+    @coaching_v2
+    def coaching_squads_get():
+        """The squads (teams followed across matches; runs/_coaching/squads.json)."""
+        return coaching_json({'squads': coaching_progress().read_squads(runs_root)})
+
+    @app.post('/api/coaching/squads')
+    @coaching_route
+    @coaching_v2
+    def coaching_squads_post():
+        """Create a squad {name, ageGroup, level, format}; a squad with the same name (case-insensitive) is returned
+        instead (created false)."""
+        PG = coaching_progress()
+        body = coaching_body()
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        try:
+            made, created = PG.create_squad(runs_root, body.get('name'), body.get('ageGroup'), body.get('level'),
+                                            body.get('format'))
+        except PG.ProgressUnreadable as error:
+            return jsonify(error=f'The squads file could not be read; nothing was changed ({error}).'), 503
+        except PG.ProgressError as error:
+            return jsonify(error=f'The squad was not created: {error}'), 400
+        except OSError:
+            return jsonify(error='The squad could not be saved; try again.'), 503
+        return coaching_json({'squad': made, 'created': created})
+
+    @app.get('/api/coaching/progress')
+    @coaching_route
+    @coaching_v2
+    def coaching_progress_get():
+        """A squad's development progression (progress.mastery: per skill its state, judged opportunities, matches,
+        trend, rates and history), read with the viewed run's team settings when run and team name the squad's team
+        (else the squad's own age group, level and format). Entries the current rules cannot read are first re-derived
+        from their cached observation files when those are still stored."""
+        cs, PG = coaching_store(), coaching_progress()
+        squad_id = request.args.get('squad', '')
+        if not cs.SQUAD_ID.fullmatch(squad_id):
+            return jsonify(error='squad must be a squad id (sq- and 12 hex digits).'), 400
+        try:
+            rec = PG.squad(runs_root, squad_id)
+            if rec is None:
+                return jsonify(error='There is no such squad.'), 404
+            block = None
+            run, team = request.args.get('run'), request.args.get('team')
+            v = active['video']
+            if run and team in ('A', 'B') and v is not None and v.result_dir is not None and v.result_dir.name == run:
+                link, b = cs.progress_link(cs.read_settings(v.directory), run, team)
+                if link is not None and link['squad']['id'] == squad_id:
+                    block = b
+            rederived = cs.rederive_progress(runs_root, squad_id)
+            entries = PG.read_entries(runs_root, squad_id)
+            detail = PG.mastery(entries, PG.read_block(rec, block), squad_id=squad_id)
+        except PG.ProgressUnreadable as error:
+            return jsonify(error=f'The progress store could not be read ({error}).'), 503
+        return coaching_json({'squad': rec, 'progress': detail, 'entries': len(entries), 'rederived': rederived})
+
+    @app.post('/api/coaching/match-date')
+    @coaching_route
+    @coaching_v2
+    def coaching_match_date():
+        """The coach's match date of this video {run, date: YYYY-MM-DD or null}: progress entries use it instead of the
+        video file's date (the entries already stored for the video's squads are updated)."""
+        cs, PG = coaching_store(), coaching_progress()
+        body = coaching_body()
+        if not isinstance(body, dict):
+            return jsonify(error='Expected a JSON object.'), 400
+        v = coaching_video(body.get('run'))
+        try:
+            day = cs.save_match_date(v.directory, body.get('date'))
+        except cs.SettingsRefused as error:
+            return jsonify(error=str(error)), 400
+        updated = 0
+        if day is not None:
+            try:
+                for link in PG.links(cs.read_settings(v.directory), v.result_dir.name):
+                    updated += PG.set_match_date(runs_root, squad_id=link['squad']['id'], video=v.key[:16], day=day)
+            except PG.ProgressError as error:
+                return jsonify(error=f'The date was saved; the stored progress could not be updated ({error}).'), 503
+        return coaching_json({'ok': True, 'date': day, 'updated': updated})
+
+    @coaching_v2
+    def coaching_build_v2(body):
+        """Start building the v2 report of one team (POST /api/coaching/build without a context level): the
+        measurement tier of both teams when an obs file is missing (one series and possession for the two; the
+        server's parsed samples, observed team shape and possession record are reused when they come from the same
+        bytes), then the roles file and the report, on the worker thread (one build at a time, the v1 slot)."""
+        cs = coaching_store()
+        v = coaching_video(body.get('run'))
+        now = v2_now(v)
+        options = v2_options(now, body)
+        path, run_dir = v.result_dir/'result.json', v.result_dir
+        force = bool(body.get('force'))
+        with coaching_lock:
+            if coaching['build'] is not None:
+                return jsonify(error='A coaching report is being built: wait until it has finished.'), 409
+            coaching['build'] = {'engine': 2, 'runDir': str(run_dir), 'options': options, 'started': time.time(), 'mfps': {}}
+        try:
+            # The bytes are read once: every key is computed from their hash, and the tiers are stored only if the file
+            # still has them when the build ends (a correction landing meanwhile is a new measurement, never mislabelled).
+            stamp, samples, slim = samples_entry(v)
+            data = path.read_bytes()
+            now['sha'] = cs.sha256_bytes(data)
+            keys = v2_keys(now, options)
+            both = {team: v2_keys(now, {'team': team, 't0': None, 't1': None}) for team in ('A', 'B')}
+            st = path.stat()
+            same = stamp == (str(path), st.st_mtime_ns, st.st_size)
+        except Exception as error:   # noqa: BLE001 - the slot must be released whatever went wrong
+            with coaching_lock:
+                coaching['build'] = None
+            return jsonify(error=f'The coaching report could not be started: {error}'), 500
+        record, fresh = cs.find_report_v2(run_dir, keys, options)
+        answer = {'fingerprints': {'measurement': keys['mfp'], 'roles': keys['rfp'], 'interpretation': keys['ifp']}}
+        if fresh and not force:
+            with coaching_lock:
+                coaching['build'] = None
+            return coaching_json(dict(answer, ok=True, state='ready'))
+        # The teams whose obs file is missing are measured (both in one pass when both are); only they are 'building'.
+        missing = [team for team in ('A', 'B') if force or not cs.tier_path(run_dir, 'obs', both[team]).exists()]
+        with coaching_lock:
+            coaching['build']['mfps'] = {team: both[team]['mfp'] for team in missing}
+            for k in (keys['ifp'], keys['mfp']):
+                coaching['errors'].pop(k, None)
+
+        def work():
+            error = None
+            try:
+                if missing:
+                    possession = None
+                    if same:
+                        try:
+                            possession = json.loads(possession_text(path))
+                        except Refused:
+                            possession = None
+                    made = cs.measure(json.loads(data), result_sha=now['sha'], shape_settings=now['shape'],
+                                      settings=now['settings'], spans=now['spans'],
+                                      team=None if len(missing) == 2 else missing[0],
+                                      samples=samples if same else None, shape=shape_of(v, 'observed') if same else None,
+                                      possession=possession)
+                    made = made if len(missing) == 2 else {missing[0]: made}
+                    if cs.sha256_bytes(path.read_bytes()) != now['sha'] or shape_settings(v) != now['shape']:
+                        error = 'The result or the team-shape settings changed while the report was built: generate it again.'
+                    else:
+                        for team in missing:
+                            cs.save_tier(run_dir, 'obs', both[team], made[team])
+                if not error:
+                    if force:
+                        for kind in ('report', 'roles'):
+                            cs.tier_path(run_dir, kind, keys).unlink(missing_ok=True)
+                    record = cs.ensure_report(run_dir, keys, options, now['settings'], meta=v2_meta(v),
+                                              corrections=now['corrections'] if same else None,
+                                              after=v2_after(v, now, keys))
+                    if record is None:
+                        error = 'The measured situations could not be stored; generate the report again.'
+            except Exception as failure:   # noqa: BLE001 - reported to the page
+                traceback.print_exc()
+                error = f'The coaching report could not be built: {failure}'
+            with coaching_lock:
+                coaching['build'] = None
+            if error:
+                remember_error(keys['mfp'], error)
+        threading.Thread(target=work, name='coaching', daemon=True).start()
+        return coaching_json(dict(answer, ok=True, state='building'))
+
     @app.post('/api/coaching/build')
     @coaching_route
     def coaching_build():
-        """Start building the report of one team (one build at a time, on a worker thread)."""
+        """Start building the report of one team (one build at a time, on a worker thread): v2, or the v1 report when
+        the request names a v1 context level."""
         cs = coaching_store()
-        body = request.get_json(silent=True)
+        body = coaching_body()
         if not isinstance(body, dict):
             return jsonify(error='Expected a JSON object.'), 400
+        if 'context' not in body:
+            return coaching_build_v2(body)
         try:
             v = coaching_video(body.get('run'))
             options = coaching_options(v, body)
@@ -819,7 +1286,7 @@ def main():
         if width not in cs.FRAME_WIDTHS:
             return jsonify(error=f'w must be one of {", ".join(map(str, cs.FRAME_WIDTHS))}'), 400
         times = {}
-        for r in cs.records(v.result_dir):
+        for r in cs.records(v.result_dir)+cs.records_v2(v.result_dir):     # v1 evidence and v2 key moments
             times.update(cs.evidence_times(r))
         if frame not in times:
             return jsonify(error='That frame is not evidence in a coaching report of this run.'), 404
@@ -830,12 +1297,48 @@ def main():
         from io import BytesIO
         return send_file(BytesIO(data), mimetype='image/jpeg')
 
+    @coaching_v2
+    def coaching_pdf_v2():
+        """The v2 report of one team as a PDF: the report as GET /api/coaching serves it (made from the stored tiers
+        when needed), the coach's feedback it carries, the display labels of the result as it is now, the staleness
+        reasons, the screenshots of its key moments and the viewer's team colours (colourA, colourB: #rrggbb)."""
+        cs = coaching_store()
+        v = coaching_video(request.args.get('run'))
+        answer = v2_answer(v, request.args)
+        if answer['report'] is None:
+            return jsonify(error='Generate the coaching report first.'), 404
+        colours = {team: request.args.get(f'colour{team}') for team in ('A', 'B')}
+        colours = {team: c for team, c in colours.items() if isinstance(c, str) and cs.HEX_COLOUR.fullmatch(c)}
+        labels = cs.labels_of(samples_entry(v)[2])
+        frame = cs.EvidenceFrames(v.source, v.directory, answer['report'], v.meta.get('fps'))
+        feedback = [f for f in answer['feedback'] if f['attached'] or not f['thisRun']]
+        progression, name = answer['report'].get('progression'), answer['report'].get('teamName')
+        squad = {'id': progression['squad'], 'name': name} if progression and progression.get('squad') and name else None
+        # Whose possession this run's coach spans name: the PDF words the possession row as the page does (CODE M-2).
+        marked = cs.marked_teams(cs.read_spans(v.directory, v.result_dir.name)[0])
+        try:
+            data = cs.render_pdf(answer['report'], labels, frame, answer['reasons'] if answer['state'] != 'ready' else None,
+                                 feedback=feedback, colours=colours or None, squad=squad,
+                                 coach_spans=answer['coachSpans'], marked=marked)
+        except cs.PdfUnavailable as error:
+            return jsonify(error=str(error)), 503
+        except Exception as error:   # noqa: BLE001 - reported to the page
+            traceback.print_exc()
+            return jsonify(error=f'the PDF writer failed ({error})'), 500
+        from io import BytesIO
+        return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True,
+                         download_name=cs.pdf_filename_v2(answer['report'], v.meta.get('name'), v.result_dir.name,
+                                                          v.key[:16]))
+
     @app.get('/api/coaching/pdf')
     @coaching_route
     def coaching_pdf():
         """The stored report of one team as a PDF (with the coach's feedback, display labels of the result as it is now,
-        and the staleness reasons when the result changed since the report)."""
+        and the staleness reasons when the result changed since the report): v2, or the v1 report when the request
+        names a v1 context level."""
         cs = coaching_store()
+        if 'context' not in request.args:
+            return coaching_pdf_v2()
         try:
             v = coaching_video(request.args.get('run'))
             options = coaching_options(v, request.args)
@@ -857,15 +1360,60 @@ def main():
         return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True,
                          download_name=cs.pdf_filename(answer['report'], v.meta.get('name'), v.result_dir.name, options, v.key[:16]))
 
+    @coaching_v2
+    def coaching_feedback_v2(body):
+        """A v2 verdict {run, team, findingKey, verdict, text, range {t0, t1}} or an adjusted suggested area {run, team,
+        findingKey, range, adjustment {evidence, polygon, mover, note}} on a finding a stored v2 report of this run shows
+        for that range (DESIGN 10: by finding key and range, never by id alone). Kept per video apart from the tracking
+        and the measurements; in no fingerprint."""
+        cs = coaching_store()
+        v = coaching_video(body.get('run'))
+        team, key, rng = body.get('team'), body.get('findingKey'), body.get('range')
+        verdict, text, adjustment = body.get('verdict'), body.get('text'), body.get('adjustment')
+        if team not in ('A', 'B'):
+            return jsonify(error='team must be A or B.'), 400
+        if not (isinstance(key, str) and cs.FINDING_KEY.fullmatch(key)):
+            return jsonify(error='findingKey must be the key of a finding (D1|A|...).'), 400
+        if not (isinstance(rng, dict) and all(isinstance(rng.get(k), (int, float)) and not isinstance(rng.get(k), bool)
+                                              and math.isfinite(rng[k]) for k in ('t0', 't1'))):
+            return jsonify(error='range must be the report range {t0, t1} in seconds.'), 400
+        if (adjustment is None) == (verdict is None):
+            return jsonify(error='Send either a verdict or an adjusted area.'), 400
+        if verdict is not None and verdict not in cs.VERDICTS:
+            return jsonify(error='verdict must be correct, partial, incorrect or insufficient.'), 400
+        if text is not None and not isinstance(text, str):
+            return jsonify(error='text must be the note as a string.'), 400
+        record = cs.find_feedback_record(v.result_dir, team, key, rng)
+        if record is None:
+            return jsonify(error='That finding is not in a stored coaching report of this run and range.'), 404
+        try:
+            if adjustment is not None:
+                stored = cs.add_adjustment(v.directory, v.result_dir.name, record, key, adjustment)
+                doc = {'feedback': [], 'adjustments': [stored]}
+            else:
+                stored = cs.add_verdict_v2(v.directory, v.result_dir.name, record, key, verdict, text)
+                doc = {'feedback': [stored], 'adjustments': []}
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+        except cs.FeedbackUnreadable as error:
+            return jsonify(error=str(error)), 503
+        except OSError:
+            return jsonify(error='The feedback could not be saved; try again.'), 503
+        entry = cs.feedback_answer(record['report'], doc, v.result_dir.name)[0]
+        return coaching_json({'ok': True, 'feedback': entry})
+
     @app.post('/api/coaching/feedback')
     @coaching_route
     def coaching_feedback():
         """The coach's verdict on one finding (correct, partial, incorrect, insufficient) and an optional note, kept per
-        video apart from the tracking data; a new verdict on the same finding of the same run replaces the earlier one."""
+        video apart from the tracking data; a new verdict on the same finding of the same run replaces the earlier one.
+        A body with a findingKey is v2 (verdict or adjusted area); one with an observation id is v1."""
         cs = coaching_store()
-        body = request.get_json(silent=True)
+        body = coaching_body()
         if not isinstance(body, dict):
             return jsonify(error='Expected a JSON object.'), 400
+        if 'findingKey' in body:
+            return coaching_feedback_v2(body)
         try:
             v = coaching_video(body.get('run'))
         except Refused as error:
@@ -896,11 +1444,12 @@ def main():
     @coaching_route
     def coaching_feedback_remove():
         cs = coaching_store()
-        body = request.get_json(silent=True)
+        body = coaching_body()
         if not isinstance(body, dict):
             return jsonify(error='Expected a JSON object.'), 400
-        if not cs.is_feedback_id(body.get('id')):
-            return jsonify(error='id must be the id of a stored review (f, the date, the time and six hex digits).'), 400
+        if not cs.is_removable_id(body.get('id')):
+            return jsonify(error='id must be the id of a stored review (f, the date, the time and six hex digits) or of '
+                                 'an adjusted area (adj- and 12 hex digits).'), 400
         v = active['video']
         if v is None:
             return jsonify(error='No video is open.'), 404

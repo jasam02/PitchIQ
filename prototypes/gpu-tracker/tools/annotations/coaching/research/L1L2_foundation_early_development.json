@@ -1,0 +1,2317 @@
+{
+ "id": "L1L2_foundation_early_development",
+ "role": "Coaching-source researcher, Level 1 FOUNDATION (U7-U8) and Level 2 EARLY DEVELOPMENT (U9-U10)",
+ "accessed": "2026-10-21",
+ "method": [
+  "Pages fetched with WebFetch (a model-written summary of the HTML); U.S. Soccer guide, game-model and formation content was re-checked against the PDF images.",
+  "The U.S. Soccer PDFs are single-page images with no text layer: the embedded page JPEG was extracted locally (research/L1L2_work/tools/pdf_jpeg.py) and read visually.",
+  "Canada Soccer and FA PDFs are vector text: FlateDecode streams were inflated and text operators read (research/L1L2_work/tools/pdf_text.py).",
+  "No curl or browser downloads; PDFs over the 10 MB WebFetch limit were not read. Only official domains (ussoccer.com and documents.ussoccer.com, canadasoccer.com, englandfootball.com and its learn/cdn subdomains, thefa.com) except one ussoccer.com redirect to recognizetorecover.org (U.S. Soccer Federation site), recorded under US_CONCUSSION_HUB.",
+  "Tags: FEDERATION = what the source says, paraphrased in my own words; PITCHIQ-PROPOSAL = this researcher's suggestion for PitchIQ. Proposal sources point to the federation items that motivate them.",
+  "Codebase facts quoted inside proposals were read from the repo on 2026-10-21: soccer/labels.py (OUTFIELD = 10), soccer/team_shape.py (formation candidates for 10 or 9 outfield; lineup 7-10 outfield), soccer/possession.py (105 x 68 default), and the possession-4 accuracy notes (scratchpad/possession/v4/reports/docs.md)."
+ ],
+ "sources": [
+  {
+   "id": "US_AGE_INDEX",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide",
+   "title": "U.S. Soccer - Age Group Guides (index)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Only the U5 block is on the page; links to per-age pages and PDF guides captured. Each guide builds on the previous one.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_AGE_U6",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u6",
+   "title": "U.S. Soccer - Age Group Guide U6",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Used for the U6 baseline (no set positions, no heading).",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_AGE_U78",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u7-u8",
+   "title": "U.S. Soccer - Age Group Guide U7-U8",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Footer truncated; content cross-checked against the PDF guide (the PDF lists 2v1 and 3v2 where the page summary said 1v2).",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_CG_U78_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+   "title": "U.S. Soccer - Guide to coaching U7s and U8s (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_AGE_U910",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u9-u10",
+   "title": "U.S. Soccer - Age Group Guide U9-U10",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Footer truncated; matches the PDF guide.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_CG_U910_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+   "title": "U.S. Soccer - Guide to coaching U9s and U10s (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_AGE_U1112",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u11-u12",
+   "title": "U.S. Soccer - Age Group Guide U11-U12",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Read only for the heading boundary above L2.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_CG_U1112_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-0b59df3f51a5b0682882b6db78f57600643932f4-pdf/3-9%2085x11.pdf",
+   "title": "U.S. Soccer - Guide to coaching U11s and U12s (PDF, 1 page)",
+   "status": "read_partially",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "Only the Ball block (heading lines) was read, from the page image extracted by the L3-L4 researcher (research/pdfimg/cg_u11u12_p1_s1.jpg).",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GM_INDEX",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models",
+   "title": "U.S. Soccer - Game Models (index)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Truncated after the U7-U8 block; lists the per-age model pages.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GM_U78_PAGE",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u7-u8",
+   "title": "U.S. Soccer - U7-U8 game model (page)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Footer truncated; principles identical to the PDF.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GM_U78_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+   "title": "U.S. Soccer - U7/U8 game model (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GM_U910_PAGE",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u9-u10",
+   "title": "U.S. Soccer - U9-U10 game model (page)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Footer truncated; principles identical to the PDF.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GM_U910_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf",
+   "title": "U.S. Soccer - U9/U10 game model (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "Word for word the same principles as the U7/U8 model (only the age title differs).",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GM_USING_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+   "title": "U.S. Soccer - Using a game model to develop your players (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_FORMATIONS",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations",
+   "title": "U.S. Soccer - Formations (index)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "U7-U8 card complete; 7v7+ shown only as cards.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_F4_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf",
+   "title": "U.S. Soccer - 4v4: U7-U8 1-2-1 diamond formation (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_F7_PAGE",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations/u9-u10-7v7",
+   "title": "U.S. Soccer - U9-U10 7v7 1-3-2-1 (page)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Footer truncated; matches the PDF.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_F7_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+   "title": "U.S. Soccer - 7v7: U9-U10 1-3-2-1 (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_FORMATION_SELECT_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-dd7e6e83f102d9241c0de958b30bd977bab96bfd-pdf/SELECTING-A-FORMATION-FOR-YOUR-TEAM.pdf",
+   "title": "U.S. Soccer - Selecting a formation for your team (PDF)",
+   "status": "not_read",
+   "how_read": "Not read",
+   "notes": "Larger than the 10 MB WebFetch limit; no other download was made.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_GAME_FORMATS",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+   "title": "U.S. Soccer - Game Formats",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Maximum formats by age; no field dimensions in the text.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_FORMATS_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-2984ca87a7010f04d7c41022d4ea314cb6ba6c5c-pdf/age-appropriate-formats.pdf",
+   "title": "U.S. Soccer - Age-appropriate formats (PDF)",
+   "status": "not_read",
+   "how_read": "Not read",
+   "notes": "Larger than the 10 MB WebFetch limit.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_DESIGN_PDF",
+   "url": "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf",
+   "title": "U.S. Soccer - Designing age-appropriate activities (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_COACHING_APPROACH",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/coaching-approach",
+   "title": "U.S. Soccer - Coaching Approach",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Truncated.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_SESSIONS",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/sessions",
+   "title": "U.S. Soccer - Sessions (coach transcripts)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Transcripts for U6-U8 boys and U9-U10 girls; truncated.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_SSG_2017",
+   "url": "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer",
+   "title": "U.S. Soccer - Five things to know: small-sided standards (Aug 2017)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Dated (2017); the per-age chart is an image not present in the text.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_R2R_2015",
+   "url": "https://www.ussoccer.com/stories/2015/12/us-soccer-announces-recognize-to-recover-player-health-and-safety-program",
+   "title": "U.S. Soccer - Recognize to Recover announcement (Dec 2015)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Truncated.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "US_CONCUSSION_HUB",
+   "url": "https://www.ussoccer.com/soccer-forward/resource-hub/the-concussion-initiative-and-reducing-heading",
+   "title": "U.S. Soccer - The Concussion Initiative and Reducing Heading (Sep 2025)",
+   "status": "read_partially",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "No age limits in the visible text; its Learning Center link (learning.ussoccer.com/articles/hip/article/concussion-initiatives) returned HTTP 404. ussoccer.com/about/recognize-to-recover/concussion-guidelines redirects to recognizetorecover.org (U.S. Soccer Federation footer); its home and head-and-brain pages carry no heading limits.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "CA_GRASSROOTS_EDU",
+   "url": "https://www.canadasoccer.com/coach/grassroots-coach-education/",
+   "title": "Canada Soccer - Grassroots Coach Education",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Lists workshops and target ages only; workshop content sits behind registration (store domain, not followed).",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "CA_GRASSROOTS_PAGE",
+   "url": "https://www.canadasoccer.com/play/grassroots-soccer/",
+   "title": "Canada Soccer - Grassroots Soccer",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Links the Grassroots Standards and program documents.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "CA_STANDARDS_PDF",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+   "title": "Canada Soccer - Grassroots Standards (2026)",
+   "status": "read_partially",
+   "how_read": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)",
+   "notes": "Table rows with one value per age column (U4-U6, U6-U7, U8-U9, U10-U11, U12-U13) align unambiguously; rows with merged cells (goal size, retreat line) could not be aligned from the text and are not used.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "CA_PRINCIPLES_PDF",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Principles-EN-26jan26.pdf",
+   "title": "Canada Soccer - Grassroots Program Principles",
+   "status": "read_fully",
+   "how_read": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "CA_GAMES_PDF",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Examples-of-Games-within-Grassroots-Sessions-EN-26jan26.pdf",
+   "title": "Canada Soccer - Examples of Games within Grassroots Sessions",
+   "status": "read_fully",
+   "how_read": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "CA_SSG_GUIDE_PDF",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/Small-Sided-Games-Guide.pdf",
+   "title": "Canada Soccer - Small-Sided Games Guide",
+   "status": "not_read",
+   "how_read": "Not read",
+   "notes": "Larger than the 10 MB WebFetch limit.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_PCB_2023",
+   "url": "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+   "title": "England Football Learning - Pressing session: press, cover and balance (28 Feb 2023)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Tags Defending/Pressing only; no age group, phase or level stated anywhere on the page or in its PDF.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_PCB_2023_PDF",
+   "url": "https://cdn.englandfootball.com/-/media/EFLearning/PDFs/Press-cover-and-balance--session-plan.pdf",
+   "title": "England Football Learning - Press, cover and balance session plan (PDF, 1 page)",
+   "status": "read_fully",
+   "how_read": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_PCB_2025",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+   "title": "England Football Learning - Pressing session: press, cover and balance (3 Nov 2025)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Same title, but for 12-16s (week one of a programme); read only to show the age contrast.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_PROG_7_11",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals",
+   "title": "England Football Learning - Session programme: pressing and covering to stop goals (7-11s, 24 Feb 2025)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_SWIFT_SUPPORT",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+   "title": "England Football Learning - Pressing and covering session: swift support (7-11s, 24 Mar 2025)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_PRACTISING_PRESS",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-practising-the-press",
+   "title": "England Football Learning - Pressing and covering session: practising the press (24 Feb 2025)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "The page states no age; it is week one of the 7-11 programme above.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_SUPPORT_LINE",
+   "url": "https://learn.englandfootball.com/sessions/resources/2023/Covering-and-recovering-session-supporting-on-the-line",
+   "title": "England Football Learning - Covering and recovering session: supporting on the line (13 Nov 2023)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "No age stated.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_COVER_RECOVER",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2023/What-is-covering-and-recovering",
+   "title": "England Football Learning - What is covering and recovering? (31 Oct 2023)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "No age stated.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_STEP",
+   "url": "https://learn.englandfootball.com/articles/resources/2022/make-coaching-personal-with-the-step-framework",
+   "title": "England Football Learning - Make coaching personal with the STEP framework",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_12_16_SERIES",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+   "title": "England Football Learning - 2026 pressing and covering sessions (cover and recover; also defending in small numbers, pressing duels, games week)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "All stated for 12-16s: read only to keep their unit-pressing content out of L1/L2.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "FA_TRANSITION_YOUNG",
+   "url": "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players",
+   "title": "The FA Boot Room - What does transition look like for young players? (P. Sturgess, 29 Jan 2020; first printed Sep 2016)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "FA_DNA_PRIORITIES",
+   "url": "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities",
+   "title": "The FA - England DNA age-phase priorities (Foundation Phase 5-11)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "FA_DNA_FOUNDATION",
+   "url": "https://www.thefa.com/bootroom/england-dna-foundation-phase",
+   "title": "The FA - England DNA Foundation Phase (landing page)",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "Landing page only: 5-11, split 5-8 and 9-12 strands, four-corner model.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "EF_HEADING",
+   "url": "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football",
+   "title": "England Football - FA guidance on heading in football",
+   "status": "read_fully",
+   "how_read": "WebFetch (HTML, model-written summary of the page)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "FA_HEADING_NEWS_2024",
+   "url": "https://www.thefa.com/news/2024/may/17/new-heading-rules-for-grassroots-football-youth-matches",
+   "title": "The FA - New heading rules for grassroots youth matches (May 2024)",
+   "status": "not_read",
+   "how_read": "Not read",
+   "notes": "Linked from EF_HEADING; its timeline is taken from EF_HEADING.",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "FA_PITCH_U78",
+   "url": "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx",
+   "title": "The FA - Guide to pitch dimensions: Mini Soccer U7 and U8 (5v5)",
+   "status": "read_fully",
+   "how_read": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  },
+  {
+   "id": "FA_PITCH_U910",
+   "url": "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u9-and-u10-7v7.ashx",
+   "title": "The FA - Guide to pitch dimensions: Mini Soccer U9 and U10 (7v7)",
+   "status": "read_fully",
+   "how_read": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)",
+   "notes": "",
+   "accessed": "2026-10-21"
+  }
+ ],
+ "levels": {
+  "L1_FOUNDATION": {
+   "level": "L1 FOUNDATION",
+   "ages": "U7-U8 (spec). Sources: U.S. Soccer U7-U8 guide, game model and 4v4 formation; Canada Soccer FUNdamentals stage (boys U6-U9, girls U6-U8) and Grassroots Standards; England Foundation Phase (5-11) and the FA 7-11 pressing programme.",
+   "learning_objectives": [
+    {
+     "text": "Teach how to play 4v4 using a game model, and the attacking and defending roles inside 4v4.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF",
+      "US_AGE_U78"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u7-u8"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Use small-sided games from 1v1 up to 4v4, including uneven numbers (2v1, 3v2, 4v3); games should build teamwork and co-operation.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Every player experiences all positions, and every player gets a turn in goal when a goalkeeper is used.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF",
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Ball work: skills with both feet, short passing and receiving introduced, shooting from about 5-10 yards, and an introduction to defending and winning the ball back.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Body: fundamental movement skills (running, hopping, jumping and landing, throwing and catching) plus reaction speed and acceleration.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Coaching approach: focus on the individual inside the team, encourage creativity and decisions, use regular short breaks, let players ask questions and work out solutions, and help them reflect on and learn from mistakes.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Communication: short instructions in simple words, positive and specific praise, simple feedback.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England Foundation Phase (5-11) priorities: confidence and creativity on the ball including 1v1s; defending with enthusiasm and enjoying winning the ball back; staying alert and positioning creatively when the opponents have it; trying different defensive roles; reacting quickly and positively when the ball is won or lost.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_DNA_PRIORITIES"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Canada grassroots principles: high ball contact, training that resembles the game, fun for every player (not a chosen few), open access, and constructive, specific feedback to players and parents.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_PRINCIPLES_PDF"
+     ],
+     "url": [
+      "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Principles-EN-26jan26.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "attacking": [
+    {
+     "text": "Build an attacking shape with height, width and depth so the team can play forward.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF",
+      "US_GM_U78_PAGE"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u7-u8"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Get into the attacking half by dribbling, driving with the ball, or short combinations with teammates.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "When forward play is not possible, keep the ball until it is.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "In the attacking half, create and score chances through 1v1s or a pass to a free teammate.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "The goalkeeper (when one is used) takes an active part in both moments.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "defending": [
+    {
+     "text": "Stop the opponents from playing forward and try to win the ball back.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Try to win the ball high up the field by pressing and by being compact as a team.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "In the defending half, prevent scoring chances and regain the ball.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "transition": [
+    {
+     "text": "For U10 and under U.S. Soccer recommends coaching only two moments, attacking and defending; the four-moment model (adding both transitions) is recommended from U11.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_USING_PDF",
+      "US_GM_INDEX"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "The U7/U8 model draws the switch as two cues only: win the ball and go back to attacking, lose it and go back to defending.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England (5-11): react quickly and positively on winning or losing the ball, attack eagerly after a regain, and press to win it back fast.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_DNA_PRIORITIES"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "An FA 5-11 lead observes that around ages 7-9 the ball changes hands again and again without any clear counter-attacking intent; this shows where children are in their learning and should not be judged against adult or televised football.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_TRANSITION_YOUNG"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "not_expected_at_this_stage": [
+    {
+     "text": "Fixed positions or positional discipline: U.S. Soccer wants every player to experience all positions, Canada makes players trying all positions a standard, and the FA 5-11 lead warns against fixing children into positions with little flexibility.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF",
+      "CA_STANDARDS_PDF",
+      "FA_TRANSITION_YOUNG"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "A goalkeeper in the U.S. 4v4: the 1-2-1 has none and all four players attack and defend.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F4_PDF",
+      "US_FORMATIONS"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/formations"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Transitions coached as moments of their own (U10 and under: two moments only).",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_USING_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Counter-attacks like older players; frequent changes of possession are expected.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_TRANSITION_YOUNG"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Static defending or long-ball clearing as a coaching aim: the FA 5-11 article advises against both.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_TRANSITION_YOUNG"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Heading: none in practice or games.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF",
+      "EF_HEADING"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+      "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "A results focus: Canada requires no scores or standings at these ages and festival-format match days up to U9.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Offside: none before U9 under the 2017 U.S. small-sided standards; Canada introduces offside at U12.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_SSG_2017",
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer",
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Adult throw-ins: Canada lets players up to U11 dribble or pass the ball in from the sideline.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "format": [
+    {
+     "text": "U.S. maximum game format for U7-U8 is 4v4; smaller formats can be played at any age.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GAME_FORMATS",
+      "US_FORMATIONS"
+     ],
+     "url": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+      "https://www.ussoccer.com/us-way/player-development/game/formations"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. formation: 1-2-1 diamond with no goalkeeper, chosen to teach playing with height, width and depth; all players attack and defend; formations are a guide to be amended to the players and club.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F4_PDF",
+      "US_FORMATIONS"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/formations"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. 1-2-1 diagram (described, not copied): one player deepest, in front of the own penalty area (marked depth); two players out on the touchlines at about the halfway line (marked width); one player furthest forward near the opponents' area (marked height).",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F4_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Canada Grassroots Standards (mandatory for member organizations ahead of the 2026 season): U6-U7 plays 3v3 on about 18-22 m by 25-30 m, ball size 3, matches at most 30 minutes; U8-U9 plays 4v4 without a goalkeeper or 5v5 with one on about 25-30 m by 30-36 m, ball 3 or 4, at most 40 minutes; festival format to U9; coaches target at least 50% playing time for every player.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "The FA: U7/U8 mini-soccer is 5v5 on a recommended 40 x 30 yard pitch with 12 x 6 ft goals; the halfway line doubles as the retreat line at goal kicks.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_PITCH_U78"
+     ],
+     "url": [
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "practice_design": [
+    {
+     "text": "U.S. U7-U8 practice design: introduce basic routines and practice structure, with many chances to score.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. six design areas: a clear session objective, activities that replicate the game, opposition and competition in most activities, maximum time on the ball and decision-making, age-appropriate small-sided games, and the ability level of each player.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_DESIGN_PDF",
+      "US_COACHING_APPROACH"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/coaching-approach"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. coaching approach: game-based learning with few stoppages and interventions; players get freedom, choices and ownership.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_COACHING_APPROACH"
+     ],
+     "url": [
+      "https://www.ussoccer.com/us-way/player-development/environment/coaching-approach"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Canada: structured practice of 30-60 minutes at U6-U7 and 45-75 at U8-U9; practice-to-match ratio 1:1 or 2:1 at U6-U7 and 2:1 or 3:1 from U8-U9; games in every session, e.g. overload games (3v2, 4v3), big-and-small pitch festivals, four-goal games, player-led games.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_STANDARDS_PDF",
+      "CA_GAMES_PDF"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Examples-of-Games-within-Grassroots-Sessions-EN-26jan26.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England STEP: make a practice easier or harder by changing Space, Task, Equipment or Players.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_STEP"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/articles/resources/2022/make-coaching-personal-with-the-step-framework"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 5-11 practice ideas: lots of ball contact, quick changes of direction, passing and shooting at speed, and small-sided games with a target once the ball is won (for example run to a line).",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_TRANSITION_YOUNG"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "example_session_themes": [
+    {
+     "text": "U.S. U6-U8 session (coach transcript): dribbling warm-up, 1v1 to beat a defender, 2v2 game, closing reflection questions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_SESSIONS"
+     ],
+     "url": [
+      "https://www.ussoccer.com/us-way/player-development/environment/sessions"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 7-11 six-week programme: practising the press (corridor bulldog, stadium 1v1), speed of the press, press to dictate direction, locked in, swift support (one presses while a teammate covers on a line in front of goal), festival week. Covers the top of L1 and all of L2.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PROG_7_11",
+      "EF_SWIFT_SUPPORT",
+      "EF_PRACTISING_PRESS"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-practising-the-press"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Canada festival games: overload games, big-and-small pitch festivals where players learn when and how to use the space given, four-goal games for many scoring chances.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_GAMES_PDF"
+     ],
+     "url": [
+      "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Examples-of-Games-within-Grassroots-Sessions-EN-26jan26.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "positioning_concepts": {
+    "height_width_depth": [
+     {
+      "text": "The attacking shape is height (furthest forward), width (wide players) and depth (the player behind); in the 1-2-1 each player carries one of these jobs.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U78_PDF",
+       "US_F4_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+       "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "space": [
+     {
+      "text": "Pass to a free teammate in the attacking half; Canada uses pitch-size festivals so players learn when and how to use the space provided.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U78_PDF",
+       "CA_GAMES_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+       "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Examples-of-Games-within-Grassroots-Sessions-EN-26jan26.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "pressure": [
+     {
+      "text": "Stop the opponents playing forward; press to win the ball high.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U78_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "compactness": [
+     {
+      "text": "Be compact as a team while defending.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U78_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "cover": [
+     {
+      "text": "Not in the U.S. U7-U8 material beyond an introduction to defending and winning the ball back; the FA 7-11 programme teaches one player pressing while a teammate covers on a line in front of goal.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_CG_U78_PDF",
+       "EF_SWIFT_SUPPORT"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+       "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "support": [
+     {
+      "text": "Short combinations with others; teamwork and co-operation.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U78_PDF",
+       "US_CG_U78_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+       "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "balance": [
+     {
+      "text": "Not mentioned in any L1 source read.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_CG_U78_PDF",
+       "US_GM_U78_PDF",
+       "FA_DNA_PRIORITIES"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+       "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+       "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ]
+   },
+   "pitchiq_operationalisation": [
+    {
+     "text": "L1 profile: positive-first. Enable only (a) shape presence: height, width and depth, positional and phase-free; (b) someone ready to protect the goal, as a review or try-this point and never as an error; (c) team spread when the team is reliably attacking. Disable formation fit, role discipline, transition findings, defensive-line and compactness comparisons with the professional reference.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_GM_U78_PDF",
+      "US_GM_USING_PDF",
+      "FA_TRANSITION_YOUNG"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+      "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Phase defaults to unknown at L1: the possession engine abstains on amateur and Veo footage by design, so attacking- or defending-specific findings will usually be unavailable for youth video. Where a record exists, use only frames naming a team, minus 2 s either side of every change, and never count turnovers. Phase-free wording for facts, e.g. at this moment all four players were in the opponents' half.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "The spec's foundation line about leaving one player back only partly agrees with the U.S. principle of winning the ball high by pressing as a compact team: all four players high while pressing is consistent with the federation. Raise keeping one player back only as a try-this, only when the deepest player was ahead of the ball while the opponents reliably had it, and only when it repeats (2 or more spells). Praise the depth player who stayed back while the others pressed.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_GM_U78_PDF",
+      "EF_SWIFT_SUPPORT",
+      "US_F4_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+      "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Measure shape relative to the field actually played on (fractions of field length and width), not metres on a 105 x 68 pitch. The repo assumes 105 x 68 when it cannot learn the pitch size (tactical.pitchSize source standard); L1 fields are about 30-36 m long (Canada U8-U9) or 40 x 30 yards (FA), so professional-pitch metres would be wrong. Ask for field dimensions in coaching setup; without them, report shape in relative terms only.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "CA_STANDARDS_PDF",
+      "FA_PITCH_U78"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Format support: the code assumes 10 outfield players (soccer/labels.py OUTFIELD = 10; team_shape formation candidates exist only for 10 or 9 outfield; lineup settings accept 7-10 outfield), so 3v3, 4v4 without a goalkeeper and 5v5 are outside its range. The profile must carry players-a-side and goalkeeper yes/no and switch off anything built on 10-outfield templates. Because every child takes turns in goal, treat goalkeeper as a role per spell, never as a person.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_CG_U78_PDF",
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "No distances to formation slots at L1: use the 1-2-1 only to name the job a player did (our deep player, our wide player), never to measure how far someone was from a spot.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_F4_PDF",
+      "US_FORMATIONS"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/formations"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Do not flag many players near the ball as an error at L1 (young children are drawn to the ball and possession changes constantly). At most offer a challenge to find a free space, tied to the free-teammate principle, and only when the ball position is reliable.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "FA_TRANSITION_YOUNG",
+      "US_GM_U78_PDF"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players",
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "L1 language: short sentences and simple words, specific praise first, at most one next challenge per report (an empty what-needs-work section is allowed), phrased as a question the coach can ask the players. Never use mistake, failed or out of position.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "L1 drills: 1v1 to goal; 2v2 with a cover line in front of goal (adapted from the FA swift support and supporting-on-the-line sessions); overload games 2v1 and 3v2; four-goal games; corridor bulldog. Short blocks with breaks, no heading, labelled as PitchIQ adaptations with the session they come from.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "EF_SWIFT_SUPPORT",
+      "EF_SUPPORT_LINE",
+      "CA_GAMES_PDF",
+      "EF_PRACTISING_PRESS",
+      "US_CG_U78_PDF"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+      "https://learn.englandfootball.com/sessions/resources/2023/Covering-and-recovering-session-supporting-on-the-line",
+      "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Examples-of-Games-within-Grassroots-Sessions-EN-26jan26.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-practising-the-press",
+      "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "L1 progression skills, counted per eligible minute as opportunities and positive occurrences: spread out (height, width, depth); someone ready behind the ball (only where the phase is reliable). No turnover or transition tracking at L1.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_GM_U78_PDF",
+      "US_GM_USING_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+      "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Restarts are rule-driven at these ages (dribble-ins, retreat line at goal kicks), so leave restart set-ups out of shape judgments.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "CA_STANDARDS_PDF",
+      "FA_PITCH_U78"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ]
+  },
+  "L2_EARLY_DEVELOPMENT": {
+   "level": "L2 EARLY DEVELOPMENT",
+   "ages": "U9-U10 (spec). Sources: U.S. Soccer U9-U10 guide, game model and 7v7 1-3-2-1; Canada Soccer Grassroots Standards (FUNdamentals for boys to U9; Learn to Train for boys U9-U12, girls U8-U11); England Foundation Phase (5-11) and the FA 7-11 pressing programme.",
+   "learning_objectives": [
+    {
+     "text": "Learn 7v7 through a game model, introduce the 1-3-2-1, and help players learn their role in attack, defense and transition.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF",
+      "US_AGE_U910"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u9-u10"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Small-sided games from 1v1 to 7v7 including unbalanced teams; every player experiences all positions and plays in goal; players work with others to solve problems.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Ball work: both feet; passing, crossing and shooting from mid-range (at most 20 yards); defending skills of covering and marking; goalkeeping catching positions.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Body: progress movement skills; speed, agility and acceleration; introduce warm-ups.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Values: help children feel good about themselves, recognise effort over outcome, support them in resolving problems with teammates.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Coaching approach and communication: the individual inside the team, problem solving, reflecting on the game, noticing frustration and disappointment, varied questions, praise that reinforces good play, positive feedback, many positions and roles.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 7-11 pressing programme objectives: press to win the ball, steer the opponent's direction, recognise when to press and when to delay, understand when to cover a teammate.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PROG_7_11"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England Foundation Phase (5-11) priorities continue to apply (see L1).",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_DNA_PRIORITIES"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "attacking": [
+    {
+     "text": "Same four attacking principles as U7-U8: height, width and depth; play forward by dribbling, driving or short combinations; keep the ball when forward play is not on; 1v1s or passes to a free player to create and score chances.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U910_PDF",
+      "US_GM_U910_PAGE"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-models/u9-u10"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "In the 7v7 the goalkeeper and the three defenders also support the attack; two staggered midfielders create passing lanes; the central forward gives height and an option to play forward.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F7_PDF",
+      "US_F7_PAGE"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/formations/u9-u10-7v7"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "defending": [
+    {
+     "text": "Same three defending principles as U7-U8: stop forward play and regain the ball; win it high by pressing and being compact as a team; in the defending half prevent chances and regain the ball.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Covering and marking are introduced as defending skills.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 7-11 sessions: one player presses while a teammate covers; pressing and covering roles change as the ball moves; players scan to find the closest defender who can apply pressure.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_SWIFT_SUPPORT",
+      "EF_PROG_7_11"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA week-one pressing cues (programme for 7-11s): stand side-on and low, challenge when the opponent drops their head or takes a poor touch, win the ball to start an attack.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PRACTISING_PRESS"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-practising-the-press"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "transition": [
+    {
+     "text": "The U.S. game model keeps two moments for U10 and under, while the U9-U10 guide asks players to learn their role in transition too: transitions are introduced as roles, not coached as separate moments.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_USING_PDF",
+      "US_GM_U910_PDF",
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+      "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf",
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Switching cues in the U9/U10 model: win the ball and go back to attacking, lose it and go back to defending.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England (5-11): react quickly when the ball is won or lost; press to win it back fast.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_DNA_PRIORITIES"
+     ],
+     "url": [
+      "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 7-11 week four (locked in): the team without the ball stays in the half where it lost it until it wins it back.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PROG_7_11"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England definition (no age stated): recovering means getting back into defensive shape in a transition by the shortest route, to get between the ball and the goal; defending starts as soon as the ball is lost.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_COVER_RECOVER"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2023/What-is-covering-and-recovering"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "not_expected_at_this_stage": [
+    {
+     "text": "Fixed roles: players may interchange positions and should try all of them; coaches encourage many positions and roles.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F7_PDF",
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Transitions coached as separate moments (U.S.: two moments for U10 and under).",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GM_USING_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Heading: none in practice or games.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF",
+      "EF_HEADING"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+      "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Outcome focus: effort over outcome (U.S.); Canada allows no tiering of players before U10 and league formats only from U10, without scores or standings.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF",
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Unit pressing on shared triggers and positioning as a unit: the England sessions that teach these are stated for 12-16s, while the age-tagged 7-11 material works with one presser and one cover.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PCB_2025",
+      "EF_12_16_SERIES",
+      "EF_SWIFT_SUPPORT"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+      "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Team balance as a taught concept: no L2-age source defines it; the 2023 England session uses the word only in its title, with no age and no definition, and the 2025 session of that name is for 12-16s.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PCB_2023",
+      "EF_PCB_2023_PDF",
+      "EF_PCB_2025"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/PDFs/Press-cover-and-balance--session-plan.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "format": [
+    {
+     "text": "U.S. maximum game format for U9-U10 is 7v7.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_GAME_FORMATS",
+      "US_F7_PAGE"
+     ],
+     "url": [
+      "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+      "https://www.ussoccer.com/us-way/player-development/game/formations/u9-u10-7v7"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. 1-3-2-1: goalkeeper; a back line of three (one central back, two wing backs) who also support the attack; two staggered midfielders, one more attacking and one more defensive; one central forward. The goalkeeper and the two midfielders are the new roles compared with 4v4. It is one structure among many variations and should be amended to the players and club.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F7_PDF",
+      "US_F7_PAGE"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/formations/u9-u10-7v7"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. 1-3-2-1 diagram (described, not copied): wing backs out near the touchlines, level with the halfway line; central back just in front of the own penalty area; the two midfielders staggered up and down the central corridor around the centre circle; the forward toward the opponents' area.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_F7_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. 2017 small-sided standards (dated): from U9 a build-out line 14 yards in front of each goal, behind which opponents wait while the goalkeeper holds the ball or takes a goal kick; offside from U9 but not between halfway and the build-out line.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_SSG_2017"
+     ],
+     "url": [
+      "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Canada: U10-U11 plays 7v7 on about 30-36 m by 40-55 m, ball size 4, matches at most 50 minutes; U8-U9 plays 4v4 or 5v5 (see L1); offside from U12; dribble-in or pass-in restarts up to U11.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_STANDARDS_PDF"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "The FA: U9/U10 mini-soccer is 7v7 on a recommended 60 x 40 yard pitch with 12 x 6 ft goals.",
+     "tag": "FEDERATION",
+     "sources": [
+      "FA_PITCH_U910"
+     ],
+     "url": [
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u9-and-u10-7v7.ashx"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "practice_design": [
+    {
+     "text": "U.S. U9-U10 practice design: incorporate practice routines with a low level of practice structure.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. six design areas (see L1) apply.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_DESIGN_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 7-11 programme: pitch sizes are suggestions; adapt numbers and space to age and stage; sessions may be repeated, skipped or amended; STEP to adjust difficulty.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PROG_7_11",
+      "EF_STEP"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals",
+      "https://learn.englandfootball.com/articles/resources/2022/make-coaching-personal-with-the-step-framework"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Canada: structured practice of 45-75 minutes (U8-U9) or 60-75 (U10-U11), two or three practices per match day; training must resemble the game.",
+     "tag": "FEDERATION",
+     "sources": [
+      "CA_STANDARDS_PDF",
+      "CA_PRINCIPLES_PDF"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Principles-EN-26jan26.pdf"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "example_session_themes": [
+    {
+     "text": "FA 7-11 swift support: a thirds game; 2v2 to mini-goals where the team without the ball always has one presser and one cover on the line in front of its goal; 4v4 with a screening defender. The cover scans the ball and teammates and moves up and down to protect the goal. Easier: smaller pitch; harder: bigger pitch so players judge distances.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_SWIFT_SUPPORT"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England supporting on the line (no age stated): 2v2 with a line 10 yards from each goal; the team without the ball keeps one player on its line; rotate who covers; progress to 4v4 or move the line deeper.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_SUPPORT_LINE"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2023/Covering-and-recovering-session-supporting-on-the-line"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "England press, cover and balance (2023, no age stated): 4v2 keep-ball in a 10 x 8 m area; the two defenders press together and may intercept or force the ball out but not tackle; a misplaced pass or a dribble toward the own goal is the moment to press; 30-60 s rounds with rests.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PCB_2023",
+      "EF_PCB_2023_PDF"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+      "https://cdn.englandfootball.com/-/media/EFLearning/PDFs/Press-cover-and-balance--session-plan.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "FA 7-11 practising the press: corridor bulldog, stadium 1v1, parallel small-sided games.",
+     "tag": "FEDERATION",
+     "sources": [
+      "EF_PRACTISING_PRESS"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-practising-the-press"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "U.S. U9-U10 session (coach transcript): warm-up with fundamental movements; 1v1 dribbling with body feints.",
+     "tag": "FEDERATION",
+     "sources": [
+      "US_SESSIONS"
+     ],
+     "url": [
+      "https://www.ussoccer.com/us-way/player-development/environment/sessions"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ],
+   "positioning_concepts": {
+    "height_width_depth": [
+     {
+      "text": "Attacking shape with height, width and depth, as at U7-U8.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U910_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "width": [
+     {
+      "text": "Wing backs give the width and are drawn wide, at about the halfway line, in the U.S. picture.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_F7_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "support": [
+     {
+      "text": "Staggered midfielders create passing lanes; short combinations; a pass to the free player.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_F7_PDF",
+       "US_GM_U910_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+       "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "pressure": [
+     {
+      "text": "Stop forward play; the closest defender applies pressure; press or delay depending on the moment.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U910_PDF",
+       "EF_PROG_7_11",
+       "EF_SWIFT_SUPPORT"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf",
+       "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals",
+       "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "cover": [
+     {
+      "text": "U.S. introduces covering and marking; FA 7-11: a teammate covers the presser, on a line in front of goal, scanning ball and teammates. England in general (no age): cover is about angles and distances, being the next line of protection, not standing too close to teammates, seeing ball, opponent and goal.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_CG_U910_PDF",
+       "EF_SWIFT_SUPPORT",
+       "EF_COVER_RECOVER"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+       "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+       "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2023/What-is-covering-and-recovering"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "compactness": [
+     {
+      "text": "Compact as a team while pressing.",
+      "tag": "FEDERATION",
+      "sources": [
+       "US_GM_U910_PDF"
+      ],
+      "url": [
+       "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "balance": [
+     {
+      "text": "Not defined in any source stated for this age.",
+      "tag": "FEDERATION",
+      "sources": [
+       "EF_PCB_2023",
+       "US_GM_U910_PDF"
+      ],
+      "url": [
+       "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+       "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ],
+    "recovery": [
+     {
+      "text": "England (no age): the shortest route back to get between the ball and the goal.",
+      "tag": "FEDERATION",
+      "sources": [
+       "EF_COVER_RECOVER"
+      ],
+      "url": [
+       "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2023/What-is-covering-and-recovering"
+      ],
+      "accessed": "2026-10-21"
+     }
+    ]
+   },
+   "pitchiq_operationalisation": [
+    {
+     "text": "L2 detectors, in this order: (a) pressure and cover pair - first defender = outfield player nearest the ball; cover present when a teammate is goal-side of the first defender (nearer the own goal along the ball-to-goal line) and could reach a covering spot in a short time; only where the ball position is reliable and the possession record names the opponents (named frames minus 2 s either side of every change); report successes as well as gaps. (b) Shape presence: height, width, depth (phase-free). (c) Staggered midfield support. (d) Wide-defender advancement with or without cover. Disabled: back-line coordination, pressing synchronisation, compactness against the professional reference, transition timing.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_CG_U910_PDF",
+      "EF_SWIFT_SUPPORT",
+      "US_F7_PDF",
+      "US_GM_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+      "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Reachability in seconds or field fractions, never metres on an assumed 105 x 68 pitch (L2 fields are 40-55 m long in Canada or 60 x 40 yards in England). Every numeric threshold is an untuned starting value that needs labelled youth footage and coach review.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "CA_STANDARDS_PDF",
+      "FA_PITCH_U910"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u9-and-u10-7v7.ashx"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Left-back example at L2: in the federation's own 1-3-2-1 picture the wing backs stand level with halfway and support the attack, so a wide defender at halfway is the reference shape, not a fault. Say nobody stayed behind to cover only when measured: the wide defender is beyond halfway, no teammate (central back, the more defensive midfielder, or the goalkeeper) is between the ball and the own goal on that side, and the possession record names the team as attacking. Otherwise report a possible issue to review, or nothing. When a teammate did cover, report it as a strength.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_F7_PDF",
+      "US_GM_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+      "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Roles: infer a 1-3-2-1 role per spell from relative positions, never from the label; role swaps are encouraged at this age and are never errors; phrase findings role-relatively (the player on the left of our back three). This needs a 6-outfield reference template (the code has 9- and 10-outfield templates only), used as a reference, not as target dots.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_F7_PDF",
+      "US_CG_U910_PDF"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Recovery: possession change timing is unreliable (F1 within 1 s about .49-.64 in the possession notes), so do not detect recovery after a loss from change times. Instead report a goal-side share: the share of named opponent-possession time (minus 2 s either side of changes) in which players were between the ball and the own goal, as a pattern, not a moment.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "EF_COVER_RECOVER",
+      "FA_DNA_PRIORITIES"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2023/What-is-covering-and-recovering",
+      "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "L2 language: introduce two words, pressure (the first defender) and cover (the helper), as the FA 7-11 programme does; ask questions (who was the helper?), praise good play, and value effort over outcome. Avoid balance, rest defence, back line, synchronised and trigger.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_CG_U910_PDF",
+      "EF_PROG_7_11"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Rule-driven shapes: build-out and retreat lines at goal kicks and goalkeeper possession; leave those spells out of pressing and cover judgments.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_SSG_2017",
+      "FA_PITCH_U78"
+     ],
+     "url": [
+      "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer",
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "L2 drills: 2v1 and 3v2 pressure-and-cover to mini-goals with a cover line (adapted from swift support and supporting on the line); 4v2 press-together game with no tackling (from the 2023 England session); locked-in game; staggered-support rondo. STEP progressions, no heading, labelled as PitchIQ adaptations with their sources.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "EF_SWIFT_SUPPORT",
+      "EF_SUPPORT_LINE",
+      "EF_PCB_2023_PDF",
+      "EF_STEP",
+      "EF_PROG_7_11"
+     ],
+     "url": [
+      "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+      "https://learn.englandfootball.com/sessions/resources/2023/Covering-and-recovering-session-supporting-on-the-line",
+      "https://cdn.englandfootball.com/-/media/EFLearning/PDFs/Press-cover-and-balance--session-plan.pdf",
+      "https://learn.englandfootball.com/articles/resources/2022/make-coaching-personal-with-the-step-framework",
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "L2 progression skills: pressure on the ball (opportunities = named opponent-possession spells with a reliable ball position), cover behind the first defender, staggered support, shape (height, width, depth); minimum opportunity counts before any mastery state; normalised per eligible minute.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "US_CG_U910_PDF",
+      "EF_PROG_7_11"
+     ],
+     "url": [
+      "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+      "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+     ],
+     "accessed": "2026-10-21"
+    },
+    {
+     "text": "Format must come from the coach, not the age: Canada plays 4v4 or 5v5 at U8-U9 and 7v7 at U10-U11, the U.S. and the FA play 7v7 at U9-U10. A 7v7 has 6 outfield players plus a goalkeeper, which the current lineup check (7-10 outfield) and OUTFIELD = 10 do not allow.",
+     "tag": "PITCHIQ-PROPOSAL",
+     "sources": [
+      "CA_STANDARDS_PDF",
+      "US_GAME_FORMATS",
+      "FA_PITCH_U910"
+     ],
+     "url": [
+      "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+      "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+      "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u9-and-u10-7v7.ashx"
+     ],
+     "accessed": "2026-10-21"
+    }
+   ]
+  }
+ },
+ "heading_guidance": [
+  {
+   "text": "U.S. U7-U8 guide: no heading in games (small-sided games) and none in practice or games (ball skills).",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_CG_U78_PDF"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "U.S. U5 and U6 pages: no heading in practice or games.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_AGE_INDEX",
+    "US_AGE_U6"
+   ],
+   "url": [
+    "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide",
+    "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u6"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "U.S. U9-U10 guide: no heading in practice or games.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_CG_U910_PDF"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "U.S. U11-U12 guide: no heading at U11 in practice or games; at U12 at most 30 minutes of heading practice per week and at most 15-20 headers per player per week.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_CG_U1112_PDF",
+    "US_AGE_U1112"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-0b59df3f51a5b0682882b6db78f57600643932f4-pdf/3-9%2085x11.pdf",
+    "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u11-u12"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "U.S. Recognize to Recover (Dec 2015): recommended no heading for children 10 and under and limiting it to practice for ages 11-13; stated as recommendations, not mandates.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_R2R_2015"
+   ],
+   "url": [
+    "https://www.ussoccer.com/stories/2015/12/us-soccer-announces-recognize-to-recover-player-health-and-safety-program"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "U.S. 2017 small-sided standards: headers banned in the small-sided game standards (the age cut-off is in a chart not readable in the text).",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_SSG_2017"
+   ],
+   "url": [
+    "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "England matches: deliberate heading is phased out of affiliated grassroots youth matches U7-U11 - U7-U9 from 2024-25, U10 from 2025-26, U11 from 2026-27; a deliberate header gives an indirect free kick (moved to the penalty-area line if inside the own area), with no caution unless persistent; heading returns at U12.",
+   "tag": "FEDERATION",
+   "sources": [
+    "EF_HEADING"
+   ],
+   "url": [
+    "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "England training: no heading at U7-U11; U12-U13 a very low priority, at most one session a week, light balls, at most five headers in repetition, short or self-served, always unopposed; U14-U16 at most one session a week and 10 headers per player per session; U18 contested headers introduced within the same caps.",
+   "tag": "FEDERATION",
+   "sources": [
+    "EF_HEADING"
+   ],
+   "url": [
+    "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "Drill filter: no drill or coaching point with heading for any profile at U11 or younger, whichever federation applies; for U12-U13 only unopposed light-ball heading within the stricter (England) caps, and only when the coach confirms the governing rules. L1 and L2 reports never mention heading as something to work on.",
+   "tag": "PITCHIQ-PROPOSAL",
+   "sources": [
+    "US_CG_U78_PDF",
+    "US_CG_U910_PDF",
+    "US_CG_U1112_PDF",
+    "EF_HEADING"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+    "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+    "https://documents.ussoccer.com/documents/file-0b59df3f51a5b0682882b6db78f57600643932f4-pdf/3-9%2085x11.pdf",
+    "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football"
+   ],
+   "accessed": "2026-10-21"
+  }
+ ],
+ "cross_source_tensions": [
+  {
+   "text": "Two moments vs transitions: U.S. game models keep two moments for U10 and under, the U.S. U9-U10 guide still mentions a role in transition, and Canada's principles want all four moments present in training.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_GM_USING_PDF",
+    "US_CG_U910_PDF",
+    "CA_PRINCIPLES_PDF"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+    "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+    "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Principles-EN-26jan26.pdf"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "Formats by age differ: U.S. 4v4 (U7-U8) and 7v7 (U9-U10); Canada 3v3 (U6-U7), 4v4 or 5v5 (U8-U9), 7v7 (U10-U11); the FA 5v5 (U7-U8) and 7v7 (U9-U10).",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_GAME_FORMATS",
+    "CA_STANDARDS_PDF",
+    "FA_PITCH_U78",
+    "FA_PITCH_U910"
+   ],
+   "url": [
+    "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+    "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+    "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx",
+    "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u9-and-u10-7v7.ashx"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "The England press, cover and balance session named by the spec for L2 states no age (2023) and its 2025 namesake is for 12-16s; the age-tagged England material for L1-L2 is the 7-11 pressing and covering programme.",
+   "tag": "FEDERATION",
+   "sources": [
+    "EF_PCB_2023",
+    "EF_PCB_2025",
+    "EF_PROG_7_11"
+   ],
+   "url": [
+    "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+    "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+    "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "Keeping a player back vs winning the ball high: the U.S. U7-U10 defending principle favours pressing high as a compact team, while the FA 7-11 sessions always keep one cover on a line in front of goal.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_GM_U78_PDF",
+    "US_GM_U910_PDF",
+    "EF_SWIFT_SUPPORT"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+    "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf",
+    "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support"
+   ],
+   "accessed": "2026-10-21"
+  },
+  {
+   "text": "The spec's L1 focus on helping a teammate who is defending and its L2 focus on team balance have no explicit U.S. source at those ages; support for the first comes from the FA 7-11 programme, and none was found for the second.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_CG_U78_PDF",
+    "US_GM_U78_PDF",
+    "US_CG_U910_PDF",
+    "EF_SWIFT_SUPPORT"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+    "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+    "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+    "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support"
+   ],
+   "accessed": "2026-10-21"
+  }
+ ],
+ "could_not_verify": [
+  {
+   "text": "U.S. field dimensions, goal sizes, ball sizes and match durations for U7-U10 (the 2017 chart is an image not in the text; the formats PDF is over the fetch limit).",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_SSG_2017",
+    "US_FORMATS_PDF"
+   ],
+   "url": [
+    "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer",
+    "https://documents.ussoccer.com/documents/file-2984ca87a7010f04d7c41022d4ea314cb6ba6c5c-pdf/age-appropriate-formats.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "U.S. Selecting a formation for your team (PDF over the fetch limit).",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_FORMATION_SELECT_PDF"
+   ],
+   "url": [
+    "https://documents.ussoccer.com/documents/file-dd7e6e83f102d9241c0de958b30bd977bab96bfd-pdf/SELECTING-A-FORMATION-FOR-YOUR-TEAM.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "Canada Small-Sided Games Guide (PDF over the fetch limit) and the content of the FUNdamentals and Learn to Train workshops (behind registration on a store domain, not followed).",
+   "tag": "FEDERATION",
+   "sources": [
+    "CA_SSG_GUIDE_PDF",
+    "CA_GRASSROOTS_EDU"
+   ],
+   "url": [
+    "https://www.canadasoccer.com/wp-content/uploads/2026/02/Small-Sided-Games-Guide.pdf",
+    "https://www.canadasoccer.com/coach/grassroots-coach-education/"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "Canada Grassroots Standards goal sizes and retreat-line rules per age column (merged table cells could not be aligned from the text).",
+   "tag": "FEDERATION",
+   "sources": [
+    "CA_STANDARDS_PDF"
+   ],
+   "url": [
+    "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "The full U.S. heading guideline document: the Learning Center link returned 404, the 2015 article was truncated, and the Recognize to Recover site pages read carry no limits; the 11-13 practice-only limit rests on the 2015 article summary (the U11 and U12 limits were read first-hand in the U11-U12 guide).",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_CONCUSSION_HUB",
+    "US_R2R_2015"
+   ],
+   "url": [
+    "https://www.ussoccer.com/soccer-forward/resource-hub/the-concussion-initiative-and-reducing-heading",
+    "https://www.ussoccer.com/stories/2015/12/us-soccer-announces-recognize-to-recover-player-health-and-safety-program"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "The May 2024 FA heading announcement itself (timeline taken from the England Football heading page).",
+   "tag": "FEDERATION",
+   "sources": [
+    "FA_HEADING_NEWS_2024",
+    "EF_HEADING"
+   ],
+   "url": [
+    "https://www.thefa.com/news/2024/may/17/new-heading-rules-for-grassroots-football-youth-matches",
+    "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "An age or level for the 2023 England press, cover and balance session (none stated on the page or in its PDF).",
+   "tag": "FEDERATION",
+   "sources": [
+    "EF_PCB_2023",
+    "EF_PCB_2023_PDF"
+   ],
+   "url": [
+    "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+    "https://cdn.englandfootball.com/-/media/EFLearning/PDFs/Press-cover-and-balance--session-plan.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  },
+  {
+   "text": "HTML pages were read through a fetch tool that returns a model-written summary; the U.S. infographic PDFs and the Canada and FA PDFs were read first-hand. Small wording details from HTML pages may be summary artefacts.",
+   "tag": "FEDERATION",
+   "sources": [
+    "US_AGE_U78",
+    "US_GM_U78_PAGE"
+   ],
+   "url": [
+    "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u7-u8",
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u7-u8"
+   ],
+   "accessed": "2026-10-21",
+   "verified": false
+  }
+ ]
+}

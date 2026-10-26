@@ -868,5 +868,32 @@ class Engine(unittest.TestCase):
         self.assertTrue(re.search(r'\d+ observations, \d+ evidence moments', run.stderr))
 
 
+class V2Retirement(unittest.TestCase):
+    """DESIGN v2 11.2-11.3: the professional yardstick here is retired as the judge of a team. The v2 engine
+    (contextual.py, assess.py, tactics_geom.py) never imports this module or reference.py, so no v2 verdict can rest on
+    one phase-blind professional match (critic B1-B3); the v1 report keeps the rest until its callers move (wave 7)."""
+
+    V2 = ('contextual.py', 'assess.py', 'tactics_geom.py')
+
+    def test_the_v2_engine_never_imports_the_yardstick(self):
+        import ast
+        pkg = Path(coaching.__file__).resolve().parent
+        for name in self.V2:
+            tree = ast.parse((pkg/name).read_text(encoding='utf-8'))
+            imported = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    imported |= {a.name for a in node.names} | {node.module or ''}
+                elif isinstance(node, ast.Import):
+                    imported |= {a.name for a in node.names}
+            self.assertFalse(imported & {'detectors', 'reference', 'soccer.coaching.detectors',
+                                         'soccer.coaching.reference'}, name)
+
+    def test_the_kept_helpers_and_the_v1_only_names_exist(self):
+        for name in det.V2_KEPT+det.V1_ONLY:
+            self.assertTrue(hasattr(det, name), name)
+        self.assertFalse(set(det.V2_KEPT) & set(det.V1_ONLY))
+
+
 if __name__ == '__main__':
     unittest.main()

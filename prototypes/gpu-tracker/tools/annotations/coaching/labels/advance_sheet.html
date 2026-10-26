@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADVANCE sheet: was the wide defender&#x27;s forward run covered?</title>
+<style>
+:root{--bg:#f6f7f5;--fg:#1d2320;--muted:#5d6762;--line:#d5dad6;--accent:#1f7a4d;--mark:#ff2bd6}
+@media (prefers-color-scheme: dark){:root{--bg:#161a18;--fg:#e8ece9;--muted:#9aa49f;--line:#323935;--accent:#5fd39a}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,Segoe UI,Arial,sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0 0 6px}
+details{margin:6px 0}.muted{color:var(--muted)}
+#player{position:sticky;top:0;z-index:2;background:var(--bg);padding:8px 16px;border-bottom:1px solid var(--line)}
+#stage{position:relative;max-width:900px}
+#stage video{width:100%;display:block;background:#000}
+#marks{position:absolute;inset:0;pointer-events:none}
+.mk{position:absolute;border:2px solid var(--mark);border-radius:50%}
+table{border-collapse:collapse;margin:8px 16px 40px}
+td,th{border-bottom:1px solid var(--line);padding:4px 6px;vertical-align:top;text-align:left}
+th{font-weight:600;position:sticky;top:0}
+select,input[type=text]{max-width:150px;font:inherit}
+tr.done td:first-child{color:var(--accent)}
+button{font:inherit;padding:2px 8px;margin:1px}
+.bar input{width:340px}
+</style></head><body>
+<header>
+<h1>ADVANCE sheet: was the wide defender&#x27;s forward run covered?</h1>
+<details open><summary>Instructions</summary><p>Each row is a spell in which a defender of the team was well forward on one side while his team had
+the ball (found from the players' positions only, so some rows are not full-backs at all: say so). Press <b>Play</b>:
+the clip starts 2 s before the spell and stops in its middle, with the player ringed; <b>Play on</b> runs to 2 s after
+it. "Covered" means the space behind him was protected: a centre-back moved across, a midfielder dropped in, or a
+team-mate stood in the channel behind him.</p><p>Blind sheet: do not open PitchIQ's coaching report first.
+<b>Download answers</b> writes advance_labels.csv.</p></details>
+<div class="bar">Video folder: <input id="folder" type="text"> <button id="saveFolder">Use</button>
+<span class="muted">(the folder that holds the videos named in the table; default: the PitchIQ uploads folder)</span></div>
+<div class="bar"><button id="export">Download answers (CSV)</button> <label>Load answers: <input id="import" type="file"
+accept=".csv"></label> <span id="progress" class="muted"></span></div>
+</header>
+<div id="player"><div id="stage"><video id="video" controls preload="metadata"></video><div id="marks"></div></div>
+<div><button id="cont">Play on to the end of the clip</button> <span id="now" class="muted"></span></div></div>
+<table id="sheet"></table>
+<script id="data" type="application/json">{"set":"advance","sha":"24f1a281b31e0184","folder":"../../../../uploads/","items":[{"id":"Ab9c79e2bd5","footage":"broadcast","video":"2bac432528d0e568.mp4","time":16.3,"clock":"0:01.40-0:32.20","team":"B","player":"B-09","from":0.0,"to":33.2,"marks":[[0.6644,0.7268,0.0153,0.0648]]},{"id":"A732264e70c","footage":"broadcast","video":"2bac432528d0e568.mp4","time":33.9,"clock":"0:29.80-0:39.00","team":"B","player":"B-14","from":27.8,"to":40.0,"marks":[[0.4062,0.2494,0.0065,0.0327]]},{"id":"Ac5d9f64121","footage":"broadcast","video":"2bac432528d0e568.mp4","time":45.6,"clock":"0:31.40-1:00.80","team":"B","player":"B-09","from":29.4,"to":59.97,"marks":[[0.8865,0.7764,0.0146,0.0685]]},{"id":"A200892868e","footage":"broadcast","video":"2bac432528d0e568.mp4","time":110.43,"clock":"1:45.43-1:56.43","team":"A","player":"A-02","from":103.43,"to":117.43,"marks":[[0.4414,0.1729,0.0083,0.0403]]},{"id":"Ae8be31b901","footage":"broadcast","video":"2bac432528d0e568.mp4","time":168.43,"clock":"2:44.43-2:53.43","team":"A","player":"A-02","from":162.43,"to":174.43,"marks":[[0.4147,0.1306,0.0091,0.0402]]},{"id":"A3a32afed06","footage":"broadcast","video":"2bac432528d0e568.mp4","time":185.73,"clock":"3:01.03-3:11.43","team":"B","player":"B-05","from":179.03,"to":192.43,"marks":[[0.526,0.59,0.0104,0.0535]]},{"id":"A4ff2a7f1f1","footage":"broadcast","video":"2bac432528d0e568.mp4","time":226.0,"clock":"3:42.00-3:51.00","team":"B","player":"B-08","from":222.0,"to":232.0,"marks":[[0.7083,0.7833,0.0156,0.0657]]},{"id":"A0021803244","footage":"broadcast","video":"2bac432528d0e568.mp4","time":238.0,"clock":"3:51.00-4:06.00","team":"B","player":"B-12","from":229.0,"to":247.0,"marks":[[0.5732,0.1779,0.013,0.0333]]}],"questions":[{"name":"wide_defender","label":"Is the marked player a wide defender (full-back or wing-back) here?","options":["yes","no","unclear"]},{"name":"advanced","label":"Did he go forward, well beyond the centre-backs?","options":["yes","no","unclear"]},{"name":"supported","label":"Was the space behind him covered (a centre-back moved across, a midfielder dropped, or a team-mate took the channel)?","options":["covered","not covered","unclear"]},{"name":"intended","label":"Did the run look like part of the team's plan?","options":["yes","no","unclear"]},{"name":"opponent","label":"Was an opponent in the space he left (in this team's half)?","options":["yes","no","unclear"]},{"name":"raise","label":"Would you raise it with the team as a problem?","options":["yes","no","depends on the level"]}],"info":[{"key":"video","label":"Video"},{"key":"clock","label":"Spell"},{"key":"player","label":"Player"}]}</script>
+<script>
+(function(){
+var D=JSON.parse(document.getElementById('data').textContent);
+var KEY='pitchiq-labels-'+D.set+'-'+D.sha;
+var ans={};try{ans=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){ans={}}
+var folder=D.folder;try{folder=localStorage.getItem('pitchiq-label-folder')||D.folder}catch(e){}
+var v=document.getElementById('video'),marks=document.getElementById('marks'),cur=null,stopAt=null;
+document.getElementById('folder').value=folder;
+document.getElementById('saveFolder').onclick=function(){folder=document.getElementById('folder').value;
+ if(folder&&!/[\/\\]$/.test(folder))folder+='/';try{localStorage.setItem('pitchiq-label-folder',folder)}catch(e){}};
+function save(){try{localStorage.setItem(KEY,JSON.stringify(ans))}catch(e){}progress()}
+function progress(){var n=0;D.items.forEach(function(it){if(ans[it.id]&&D.questions.every(function(q){return !q.options||ans[it.id][q.name]}))n++});
+ document.getElementById('progress').textContent=n+' of '+D.items.length+' rows complete';
+ D.items.forEach(function(it){var r=document.getElementById('r'+it.id);if(r)r.className=(ans[it.id]&&D.questions.every(function(q){return !q.options||ans[it.id][q.name]}))?'done':''})}
+function showMarks(it){marks.innerHTML='';if(!it)return;(it.marks||[]).forEach(function(b){var d=document.createElement('div');
+ d.className='mk';var cx=b[0]+b[2]/2,by=b[1]+b[3];var w=Math.max(b[2]*2.2,.02);
+ d.style.left=(100*(cx-w/2))+'%';d.style.width=(100*w)+'%';d.style.top=(100*(by-w*0.6))+'%';d.style.height=(100*w*1.2*16/9*0.5)+'%';marks.appendChild(d)})}
+function play(it){cur=it;showMarks(null);var src=folder+it.video;if(v.getAttribute('src')!==src){v.setAttribute('src',src)}
+ var go=function(){v.currentTime=it.from;stopAt=it.time;v.play().catch(function(){})};
+ if(v.readyState>=1)go();else v.addEventListener('loadedmetadata',go,{once:true})}
+v.addEventListener('timeupdate',function(){document.getElementById('now').textContent=clock(v.currentTime);
+ if(stopAt!==null&&v.currentTime>=stopAt){v.pause();v.currentTime=stopAt;stopAt=null;showMarks(cur)}});
+v.addEventListener('play',function(){if(stopAt===null)showMarks(null)});
+document.getElementById('cont').onclick=function(){if(!cur)return;showMarks(null);stopAt=cur.to;v.play().catch(function(){})};
+function clock(t){var m=Math.floor(t/60);var s=(t-60*m).toFixed(2);return m+':'+(s.length<5?'0':'')+s}
+var tb=document.getElementById('sheet');var h=tb.insertRow();
+['#','Clip'].concat(D.info.map(function(c){return c.label})).concat(D.questions.map(function(q){return q.label})).concat(['Notes'])
+ .forEach(function(x){var th=document.createElement('th');th.textContent=x;h.appendChild(th)});
+D.items.forEach(function(it,i){var r=tb.insertRow();r.id='r'+it.id;r.insertCell().textContent=(i+1)+' ('+it.id+')';
+ var c=r.insertCell();var b=document.createElement('button');b.textContent='Play '+it.clock;b.onclick=function(){play(it)};c.appendChild(b);
+ D.info.forEach(function(col){r.insertCell().textContent=it[col.key]===undefined?'':String(it[col.key])});
+ var a=ans[it.id]||(ans[it.id]={});
+ D.questions.forEach(function(q){var cell=r.insertCell();var el;
+  if(q.options){el=document.createElement('select');var o0=document.createElement('option');o0.value='';o0.textContent='-';el.appendChild(o0);
+   q.options.forEach(function(o){var op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op)})}
+  else{el=document.createElement('input');el.type='text'}
+  el.value=a[q.name]||'';el.onchange=function(){a[q.name]=el.value;save()};cell.appendChild(el)});
+ var n=document.createElement('input');n.type='text';n.value=a.notes||'';n.onchange=function(){a.notes=n.value;save()};r.insertCell().appendChild(n)});
+function csvq(s){s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
+document.getElementById('export').onclick=function(){var cols=['id'].concat(D.questions.map(function(q){return q.name})).concat(['notes']);
+ var lines=[cols.join(',')];D.items.forEach(function(it){var a=ans[it.id]||{};lines.push([it.id].concat(cols.slice(1).map(function(c){return csvq(a[c])})).join(','))});
+ var blob=new Blob([lines.join('\r\n')+'\r\n'],{type:'text/csv'});var u=document.createElement('a');u.href=URL.createObjectURL(blob);
+ u.download=D.set+'_labels.csv';document.body.appendChild(u);u.click();setTimeout(function(){URL.revokeObjectURL(u.href);u.remove()},500)};
+document.getElementById('import').onchange=function(e){var f=e.target.files[0];if(!f)return;var rd=new FileReader();rd.onload=function(){
+ var rows=parseCsv(rd.result);var head=rows.shift()||[];rows.forEach(function(r){var id=r[0];if(!id)return;var a=ans[id]||(ans[id]={});
+ head.forEach(function(c,i){if(i>0&&r[i]!==undefined)a[c]=r[i]})});save();location.reload()};rd.readAsText(f)};
+function parseCsv(t){var out=[],row=[],f='',q=false;for(var i=0;i<t.length;i++){var ch=t[i];
+ if(q){if(ch=='"'&&t[i+1]=='"'){f+='"';i++}else if(ch=='"')q=false;else f+=ch}
+ else if(ch=='"')q=true;else if(ch==','){row.push(f);f=''}else if(ch=='\n'){row.push(f.replace(/\r$/,''));out.push(row);row=[];f=''}else f+=ch}
+ if(f||row.length){row.push(f);out.push(row)}return out}
+progress();
+})();
+</script></body></html>

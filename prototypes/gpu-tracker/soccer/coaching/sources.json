@@ -1,0 +1,3159 @@
+{
+ "kind": "coaching-sources",
+ "version": 1,
+ "accessed": "2026-10-21",
+ "builtBy": "tools/build_coaching_sources.py (do not edit by hand)",
+ "readRule": "read = the best status any research pass recorded (full > partial > not_read); readings lists each pass's own status. Pages read through a fetch tool were summarised by a model, so small wording details from them may be summary artefacts. A not_read source is never cited for content.",
+ "disclaimer": "PitchIQ's checks and numbers are its own proposals; the sources describe coaching objectives, not PitchIQ's thresholds. No federation reviewed or endorses PitchIQ.",
+ "inputs": [
+  {
+   "pass": "L1L2",
+   "file": "tools/annotations/coaching/research/L1L2_foundation_early_development.json",
+   "contentSha256": "710a1a95ccf5cf912760ff0e03c1caf901c3106ef7c580e6646f7b3cb3d50437",
+   "sources": 50,
+   "items": 142
+  },
+  {
+   "pass": "L3L4",
+   "file": "tools/annotations/coaching/research/L3L4_developing_intermediate.json",
+   "contentSha256": "8b1309ce34579b76a7449398e06582d2457327920cc1d35d89d3bf55ea86763c",
+   "sources": 51,
+   "items": 163
+  },
+  {
+   "pass": "L57",
+   "file": "tools/annotations/coaching/research/levels5-7.json",
+   "contentSha256": "9570d35435f747578bf4e187dc1beb193e308958391c3095116194a1e3946379",
+   "sources": 64,
+   "items": 178
+  }
+ ],
+ "sources": [
+  {
+   "id": "CS-ACEP",
+   "title": "Canada Soccer - Advanced Coach Education Program",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/coach/advanced-coach-education-program/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-ACEP",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "CS-ADIP",
+   "title": "Canada Soccer - A Diploma syllabus",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/A-Diploma-Syllabus.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "not_read",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-ADIP",
+     "status": "not-fetched"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Larger than the 10 MB fetch limit; NOT verified."
+   ]
+  },
+  {
+   "id": "CS-BDIP",
+   "title": "Canada Soccer - B Diploma syllabus",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/03/B-Diploma-Syllabus.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "not_read",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-BDIP",
+     "status": "not-fetched"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Larger than the 10 MB fetch limit; NOT verified."
+   ]
+  },
+  {
+   "id": "CS-CPRO",
+   "title": "Canada Soccer - Concacaf Pro Diploma minimum content syllabus (2023 edition), hosted by Canada Soccer",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/04/Concacaf-Pro-Diploma-Minimum-Content-Syllabus-English.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-CPRO",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Text extracted locally."
+   ]
+  },
+  {
+   "id": "CS-GAMES",
+   "title": "Canada Soccer - Examples of Games within Grassroots Sessions",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Examples-of-Games-within-Grassroots-Sessions-EN-26jan26.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "CA_GAMES_PDF",
+     "status": "read_fully",
+     "how": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)"
+    }
+   ],
+   "aliases": [
+    "CA-GAMES",
+    "CA-GAMES-PDF",
+    "CA_GAMES_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "CS-GCE",
+   "title": "Canada Soccer - Grassroots Coach Education",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/coach/grassroots-coach-education/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "CA_GRASSROOTS_EDU",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L57",
+     "id": "CS-GCE",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "CA-GRASSROOTS-EDU",
+    "CA_GRASSROOTS_EDU"
+   ],
+   "notes": [
+    "Lists workshops and target ages only; workshop content sits behind registration (store domain, not followed)."
+   ]
+  },
+  {
+   "id": "CS-GRASSROOTS",
+   "title": "Canada Soccer - Grassroots Soccer",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/play/grassroots-soccer/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "CA_GRASSROOTS_PAGE",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "CA-GRASSROOTS-PAGE",
+    "CA_GRASSROOTS_PAGE"
+   ],
+   "notes": [
+    "Links the Grassroots Standards and program documents."
+   ]
+  },
+  {
+   "id": "CS-LTPDCG",
+   "title": "Canada Soccer - Long Term Player Development: a community guide",
+   "publisher": "Canada Soccer",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/02/CanadaSoccerPathway_LTPDCommunityGuide_EN.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-LTPDCG",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Text extracted locally; partly garbled by the layout but the stage descriptions are legible."
+   ]
+  },
+  {
+   "id": "CS-PATHWAY",
+   "title": "Canada Soccer Pathway",
+   "publisher": "Canada Soccer",
+   "url": "https://canadasoccer.com/play-landing/canada-soccer-pathway/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-PATHWAY",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "CS-PDP",
+   "title": "Canada Soccer - Player Development Program (PDP) manual",
+   "publisher": "Canada Soccer",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/02/CS-PlayerDevelopmentProgram-PDP-Manual-EN-Update-9Aug2024.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-PDP",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Text extracted locally."
+   ]
+  },
+  {
+   "id": "CS-PRINCIPLES",
+   "title": "Canada Soccer - Grassroots Program Principles",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/Canada-Soccer-Grassroots-Program-Principles-EN-26jan26.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "CA_PRINCIPLES_PDF",
+     "status": "read_fully",
+     "how": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)"
+    }
+   ],
+   "aliases": [
+    "CA-PRINCIPLES-PDF",
+    "CA_PRINCIPLES_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "CS-SFL",
+   "title": "Canada Soccer - Soccer for Life workshop (official Canada Soccer store listing)",
+   "publisher": "Canada Soccer",
+   "url": "https://canada-soccer.myshopify.com/collections/grassroots-coaching-education-program/products/soccer-for-life",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-SFL",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Lists format only (2 h online + 4 h on-field, 'coaches of U14+'); no syllabus or content is published there."
+   ]
+  },
+  {
+   "id": "CS-SSG",
+   "title": "Canada Soccer - Small-Sided Games Guide",
+   "publisher": "Canada Soccer",
+   "url": "https://www.canadasoccer.com/wp-content/uploads/2026/02/Small-Sided-Games-Guide.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "not_read",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "CA_SSG_GUIDE_PDF",
+     "status": "not_read",
+     "how": "Not read"
+    }
+   ],
+   "aliases": [
+    "CA-SSG-GUIDE-PDF",
+    "CA_SSG_GUIDE_PDF"
+   ],
+   "notes": [
+    "Larger than the 10 MB WebFetch limit."
+   ]
+  },
+  {
+   "id": "CS-STANDARDS-2024",
+   "title": "Canada Soccer - Grassroots Standards (PDF)",
+   "publisher": "Canada Soccer",
+   "url": "https://canadasoccer.com/wp-content/uploads/resources/grassroots/2024-CS-GrassrootsStandards-EN.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "CS_STANDARDS",
+     "status": "read_partially",
+     "how": "PDF text streams inflated and read (vector PDF)"
+    }
+   ],
+   "aliases": [
+    "CS-STANDARDS",
+    "CS_STANDARDS"
+   ],
+   "notes": [
+    "Table read from extracted text; column order is clear for format, field size, ball and duration; the retreat-line column alignment is inferred."
+   ]
+  },
+  {
+   "id": "CS-STANDARDS-2026",
+   "title": "Canada Soccer - Grassroots Standards (2026)",
+   "publisher": "Canada Soccer",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/02/2026-CS-GrassrootsStandards-EN_final91.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "CA_STANDARDS_PDF",
+     "status": "read_partially",
+     "how": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)"
+    }
+   ],
+   "aliases": [
+    "CA-STANDARDS-PDF",
+    "CA_STANDARDS_PDF"
+   ],
+   "notes": [
+    "Table rows with one value per age column (U4-U6, U6-U7, U8-U9, U10-U11, U12-U13) align unambiguously; rows with merged cells (goal size, retreat line) could not be aligned from the text and are not used."
+   ]
+  },
+  {
+   "id": "CS-W2WC",
+   "title": "Canada Soccer - Long Term Player Development: Wellness to World Cup (stages 4-7 on pp. 51-54)",
+   "publisher": "Canada Soccer",
+   "url": "https://canadasoccer.com/wp-content/uploads/2026/04/CSA_2009_WellnessWorldCup_EN.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "CS-W2WC",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Text extracted locally with pdftotext; pages 51-54 read. Two-column layout: the 2 x 40 / 2 x 45 min durations are read as stage 5 / stage 6 from the page order."
+   ]
+  },
+  {
+   "id": "EF-11V11",
+   "title": "England Football Learning - How to play and manage 11v11 games (8 Dec 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-11v11-games",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_11V11",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-11V11",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF_11V11"
+   ],
+   "notes": [
+    "Six formation diagrams (images only)."
+   ]
+  },
+  {
+   "id": "EF-9V9",
+   "title": "England Football Learning - How to play and manage 9v9 games (8 Dec 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-play-and-manage-9v9-games",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_9V9",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_9V9"
+   ],
+   "notes": [
+    "Formation diagrams are images only (1-3-3-2, 1-4-3-1)."
+   ]
+  },
+  {
+   "id": "EF-AYA",
+   "title": "England Football (The FA) - Advanced Youth Award (course page)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/courses/football/advanced-youth-award",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-AYA",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-COVER-RECOVER",
+   "title": "England Football Learning - What is covering and recovering? (31 Oct 2023)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2023/What-is-covering-and-recovering",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_COVER_RECOVER",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "EF_COVER_RECOVER",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_COVER_RECOVER"
+   ],
+   "notes": [
+    "No age stated.",
+    "No age guidance; no session plan linked."
+   ]
+  },
+  {
+   "id": "EF-COVER-RECOVER-SESSION",
+   "title": "England Football Learning - 2026 pressing and covering sessions (cover and recover; also defending in small numbers, pressing duels, games week)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-cover-and-recover",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_12_16_SERIES",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "EF_COVER_RECOVER_SESSION",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-CR26",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-12-16-SERIES",
+    "EF-CR26",
+    "EF_12_16_SERIES",
+    "EF_COVER_RECOVER_SESSION"
+   ],
+   "notes": [
+    "All stated for 12-16s: read only to keep their unit-pressing content out of L1/L2.",
+    "Week 3 of the programme."
+   ]
+  },
+  {
+   "id": "EF-CREATE-SPACE",
+   "title": "England Football Learning - Passing and receiving: creating and exploiting space (6 May 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Passing-and-receiving-session-creating-and-exploiting-space",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_CREATE_SPACE",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_CREATE_SPACE"
+   ],
+   "notes": [
+    "Age not in the text (image paths suggest the 12-16 programme)."
+   ]
+  },
+  {
+   "id": "EF-CRS",
+   "title": "England Football Learning - Pressing and tackling: challenge, recover, and stop, 12-16 (24 Nov 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-tackling-session-challenge-recover-and-stop",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_CHALLENGE_RECOVER",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-CRS",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-CHALLENGE-RECOVER",
+    "EF_CHALLENGE_RECOVER"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-DLE-BEHIND",
+   "title": "England Football (The FA) - How to defend like England: space in behind",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-space-in-behind",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-DLE-BEHIND",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "The series' own link (thebootroom.thefa.com/...space-in-behind) returned 404; this is the current address."
+   ]
+  },
+  {
+   "id": "EF-DLE-INTRO",
+   "title": "England Football (The FA) - How to defend like England: an introduction",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-an-introduction",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-DLE-INTRO",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-DLE-OVER",
+   "title": "England Football (The FA) - How to defend like England: overloads",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/how-to-defend-like-england-overloads",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-DLE-OVER",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-DLE-ROLES",
+   "title": "England Football Learning - How to defend like England: roles and responsibilities (1 Apr 2021)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-roles-and-responsibilities",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_DEFEND_ROLES",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-DLE-ROLES",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-DEFEND-ROLES",
+    "EF_DEFEND_ROLES"
+   ],
+   "notes": [
+    "Senior national-team inspired.",
+    "The series' own link (thebootroom.thefa.com/...roles-and-responsibilities) returned 404; this is the current address."
+   ]
+  },
+  {
+   "id": "EF-DLE-TRANS",
+   "title": "England Football Learning - How to defend like England: transition (5 Mar 2021)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles/resources/2022/How-to-defend-like-England-transition",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_DEFEND_TRANSITION",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-DLE-TRANS",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-DEFEND-TRANSITION",
+    "EF_DEFEND_TRANSITION"
+   ],
+   "notes": [
+    "Senior national-team inspired; the series cautions against copying it with young groups."
+   ]
+  },
+  {
+   "id": "EF-DLE-WIDE",
+   "title": "England Football Learning - How to defend like England: space in wide areas (19 Mar 2021)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles/resources/2022/how-to-defend-like-england-space-in-wide-areas",
+   "extraUrls": [
+    "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/How-to-defend-like-England-space-in-wide-areas"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_DEFEND_WIDE",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-DLE-WIDE",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-DEFEND-WIDE",
+    "EF_DEFEND_WIDE"
+   ],
+   "notes": [
+    "Senior national-team inspired."
+   ]
+  },
+  {
+   "id": "EF-DSN22",
+   "title": "England Football Learning - Defending in small numbers (dated 2019 on page)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2022/defending-in-small-numbers",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_SMALL_NUMBERS_2022",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF-SMALL-NUMBERS-2022",
+    "EF_SMALL_NUMBERS_2022"
+   ],
+   "notes": [
+    "Text gives objectives only; the content is in a video not captured."
+   ]
+  },
+  {
+   "id": "EF-DSN26",
+   "title": "England Football Learning - Pressing and covering: defending in small numbers, 12-16s (23 Mar 2026)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-defending-in-small-numbers",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_SMALL_NUMBERS_2026",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-DSN26",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-SMALL-NUMBERS-2026",
+    "EF_SMALL_NUMBERS_2026"
+   ],
+   "notes": [
+    "Week 5 of the programme."
+   ]
+  },
+  {
+   "id": "EF-HEADING",
+   "title": "England Football - FA guidance on heading in football",
+   "publisher": "England Football (The FA)",
+   "url": "https://www.englandfootball.com/participate/learn/brain-health/heading-in-football",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_HEADING",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "EF_HEADING",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-HEADING",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF_HEADING"
+   ],
+   "notes": [
+    "Covers 2024-25 onward with phase-in to 2026-27."
+   ]
+  },
+  {
+   "id": "EF-INDIV-TACTICS",
+   "title": "England Football Learning - individual tactics (28 Oct 2024)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-help-players-develop-individual-tactics",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_INDIV_TACTICS",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_INDIV_TACTICS"
+   ],
+   "notes": [
+    "No age guidance."
+   ]
+  },
+  {
+   "id": "EF-PCB-2023",
+   "title": "England Football Learning - Pressing session: press, cover and balance (28 Feb 2023)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2023/Pressing-session-press-cover-and-balance",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_PCB_2023",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "EF_PRESS_COVER_BALANCE_2023",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF-PRESS-COVER-BALANCE-2023",
+    "EF_PCB_2023",
+    "EF_PRESS_COVER_BALANCE_2023"
+   ],
+   "notes": [
+    "Tags Defending/Pressing only; no age group, phase or level stated anywhere on the page or in its PDF.",
+    "Age not stated; primary L2 source, used here only for 3v3-7v7 progressions."
+   ]
+  },
+  {
+   "id": "EF-PCB-2023-PDF",
+   "title": "England Football Learning - Press, cover and balance session plan (PDF, 1 page)",
+   "publisher": "England Football (The FA)",
+   "url": "https://cdn.englandfootball.com/-/media/EFLearning/PDFs/Press-cover-and-balance--session-plan.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_PCB_2023_PDF",
+     "status": "read_fully",
+     "how": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)"
+    }
+   ],
+   "aliases": [
+    "EF_PCB_2023_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-PCB25",
+   "title": "England Football Learning - Pressing session: press, cover and balance (3 Nov 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-cover-and-balance",
+   "extraUrls": [
+    "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Week-1/Session-programme--press-cover-and-balance-week-one.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_PCB_2025",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-PCB25",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-PCB-2025",
+    "EF_PCB_2025"
+   ],
+   "notes": [
+    "Same title, but for 12-16s (week one of a programme); read only to show the age contrast.",
+    "Session PDF text extracted and checked against the page."
+   ]
+  },
+  {
+   "id": "EF-PFS",
+   "title": "England Football (The FA) - Pressing session: press for success (week 2, 12-16s)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-press-for-success",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-PFS",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-PHASES",
+   "title": "England Football (The FA) - What are the game phases in football?",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2026/What-are-the-game-phases-in-football",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-PHASES",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-PITCH-SIZES",
+   "title": "England Football FutureFit - pitch and goal sizes by age group",
+   "publisher": "England Football (The FA)",
+   "url": "https://futurefit.englandfootball.com/futurefit/faqs/what-are-pitch-and-goal-sizes-for-the-different-age-groups/index.html",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_PITCH_SIZES",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_PITCH_SIZES"
+   ],
+   "notes": [
+    "No season printed on the page; matches the Dec 2025 format articles."
+   ]
+  },
+  {
+   "id": "EF-PRACTISING-PRESS",
+   "title": "England Football Learning - Pressing and covering session: practising the press (24 Feb 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-practising-the-press",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_PRACTISING_PRESS",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "EF_PRACTISING_PRESS"
+   ],
+   "notes": [
+    "The page states no age; it is week one of the 7-11 programme above."
+   ]
+  },
+  {
+   "id": "EF-PRINC",
+   "title": "England Football (The FA) - What are the principles of football?",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2022/What-are-the-principles-of-football",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-PRINC",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-PROG-7-11",
+   "title": "England Football Learning - Session programme: pressing and covering to stop goals (7-11s, 24 Feb 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-pressing-and-covering-to-stop-goals",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_PROG_7_11",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "EF_PROG_7_11"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-PROG-PRESS-COVER",
+   "title": "England Football Learning - Session programme: press and cover to defend, 12-16s (24 Feb 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Session-programme-press-and-cover-to-defend",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_PROG_PRESS_COVER",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_PROG_PRESS_COVER"
+   ],
+   "notes": [
+    "Six weeks; week pages linked."
+   ]
+  },
+  {
+   "id": "EF-PTC",
+   "title": "England Football (The FA) - Session programme: press, tackle and cover (six weeks, 12-16s)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2024/Session-programme-press-tackle-and-cover",
+   "extraUrls": [
+    "https://cdn.englandfootball.com/-/media/EFLearning/Session-programmes/12-16-press-tackle-and-cover/Session-programme/Session-programme--press-cover-and-balance.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-PTC",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Programme PDF text extracted (confirms the 'ball-side and goal-side' point in week 2)."
+   ]
+  },
+  {
+   "id": "EF-PZ",
+   "title": "England Football Learning - Pressing session: pressing zones, 12-16 (17 Nov 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-session-pressing-zones",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_PRESSING_ZONES",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-PZ",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-PRESSING-ZONES",
+    "EF_PRESSING_ZONES"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-RR26",
+   "title": "England Football (The FA) - Pressing and covering session: read and react (12-16s)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2026/Pressing-and-covering-session-read-and-react",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-RR26",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-STATE",
+   "title": "England Football Learning - game state, phases and moments (27 Jan 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2025/How-to-help-players-adapt-to-game-state-phases-and-moments",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_GAME_STATE",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-STATE",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF-GAME-STATE",
+    "EF_GAME_STATE"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-STEP",
+   "title": "England Football Learning - Make coaching personal with the STEP framework",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles/resources/2022/make-coaching-personal-with-the-step-framework",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_STEP",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "EF_STEP"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-STYLES",
+   "title": "England Football (The FA) - How to develop styles of play",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-develop-styles-of-play",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-STYLES",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "EF-SUPPORT-LINE",
+   "title": "England Football Learning - Covering and recovering session: supporting on the line (13 Nov 2023)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2023/Covering-and-recovering-session-supporting-on-the-line",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_SUPPORT_LINE",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "EF_SUPPORT_LINE",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "EF_SUPPORT_LINE"
+   ],
+   "notes": [
+    "No age stated.",
+    "Age not stated."
+   ]
+  },
+  {
+   "id": "EF-SWIFT-SUPPORT",
+   "title": "England Football Learning - Pressing and covering session: swift support (7-11s, 24 Mar 2025)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2025/Pressing-and-covering-session-swift-support",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "EF_SWIFT_SUPPORT",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "EF_SWIFT_SUPPORT"
+   ],
+   "notes": []
+  },
+  {
+   "id": "EF-T1721",
+   "title": "England Football (The FA) - Transition: from attack to defence (players aged 17-21)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/sessions/resources/2022/transition-from-attack-to-defence",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "EF-T1721",
+     "status": "read-partial"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Page gives only the aims; the session itself is a video whose content could not be read."
+   ]
+  },
+  {
+   "id": "EF-TACTICS",
+   "title": "England Football Learning - tactics, strategies and systems (25 Nov 2024)",
+   "publisher": "England Football (The FA)",
+   "url": "https://learn.englandfootball.com/articles-and-resources/coaching/resources/2024/How-to-work-on-tactics-strategies-and-systems",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "EF_TACTICS",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "EF-TACTICS",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "EF_TACTICS"
+   ],
+   "notes": []
+  },
+  {
+   "id": "FA-DNA-FOUNDATION",
+   "title": "The FA - England DNA Foundation Phase (landing page)",
+   "publisher": "The FA",
+   "url": "https://www.thefa.com/bootroom/england-dna-foundation-phase",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "FA_DNA_FOUNDATION",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "FA_DNA_FOUNDATION"
+   ],
+   "notes": [
+    "Landing page only: 5-11, split 5-8 and 9-12 strands, four-corner model."
+   ]
+  },
+  {
+   "id": "FA-DNA-PRIORITIES",
+   "title": "The FA - England DNA age-phase priorities (Foundation Phase 5-11)",
+   "publisher": "The FA",
+   "url": "https://www.thefa.com/bootroom/resources/england-dna/the-future-england-player/age-phase-priorities",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "FA_DNA_PRIORITIES",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "FA_DNA_PRIORITIES"
+   ],
+   "notes": []
+  },
+  {
+   "id": "FA-HEADING-NEWS-2024",
+   "title": "The FA - New heading rules for grassroots youth matches (May 2024)",
+   "publisher": "The FA",
+   "url": "https://www.thefa.com/news/2024/may/17/new-heading-rules-for-grassroots-football-youth-matches",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "not_read",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "FA_HEADING_NEWS_2024",
+     "status": "not_read",
+     "how": "Not read"
+    }
+   ],
+   "aliases": [
+    "FA_HEADING_NEWS_2024"
+   ],
+   "notes": [
+    "Linked from EF_HEADING; its timeline is taken from EF_HEADING."
+   ]
+  },
+  {
+   "id": "FA-PITCH-U78",
+   "title": "The FA - Guide to pitch dimensions: Mini Soccer U7 and U8 (5v5)",
+   "publisher": "The FA",
+   "url": "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u7-and-u8-5v5.ashx",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "FA_PITCH_U78",
+     "status": "read_fully",
+     "how": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)"
+    }
+   ],
+   "aliases": [
+    "FA_PITCH_U78"
+   ],
+   "notes": []
+  },
+  {
+   "id": "FA-PITCH-U910",
+   "title": "The FA - Guide to pitch dimensions: Mini Soccer U9 and U10 (7v7)",
+   "publisher": "The FA",
+   "url": "https://www.thefa.com/-/media/files/pdf/get-involved/mini-soccer-u9-and-u10-7v7.ashx",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "FA_PITCH_U910",
+     "status": "read_fully",
+     "how": "Vector PDF: FlateDecode streams inflated locally and text operators read (first-hand)"
+    }
+   ],
+   "aliases": [
+    "FA_PITCH_U910"
+   ],
+   "notes": []
+  },
+  {
+   "id": "FA-TRANSITION-YOUNG",
+   "title": "The FA Boot Room - What does transition look like for young players? (P. Sturgess, 29 Jan 2020; first printed Sep 2016)",
+   "publisher": "The FA",
+   "url": "https://www.thefa.com/bootroom/resources/coaching/what-does-transition-look-like-for-young-players",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "FA_TRANSITION_YOUNG",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "FA_TRANSITION_YOUNG"
+   ],
+   "notes": []
+  },
+  {
+   "id": "UEFA-A",
+   "title": "UEFA - Course details: the UEFA A Diploma",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/insideuefa/news/0268-11f192cd8eb3-d578eae2f8d2-1000/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-A",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-B",
+   "title": "UEFA - Course details: the UEFA B Diploma",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/insideuefa/news/0267-11ed7b4c1e13-63896dc6efc2-1000/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-B",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-CE",
+   "title": "UEFA - Coach education (overview)",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/news-media/news/0252-0ce1fa42fd4c-82ce7dd3c0a0-1000--coaching/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-CE",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-CONV",
+   "title": "UEFA Coaching Convention 2020",
+   "publisher": "UEFA",
+   "url": "https://editorial.uefa.com/resources/025d-0f8430a3fa11-5122cbe26f9c-1000/uefa_coaching_convention_2020.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-CONV",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Text extracted locally. Course content is delegated to 'syllabuses of minimum content' that the Convention does not reproduce."
+   ]
+  },
+  {
+   "id": "UEFA-EYA",
+   "title": "UEFA - Course details: the UEFA Elite Youth A Diploma",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/insideuefa/news/0268-11f1ac36684b-121f231223be-1000/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-EYA",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-FALSEFB",
+   "title": "UEFA - False full-backs and full-backs in midfield (from the 2020/21 UCL technical report)",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefachampionsleague/news/026d-135a2341dcad-6529391e42e4-1000--false-full-backs-and-full-backs-in-midfield/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-FALSEFB",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-LIC",
+   "title": "UEFA coaching licences: every course for which UEFA sets minimum criteria",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/development/coaches/uefa-coaching-licences/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-LIC",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-PI-1V1",
+   "title": "UEFA - Champions League performance insights: going 1v1",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf7e6d9ae-9ea32505034e-1000--champions-league-performance-insights-going-1v1/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PI-1V1",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "'Rest defence' appears only as a video caption label, not in the body text."
+   ]
+  },
+  {
+   "id": "UEFA-PI-DEF",
+   "title": "UEFA - Champions League Performance Insights: the art of defending",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefachampionsleague/news/02a1-1fb856fe1b87-f47d792a3fa7-1000--champions-league-performance-insights-the-art-of-defending/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PI-DEF",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-PI-FB",
+   "title": "UEFA - Champions League Performance Insights: full-backs showcase attacking fluidity",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefachampionsleague/news/02aa-21cec89a929a-1e5ff57b6650-1000--champions-league-performance-insights-full-backs-showcas/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PI-FB",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Editorial analysis by UEFA technical observers, not coach-education curriculum."
+   ]
+  },
+  {
+   "id": "UEFA-PI-PRESS",
+   "title": "UEFA - Champions League performance insights: setting the press",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefachampionsleague/news/028a-1a1bf5c2d303-4a5106d81f09-1000--champions-league-performance-insights-setting-the-press/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PI-PRESS",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Editorial analysis; phrase check done: 'cover shadows' present once, 'trigger', 'rest defence', 'counter-press' absent."
+   ]
+  },
+  {
+   "id": "UEFA-PI-PSG",
+   "title": "UEFA - Champions League Performance Insights: Paris pressing and mobility inspire historic final victory",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefachampionsleague/news/029a-1de9d126962d-87e708b9adaf-1000--champions-league-performance-insights-paris-pressing-and/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PI-PSG",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-PI-SPURS",
+   "title": "UEFA - Europa League Performance Insights: Tottenham v AZ and the variations used in the wide areas",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/uefaeuropaleague/news/0297-1d4cf55dc517-eee22d2b5c4d-1000--uefa-europa-league-performance-insights-how-tottenham-hotsp/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PI-SPURS",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-PRO",
+   "title": "UEFA - Course details: the UEFA Pro Diploma",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/news-media/news/0268-11f1908f8de9-9feac6d280b8-1000/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-PRO",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-TR2223",
+   "title": "UEFA Champions League technical report 2022/23, part one",
+   "publisher": "UEFA",
+   "url": "https://editorial.uefa.com/resources/0282-185d226d2e4a-000e3c8aa053-1000/ucl_technical_report_part_one_2022-23.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-TR2223",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": [
+    "Text extracted locally; tactical-trends pages read. Full reports live on uefatechnicalreports.com, which was not read."
+   ]
+  },
+  {
+   "id": "UEFA-TR2324",
+   "title": "UEFA - Expert analysis in 2023/24 UEFA technical reports",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/news-media/news/0290-1bb67e814cd7-efcec6f408f4-1000--expert-analysis-in-2023-24-uefa-technical-reports/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-TR2324",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "UEFA-YB",
+   "title": "UEFA - Course details: the UEFA Youth B Diploma",
+   "publisher": "UEFA",
+   "url": "https://www.uefa.com/insideuefa/news/0268-11f1a6163371-a7ff28482e99-1000/",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "UEFA-YB",
+     "status": "read"
+    }
+   ],
+   "aliases": [],
+   "notes": []
+  },
+  {
+   "id": "USS-AGG",
+   "title": "U.S. Soccer - Age Group Guides (index)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_AGE_INDEX",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_AGE_INDEX",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-AGG",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-AGE-INDEX",
+    "US_AGE_INDEX"
+   ],
+   "notes": [
+    "Only the U5 block is on the page; links to per-age pages and PDF guides captured. Each guide builds on the previous one.",
+    "Index of guides; only U5 detailed on the page; links the per-age PDF guides. Page footer truncated."
+   ]
+  },
+  {
+   "id": "USS-AGG-U1112",
+   "title": "U.S. Soccer - Age Group Guide U11-U12",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u11-u12",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_AGE_U1112",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_AGE_U1112",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-AGE-U1112",
+    "US_AGE_U1112"
+   ],
+   "notes": [
+    "Read only for the heading boundary above L2.",
+    "Content matches the U11-U12 coaching guide PDF; page footer truncated."
+   ]
+  },
+  {
+   "id": "USS-AGG-U1314",
+   "title": "U.S. Soccer - Age Group Guide U13-U14",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u13-u14",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_AGE_U1314",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-AGE-U1314",
+    "US_AGE_U1314"
+   ],
+   "notes": [
+    "Matches the U13-U14 coaching guide PDF."
+   ]
+  },
+  {
+   "id": "USS-AGG-U1516",
+   "title": "U.S. Soccer - Guide to coaching U15s and U16s",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u15-u16",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-6202ef63bff19e4f629e4fe7ea243c3326e8ff40-pdf/3-11%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "USS-AGG1516",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "USS-AGG1516"
+   ],
+   "notes": [
+    "Web page and the one-page image PDF (read visually) agree."
+   ]
+  },
+  {
+   "id": "USS-AGG-U17",
+   "title": "U.S. Soccer - Guide to coaching U17s+",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u17-plus",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-c481dfc97e531bfb928f8c9e21757b618f62577d-pdf/3-12%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "USS-AGG17",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "USS-AGG17"
+   ],
+   "notes": [
+    "Web page and the one-page image PDF (read visually) agree."
+   ]
+  },
+  {
+   "id": "USS-AGG-U6",
+   "title": "U.S. Soccer - Age Group Guide U6",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u6",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_AGE_U6",
+     "status": "read_fully",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-AGE-U6",
+    "US_AGE_U6"
+   ],
+   "notes": [
+    "Used for the U6 baseline (no set positions, no heading)."
+   ]
+  },
+  {
+   "id": "USS-AGG-U78",
+   "title": "U.S. Soccer - Age Group Guide U7-U8",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u7-u8",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_AGE_U78",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-AGE-U78",
+    "US_AGE_U78"
+   ],
+   "notes": [
+    "Footer truncated; content cross-checked against the PDF guide (the PDF lists 2v1 and 3v2 where the page summary said 1v2)."
+   ]
+  },
+  {
+   "id": "USS-AGG-U910",
+   "title": "U.S. Soccer - Age Group Guide U9-U10",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/age-group-guide/u9-u10",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_AGE_U910",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-AGE-U910",
+    "US_AGE_U910"
+   ],
+   "notes": [
+    "Footer truncated; matches the PDF guide."
+   ]
+  },
+  {
+   "id": "USS-APPROACH",
+   "title": "U.S. Soccer - Coaching Approach",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/coaching-approach",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_COACHING_APPROACH",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-COACHING-APPROACH",
+    "US_COACHING_APPROACH"
+   ],
+   "notes": [
+    "Truncated."
+   ]
+  },
+  {
+   "id": "USS-CG-U1112",
+   "title": "U.S. Soccer - Guide to coaching U11s and U12s (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-0b59df3f51a5b0682882b6db78f57600643932f4-pdf/3-9%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_CG_U1112_PDF",
+     "status": "read_partially",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_CG_U1112_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted and viewed directly"
+    }
+   ],
+   "aliases": [
+    "US-CG-U1112-PDF",
+    "US_CG_U1112_PDF"
+   ],
+   "notes": [
+    "Only the Ball block (heading lines) was read, from the page image extracted by the L3-L4 researcher (research/pdfimg/cg_u11u12_p1_s1.jpg)."
+   ]
+  },
+  {
+   "id": "USS-CG-U1314",
+   "title": "U.S. Soccer - Guide to coaching U13s and U14s (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-dc4bfa092986ccefe5561f2305d910abd850474d-pdf/3-10%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_CG_U1314_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    }
+   ],
+   "aliases": [
+    "US-CG-U1314-PDF",
+    "US_CG_U1314_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-CG-U78",
+   "title": "U.S. Soccer - Guide to coaching U7s and U8s (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-1827e9dc67345372742ae9b2f774fff6b6e27c62-pdf/3-7%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_CG_U78_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    }
+   ],
+   "aliases": [
+    "US-CG-U78-PDF",
+    "US_CG_U78_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-CG-U910",
+   "title": "U.S. Soccer - Guide to coaching U9s and U10s (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-8e4714edcfde3ceb6da002629ebe2b03b52f6476-pdf/3-8%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_CG_U910_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    }
+   ],
+   "aliases": [
+    "US-CG-U910-PDF",
+    "US_CG_U910_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-CGPAGE-U1112",
+   "title": "U.S. Soccer - Coaching guide U11-U12 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/coaching-guide/u11-u12",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_CGPAGE_U1112",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-CGPAGE-U1112",
+    "US_CGPAGE_U1112"
+   ],
+   "notes": [
+    "Truncated. Its practice video transcript (a 2v2 dribbling game) appears in the same form on the U13-U14 page, so it is treated as NOT age-specific."
+   ]
+  },
+  {
+   "id": "USS-CGPAGE-U1314",
+   "title": "U.S. Soccer - Coaching guide U13-U14 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/coaching-guide/u13-u14",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_CGPAGE_U1314",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-CGPAGE-U1314",
+    "US_CGPAGE_U1314"
+   ],
+   "notes": [
+    "Truncated."
+   ]
+  },
+  {
+   "id": "USS-CONCUSSION",
+   "title": "U.S. Soccer - The Concussion Initiative and Reducing Heading (Sep 2025)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/soccer-forward/resource-hub/the-concussion-initiative-and-reducing-heading",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_CONCUSSION_HUB",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-CONCUSSION-HUB",
+    "US_CONCUSSION_HUB"
+   ],
+   "notes": [
+    "No age limits in the visible text; its Learning Center link (learning.ussoccer.com/articles/hip/article/concussion-initiatives) returned HTTP 404. ussoccer.com/about/recognize-to-recover/concussion-guidelines redirects to recognizetorecover.org (U.S. Soccer Federation footer); its home and head-and-brain pages carry no heading limits."
+   ]
+  },
+  {
+   "id": "USS-COURSES-2018",
+   "title": "U.S. Soccer - 7v7, 9v9 and 11v11 grassroots courses (23 Aug 2018)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/stories/2018/08/five-things-to-know-about-us-soccers-7v7-9v9-and-11v11-online-grassroots-coaching-education-courses",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_COURSES_2018",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-COURSES-2018",
+    "US_COURSES_2018"
+   ],
+   "notes": [
+    "9v9 course for U11-U12, 11v11 for U13+; Play-Practice-Play."
+   ]
+  },
+  {
+   "id": "USS-DESIGN",
+   "title": "U.S. Soccer - Designing age-appropriate activities (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-4358adaeb297dee902d4021399441f636481396e-pdf/designing-age-appropriate-activities.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_DESIGN_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_DESIGN_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-DESIGN",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-DESIGN-PDF",
+    "US_DESIGN_PDF"
+   ],
+   "notes": [
+    "Image PDF read visually."
+   ]
+  },
+  {
+   "id": "USS-F",
+   "title": "U.S. Soccer - Formations (index)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_FORMATIONS",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_F_INDEX",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-FORM",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-F-INDEX",
+    "US-FORMATIONS",
+    "USS-FORM",
+    "US_FORMATIONS",
+    "US_F_INDEX"
+   ],
+   "notes": [
+    "U7-U8 card complete; 7v7+ shown only as cards.",
+    "Lists 4v4 1-2-1, 7v7 1-3-2-1, 9v9 1-3-2-3, 11v11 1-4-3-3."
+   ]
+  },
+  {
+   "id": "USS-F-11V11",
+   "title": "U.S. Soccer - Formations U13+ 11v11 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations/u13-plus-11v11",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-81b94d97e1033dbca00533e53a9d51eb3614a019-pdf/11v11-u13-1-4-3-3-formation.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_F11_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_F11_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-FORM11",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-F11-PAGE",
+    "US-F11-PDF",
+    "USS-FORM11",
+    "US_F11_PAGE",
+    "US_F11_PDF"
+   ],
+   "notes": [
+    "Footer truncated; content matches the PDF.",
+    "Includes a pitch diagram.",
+    "Web page and the one-page image PDF (read visually)."
+   ]
+  },
+  {
+   "id": "USS-F-4V4",
+   "title": "U.S. Soccer - 4v4: U7-U8 1-2-1 diamond formation (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-19ad6b43ec5c6e62cc027aebd17daba6b33508b0-pdf/4v4-u7-u8-1-2-1-diamond-formation.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_F4_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    }
+   ],
+   "aliases": [
+    "US-F4-PDF",
+    "US_F4_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-F-7V7",
+   "title": "U.S. Soccer - 7v7: U9-U10 1-3-2-1 (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-9b12f1d3766d4e0403550fdfcce8e20bbb00ec35-pdf/7v7-u9-u10-1-3-2-1-formation.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_F7_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    }
+   ],
+   "aliases": [
+    "US-F7-PDF",
+    "US_F7_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-F-7V7-PAGE",
+   "title": "U.S. Soccer - U9-U10 7v7 1-3-2-1 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations/u9-u10-7v7",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_F7_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_F7_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-F7-PAGE",
+    "US_F7_PAGE"
+   ],
+   "notes": [
+    "Footer truncated; matches the PDF.",
+    "Read only for the 7v7 -> 9v9 progression."
+   ]
+  },
+  {
+   "id": "USS-F-9V9",
+   "title": "U.S. Soccer - 9v9: U11-U12 1-3-2-3 (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-320008a4834ff6606477f031318b44b4c95b8967-pdf/9v9-u11-u12-1-3-2-3-formation.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_F9_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    }
+   ],
+   "aliases": [
+    "US-F9-PDF",
+    "US_F9_PDF"
+   ],
+   "notes": [
+    "Includes a pitch diagram."
+   ]
+  },
+  {
+   "id": "USS-F-9V9-PAGE",
+   "title": "U.S. Soccer - Formations U11-U12 9v9 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/formations/u11-u12-9v9",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_F9_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-F9-PAGE",
+    "US_F9_PAGE"
+   ],
+   "notes": [
+    "Footer truncated; content matches the PDF."
+   ]
+  },
+  {
+   "id": "USS-F-SELECT",
+   "title": "U.S. Soccer - Selecting a formation for your team (PDF)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-dd7e6e83f102d9241c0de958b30bd977bab96bfd-pdf/SELECTING-A-FORMATION-FOR-YOUR-TEAM.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "not_read",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_FORMATION_SELECT_PDF",
+     "status": "not_read",
+     "how": "Not read"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_SELECT_FORMATION_PDF",
+     "status": "not_read",
+     "how": "WebFetch failed: file larger than the 10 MB fetch limit"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-SELECT",
+     "status": "not-fetched"
+    }
+   ],
+   "aliases": [
+    "US-FORMATION-SELECT-PDF",
+    "US-SELECT-FORMATION-PDF",
+    "USS-SELECT",
+    "US_FORMATION_SELECT_PDF",
+    "US_SELECT_FORMATION_PDF"
+   ],
+   "notes": [
+    "Larger than the 10 MB WebFetch limit; no other download was made.",
+    "Not verified.",
+    "Larger than the fetch tool's 10 MB limit; content NOT verified."
+   ]
+  },
+  {
+   "id": "USS-FORMATS",
+   "title": "U.S. Soccer - Game Formats",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-formats",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GAME_FORMATS",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_FORMATS",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-FORMATS",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-FORMATS",
+    "US-GAME-FORMATS",
+    "US_FORMATS",
+    "US_GAME_FORMATS"
+   ],
+   "notes": [
+    "Maximum formats by age; no field dimensions in the text.",
+    "Gives maximum format per age only; no dimensions."
+   ]
+  },
+  {
+   "id": "USS-FORMATS-PDF",
+   "title": "U.S. Soccer - Age-appropriate formats (PDF)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-2984ca87a7010f04d7c41022d4ea314cb6ba6c5c-pdf/age-appropriate-formats.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "not_read",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_FORMATS_PDF",
+     "status": "not_read",
+     "how": "Not read"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_FORMATS_PDF",
+     "status": "not_read",
+     "how": "WebFetch failed: file larger than the 10 MB fetch limit"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-AAF",
+     "status": "not-fetched"
+    }
+   ],
+   "aliases": [
+    "US-FORMATS-PDF",
+    "USS-AAF",
+    "US_FORMATS_PDF"
+   ],
+   "notes": [
+    "Larger than the 10 MB WebFetch limit.",
+    "Not downloaded by other means (a file download needs the user's permission).",
+    "Larger than the fetch tool's 10 MB limit; U.S. Soccer field sizes for 11v11 NOT verified."
+   ]
+  },
+  {
+   "id": "USS-GM",
+   "title": "U.S. Soccer - Game Models (index)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GM_INDEX",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-GM-INDEX",
+    "US_GM_INDEX"
+   ],
+   "notes": [
+    "Truncated after the U7-U8 block; lists the per-age model pages."
+   ]
+  },
+  {
+   "id": "USS-GM-U1112",
+   "title": "U.S. Soccer - U11/U12 game model (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-3d9a94d12b8e76974d1dc4c6359a03c6284853e6-pdf/2-11%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_GM_U1112_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    }
+   ],
+   "aliases": [
+    "US-GM-U1112-PDF",
+    "US_GM_U1112_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-GM-U1112-PAGE",
+   "title": "U.S. Soccer - Game model U11-U12 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u11-u12",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_GM_U1112_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-GM-U1112-PAGE",
+    "US_GM_U1112_PAGE"
+   ],
+   "notes": [
+    "Footer truncated; principles identical to the PDF."
+   ]
+  },
+  {
+   "id": "USS-GM-U1314",
+   "title": "U.S. Soccer - U13/U14 game model (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-91fed18c92b617f67c21a80cf2f7c363f8509f9b-pdf/2-12%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_GM_U1314_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-GM1314",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-GM-U1314-PDF",
+    "USS-GM1314",
+    "US_GM_U1314_PDF"
+   ],
+   "notes": [
+    "Read only to see what changes from U13-U14 to U15-U16 / U17+ (level 4 is another researcher's scope)."
+   ]
+  },
+  {
+   "id": "USS-GM-U1314-PAGE",
+   "title": "U.S. Soccer - Game model U13-U14 (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u13-u14",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_GM_U1314_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-GM-U1314-PAGE",
+    "US_GM_U1314_PAGE"
+   ],
+   "notes": [
+    "Footer truncated; principles identical to the PDF."
+   ]
+  },
+  {
+   "id": "USS-GM-U1516",
+   "title": "U.S. Soccer - U15/U16 game model (PDF)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-5195a982a830fd1471adb648eaf0f87414eec089-pdf/2-13%2085x11.pdf",
+   "extraUrls": [
+    "https://www.ussoccer.com/us-way/player-development/game/game-models/u15-u16"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_GM_U1516_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF viewed directly"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-GM1516",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-GM-U1516-PDF",
+    "USS-GM1516",
+    "US_GM_U1516_PDF"
+   ],
+   "notes": [
+    "Read only to compute what is not yet asked at U13-U14.",
+    "Web page read; the one-page PDF (image only) was read visually from its embedded page image and is the reference wording, because the fetched summary of the web page mixed up two moment headings."
+   ]
+  },
+  {
+   "id": "USS-GM-U17",
+   "title": "U.S. Soccer - U17+ game model",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u17-plus",
+   "extraUrls": [
+    "https://documents.ussoccer.com/documents/file-afafa4c536e4033651f90bcdecd764839ebe6c6b-pdf/2-14%2085x11.pdf"
+   ],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L57",
+     "id": "USS-GM17",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "USS-GM17"
+   ],
+   "notes": [
+    "Web page read; one-page image PDF read visually and used as the reference wording."
+   ]
+  },
+  {
+   "id": "USS-GM-U78",
+   "title": "U.S. Soccer - U7/U8 game model (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-a61c920f6202246fe56f594809fe78e1742ea0d5-pdf/u7-u8-game-model.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GM_U78_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    }
+   ],
+   "aliases": [
+    "US-GM-U78-PDF",
+    "US_GM_U78_PDF"
+   ],
+   "notes": []
+  },
+  {
+   "id": "USS-GM-U78-PAGE",
+   "title": "U.S. Soccer - U7-U8 game model (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u7-u8",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GM_U78_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-GM-U78-PAGE",
+    "US_GM_U78_PAGE"
+   ],
+   "notes": [
+    "Footer truncated; principles identical to the PDF."
+   ]
+  },
+  {
+   "id": "USS-GM-U910",
+   "title": "U.S. Soccer - U9/U10 game model (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-9468f4bc69633a9d8c321f7ef030bdc55d96757c-pdf/2-10%2085x11.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GM_U910_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_GM_U910_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF viewed directly"
+    }
+   ],
+   "aliases": [
+    "US-GM-U910-PDF",
+    "US_GM_U910_PDF"
+   ],
+   "notes": [
+    "Word for word the same principles as the U7/U8 model (only the age title differs).",
+    "Read only to compute what is new at U11-U12."
+   ]
+  },
+  {
+   "id": "USS-GM-U910-PAGE",
+   "title": "U.S. Soccer - U9-U10 game model (page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/game/game-models/u9-u10",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GM_U910_PAGE",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-GM-U910-PAGE",
+    "US_GM_U910_PAGE"
+   ],
+   "notes": [
+    "Footer truncated; principles identical to the PDF."
+   ]
+  },
+  {
+   "id": "USS-GM-USING",
+   "title": "U.S. Soccer - Using a game model to develop your players (PDF, 1 page)",
+   "publisher": "U.S. Soccer",
+   "url": "https://documents.ussoccer.com/documents/file-c71973a203282fc3f00ade3de2c53b966c05d8ab-pdf/using-a-game-model-to-develop-players.pdf",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "full",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_GM_USING_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: embedded page JPEG extracted locally and read visually (first-hand)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_USE_GM_PDF",
+     "status": "read_fully",
+     "how": "Image-only PDF: page JPEG extracted and viewed directly"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-USINGGM",
+     "status": "read"
+    }
+   ],
+   "aliases": [
+    "US-GM-USING-PDF",
+    "US-USE-GM-PDF",
+    "USS-USINGGM",
+    "US_GM_USING_PDF",
+    "US_USE_GM_PDF"
+   ],
+   "notes": [
+    "Image PDF read visually."
+   ]
+  },
+  {
+   "id": "USS-PDI-2017",
+   "title": "U.S. Soccer - Five Things to Know: Player Development Initiatives (1 Aug 2017)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/stories/2017/08/five-things-to-know-about-us-soccer-player-development-initiatives",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_PDI_2017",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-PDI-2017",
+    "US_PDI_2017"
+   ],
+   "notes": [
+    "Birth-year registration; no dimensions."
+   ]
+  },
+  {
+   "id": "USS-PLAYER-U1112",
+   "title": "U.S. Soccer - Player development profile U11-U12",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/player/age-groups/u11-u12",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_PLAYER_U1112",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-PLAYER-U1112",
+    "US_PLAYER_U1112"
+   ],
+   "notes": [
+    "Main profile intact; footer truncated."
+   ]
+  },
+  {
+   "id": "USS-PLAYER-U1314",
+   "title": "U.S. Soccer - Player development profile U13-U14",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/player/age-groups/u13-u14",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L3L4",
+     "id": "US_PLAYER_U1314",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-PLAYER-U1314",
+    "US_PLAYER_U1314"
+   ],
+   "notes": [
+    "Main profile intact; footer truncated."
+   ]
+  },
+  {
+   "id": "USS-R2R-2015",
+   "title": "U.S. Soccer - Recognize to Recover announcement (Dec 2015)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/stories/2015/12/us-soccer-announces-recognize-to-recover-player-health-and-safety-program",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_R2R_2015",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    }
+   ],
+   "aliases": [
+    "US-R2R-2015",
+    "US_R2R_2015"
+   ],
+   "notes": [
+    "Truncated."
+   ]
+  },
+  {
+   "id": "USS-SESSIONS",
+   "title": "U.S. Soccer - Sessions (coach transcripts)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/us-way/player-development/environment/sessions",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_SESSIONS",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_SESSIONS",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    },
+    {
+     "pass": "L57",
+     "id": "USS-SESSIONS",
+     "status": "read-partial"
+    }
+   ],
+   "aliases": [
+    "US-SESSIONS",
+    "US_SESSIONS"
+   ],
+   "notes": [
+    "Transcripts for U6-U8 boys and U9-U10 girls; truncated.",
+    "Truncated: U11-U12 session only partly visible ('more coming soon'); no U13-U14 session visible.",
+    "Only U6-U12 sample sessions were visible; no U13+ session plans could be confirmed."
+   ]
+  },
+  {
+   "id": "USS-SSG-2017",
+   "title": "U.S. Soccer - Five things to know: small-sided standards (Aug 2017)",
+   "publisher": "U.S. Soccer",
+   "url": "https://www.ussoccer.com/stories/2017/08/five-things-to-know-how-smallsided-standards-will-change-youth-soccer",
+   "extraUrls": [],
+   "accessed": "2026-10-21",
+   "read": "partial",
+   "readings": [
+    {
+     "pass": "L1L2",
+     "id": "US_SSG_2017",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model-written summary of the page)"
+    },
+    {
+     "pass": "L3L4",
+     "id": "US_SSG_2017",
+     "status": "read_partially",
+     "how": "WebFetch (HTML, model summary)"
+    }
+   ],
+   "aliases": [
+    "US-SSG-2017",
+    "US_SSG_2017"
+   ],
+   "notes": [
+    "Dated (2017); the per-age chart is an image not present in the text.",
+    "Dimensions are only in a chart image on cdn.ussoccer.com, which returned HTTP 401; not verified."
+   ]
+  }
+ ],
+ "unreadable": [
+  {
+   "pass": "L1L2",
+   "text": "U.S. field dimensions, goal sizes, ball sizes and match durations for U7-U10 (the 2017 chart is an image not in the text; the formats PDF is over the fetch limit).",
+   "sources": [
+    "USS-FORMATS-PDF",
+    "USS-SSG-2017"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "U.S. Selecting a formation for your team (PDF over the fetch limit).",
+   "sources": [
+    "USS-F-SELECT"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "Canada Small-Sided Games Guide (PDF over the fetch limit) and the content of the FUNdamentals and Learn to Train workshops (behind registration on a store domain, not followed).",
+   "sources": [
+    "CS-GCE",
+    "CS-SSG"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "Canada Grassroots Standards goal sizes and retreat-line rules per age column (merged table cells could not be aligned from the text).",
+   "sources": [
+    "CS-STANDARDS-2026"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "The full U.S. heading guideline document: the Learning Center link returned 404, the 2015 article was truncated, and the Recognize to Recover site pages read carry no limits; the 11-13 practice-only limit rests on the 2015 article summary (the U11 and U12 limits were read first-hand in the U11-U12 guide).",
+   "sources": [
+    "USS-CONCUSSION",
+    "USS-R2R-2015"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "The May 2024 FA heading announcement itself (timeline taken from the England Football heading page).",
+   "sources": [
+    "EF-HEADING",
+    "FA-HEADING-NEWS-2024"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "An age or level for the 2023 England press, cover and balance session (none stated on the page or in its PDF).",
+   "sources": [
+    "EF-PCB-2023",
+    "EF-PCB-2023-PDF"
+   ]
+  },
+  {
+   "pass": "L1L2",
+   "text": "HTML pages were read through a fetch tool that returns a model-written summary; the U.S. infographic PDFs and the Canada and FA PDFs were read first-hand. Small wording details from HTML pages may be summary artefacts.",
+   "sources": [
+    "USS-AGG-U78",
+    "USS-GM-U78-PAGE"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "U.S. Soccer field dimensions, goal sizes, ball sizes and match durations for 9v9 and 11v11 (chart image HTTP 401; formats PDF too large).",
+   "sources": [
+    "USS-FORMATS-PDF",
+    "USS-SSG-2017"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "U.S. 'Selecting a formation for your team' PDF (too large to fetch).",
+   "sources": [
+    "USS-F-SELECT"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "Whether the 2017 build-out line rule is still the current U.S. standard (only the 2017 article was read).",
+   "sources": [
+    "USS-SSG-2017"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "A U.S. Soccer U13-U14 practice session (none visible on the truncated Sessions page).",
+   "sources": [
+    "USS-SESSIONS"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "England's 2022 'Defending in small numbers' session details (in a video only).",
+   "sources": [
+    "EF-DSN22"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "Canada Soccer's U14 format, and the exact column alignment of the retreat-line row in the standards table.",
+   "sources": [
+    "CS-STANDARDS-2024"
+   ]
+  },
+  {
+   "pass": "L3L4",
+   "text": "The age group of England's 2023 'supporting on the line' and 'press, cover and balance' sessions (not stated).",
+   "sources": [
+    "EF-PCB-2023",
+    "EF-SUPPORT-LINE"
+   ]
+  },
+  {
+   "pass": "L57",
+   "text": "U.S. Soccer 'Selecting a formation for your team' and 'Age-appropriate formats' PDFs (over the fetch tool's 10 MB limit)",
+   "sources": [
+    "USS-F-SELECT",
+    "USS-FORMATS-PDF"
+   ]
+  },
+  {
+   "pass": "L57",
+   "text": "Canada Soccer A and B Diploma syllabi (over the 10 MB limit)",
+   "sources": [
+    "CS-ADIP",
+    "CS-BDIP"
+   ]
+  },
+  {
+   "pass": "L57",
+   "text": "Canada Soccer 'Soccer for Life' workshop content (no syllabus is published; only the workshop listing and the LTPD stage descriptions were found)",
+   "sources": [
+    "CS-GCE",
+    "CS-SFL"
+   ]
+  },
+  {
+   "pass": "L57",
+   "text": "England 17-21 'transition from attack to defence' session content (video only; the page text gives aims)",
+   "sources": [
+    "EF-T1721"
+   ]
+  },
+  {
+   "pass": "L57",
+   "text": "The FA Boot Room links in the 'defend like England' series (thebootroom.thefa.com returned 404; the learn.englandfootball.com versions were read instead)",
+   "sources": []
+  },
+  {
+   "pass": "L57",
+   "text": "UEFA syllabuses of minimum content and the full technical reports (the Convention does not reproduce the syllabuses; full reports are on uefatechnicalreports.com, outside the allowed domains; only the 2022/23 UCL part one PDF on editorial.uefa.com was read)",
+   "sources": [
+    "UEFA-CONV",
+    "UEFA-TR2223"
+   ]
+  },
+  {
+   "pass": "L57",
+   "text": "U.S. Soccer session plans for U13+ (not visible on the sessions page)",
+   "sources": [
+    "USS-SESSIONS"
+   ]
+  }
+ ]
+}

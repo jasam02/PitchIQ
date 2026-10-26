@@ -1,14 +1,19 @@
 """The coaching series (soccer/coaching/series.py): every coaching number is measured on the team-shape grid from
 observed positions only, and a sample that cannot be trusted is ineligible with a reason instead of a value: the
-registration gates, complete teams for hull and spread, fully seen units under the template's line index, the voted
-team centre, the certainty rule for the nearest teammate, the gated ball context with hysteresis, and the stabilized
-flags as an evidence veto only. Fields a result does not have (a Metrica-shaped result) never veto.
+registration gates, complete teams for hull and spread, fully seen units under the template's line index, no gap
+between interleaved units (critic B2), the voted team centre, the certainty rule for the nearest teammate and its
+exemption when the whole lineup is observed (critic S8), each defender's offset from the rest of the back line, the
+players' velocities (stretches, windows, jumps, gated frames), the gated ball context with hysteresis, and the
+stabilized flags as an evidence veto only. Fields a result does not have (a Metrica-shaped result) never veto.
+Each of these rules was undone once in a scratch copy (coaching2/build/context_series/mutate.py, 14 mutations) and
+every mutation made a test here fail.
 
 Run:  python -m unittest test_coaching_series          (from this directory)
 Real runs (optional): set PITCHIQ_COACHING_SMOKE to result.json paths separated by the path separator.
 """
 import inspect
 import json
+import math
 import os
 import sys
 import unittest
@@ -25,6 +30,7 @@ from soccer.coaching import episodes as ep, series as cs  # noqa: E402
 import team_shape_synth as syn  # noqa: E402
 
 L, W = syn.LENGTH, syn.WIDTH
+H = int(round(cs.VEL_HALF_WINDOW/cs.SAMPLE_STEP))      # grid steps either side of a central velocity
 
 
 def build(la='4-4-2', lb='4-2-3-1', seconds=90.0, fps=10.0, seed=0, edit=None, **kw):
@@ -205,6 +211,19 @@ class Coverage(unittest.TestCase):
         self.assertTrue(s.eligible['gapMF'][hid].mean() > .9)      # midfield and forwards are still fully seen
         self.assertTrue(np.isnan(s.width[hid]).all() and np.isnan(s.gapDM[hid]).all())
         self.assertTrue(s.eligible['width'][~hid].all())
+        # The back line is incomplete: no defender's offset from the others is measured, for anyone.
+        self.assertFalse(s.eligible['lineOffset'][hid].any())
+        self.assertTrue(set(s.reasons['lineOffset'][hid].ravel().tolist()) <= {cs.INCOMPLETE_UNITS, cs.NO_FORMATION})
+
+    def test_a_player_off_camera_has_no_velocity_and_his_edges_are_one_sided(self):
+        s = self.cd.teams['A']
+        hid = (s.t >= 40) & (s.t < 50)
+        self.assertEqual(set(s.reasons['velocity'][hid, 0].tolist()), {cs.NOT_OBSERVED})
+        self.assertTrue(s.eligible['velocity'][~hid].all())
+        last, first = int(np.flatnonzero(s.t < 40)[-1]), int(np.flatnonzero(s.t >= 50)[0])
+        X = s.x[:, 0]*L                                       # A defends the left goal: its attack X is pitch x
+        self.assertAlmostEqual(s.velX[last, 0], (X[last]-X[last-H])/(s.t[last]-s.t[last-H]))
+        self.assertAlmostEqual(s.velX[first, 0], (X[first+H]-X[first])/(s.t[first+H]-s.t[first]))
 
     def test_values_exist_only_where_eligible(self):
         for team in 'AB':
@@ -259,8 +278,15 @@ class Registration(unittest.TestCase):
         self.assertTrue(s.eligible['width'][~bad].all())
         self.assertTrue(np.isnan(s.width[bad]).all() and np.isnan(s.gapDM[bad]).all() and (s.third[bad] == '').all())
         self.assertTrue((s.reasons['nearestTeammate'][expect[cs.DISAGREEMENT]] == cs.DISAGREEMENT).all())
+        for metric in ('lineOffset', 'velocity'):
+            for code, where in expect.items():
+                self.assertEqual(set(s.reasons[metric][where].ravel().tolist()), {code}, (metric, code))
         self.assertTrue(cd.available['calibration'])
         np.testing.assert_array_equal(cd.calibration['calibrated'], ~expect[cs.NOT_CALIBRATED])
+        # A velocity never rests on a gated frame's position: right after the uncalibrated stretch it looks forward.
+        first = int(np.flatnonzero(t >= 25)[0])
+        X = s.x[:, 0]*L
+        self.assertAlmostEqual(s.velX[first, 0], (X[first+H]-X[first])/(t[first+H]-t[first]))
 
 
 class VotedCentre(unittest.TestCase):
@@ -304,23 +330,279 @@ class SwapRule(unittest.TestCase):
         self.assertTrue(v['full']['D'] and v['full']['F'])
 
 
-class NearestTeammate(unittest.TestCase):
-    def test_certain_only_when_the_disc_is_in_view(self):
-        half = [[-5/L, -5/W], [.5, -5/W], [.5, 1+5/W], [-5/L, 1+5/W]]       # the left half of the pitch (+5 m margins)
+def stepped_up(times, pos):
+    """Team A's 4-4-2 layout with four spells (attack-frame metres): a left midfielder (A-06) well ahead of the
+    forwards over [40, 44) s, a right midfielder (A-07) just ahead of their mean depth (55.5 m) over [50, 53) s, the
+    left back (A-01) ahead of the midfield over [60, 64) s, both full-backs (A-01, A-04) ahead of it over [75, 79) s."""
+    pos = pos.copy()
+    pos[(times >= 40) & (times < 44), 5, 0] = 62.0
+    pos[(times >= 50) & (times < 53), 6, 0] = 57.0
+    pos[(times >= 60) & (times < 64), 0, 0] = 52.0
+    both = (times >= 75) & (times < 79)
+    pos[both, 0, 0] = 52.0
+    pos[both, 3, 0] = 52.0
+    return pos
 
-        def edit(k, t, f):
-            f['view'] = half
-        _, _, result = build('4-4-2', '4-4-2', edit=edit)
-        s = cs.build_series(result).teams['A']                # A defends the left goal: pitch x is its attack X
+
+class UnitsAndLine(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        times = np.arange(0, 90, .1)
+        teams = {'A': (syn.team_track(times, '4-4-2', 'left', 0, overrides=stepped_up), syn.goalkeeper_track(times, 'left', 0)),
+                 'B': (syn.team_track(times, '4-4-2', 'right', 1), syn.goalkeeper_track(times, 'right', 1))}
+        cls.cd = cs.build_series(syn.make_result(times, teams, {'left': 'A', 'right': 'B'}))
+        cls.s = cls.cd.teams['A']
+
+    def front(self, unit):
+        """The most advanced observed member of a unit per sample (attack-frame metres; A defends the left goal)."""
+        s = self.s
+        X = np.where(s.kind == 'O', s.x*L, np.nan)
+        out = np.full(len(s.t), -np.inf)
+        for k, u in enumerate(s.units):
+            cols = [s.col[p] for p in (u or {}).get(unit, ()) if p in s.col]
+            if cols and np.isfinite(X[k, cols]).any():
+                out[k] = np.nanmax(X[k, cols])
+        return out
+
+    def check_gate(self, gap, deep, ahead, ahead_centre):
+        s = self.s
+        both = s.eligible['unit'+deep] & s.eligible['unit'+ahead]
+        with np.errstate(invalid='ignore'):
+            mixed = both & (self.front(deep) > s.values[ahead_centre])
+        np.testing.assert_array_equal(s.reasons[gap] == cs.UNITS_INTERLEAVED, mixed)
+        np.testing.assert_array_equal(s.eligible[gap], both & ~mixed)
+        self.assertTrue(np.isnan(s.values[gap][mixed]).all())
+        return mixed
+
+    def test_a_midfielder_ahead_of_the_forwards_makes_the_midfield_to_front_gap_unmeasured(self):
+        # Critic B2: a template unit interleaved with the next one has no gap between them (BC60 B: a "midfielder"
+        # ahead of the deepest "forward" in 98% of 244 frames, a 4.1 m template gap for 8.8 m by depth rank).
+        s = self.s
+        mixed = self.check_gate('gapMF', 'M', 'F', 'FX')
+        spell = (s.t >= 40.4) & (s.t < 43.6)
+        self.assertGreater(mixed[spell].mean(), .9)
+        self.assertFalse(mixed[(s.t < 39) | ((s.t > 45) & (s.t < 49)) | (s.t > 54)].any())
+        # Just ahead counts too: the rule is the next unit's mean depth, not a margin beyond it.
+        near = (s.t >= 50.4) & (s.t < 52.6)
+        with np.errstate(invalid='ignore'):
+            ahead = self.front('M')-s.FX
+        self.assertGreater(mixed[near].mean(), .5)
+        self.assertTrue((mixed & near & (ahead < 2.0)).any())
+        k = int(np.flatnonzero(spell)[0])
+        self.assertIn('A-06', s.units[k]['M'])                 # the template's unit itself is unchanged
+        self.assertTrue(s.eligible['unitM'][k] and s.eligible['unitF'][k])     # and so are the unit centres
+        ok = s.eligible['gapMF']
+        np.testing.assert_allclose(s.gapMF[ok], (s.FX-s.MX)[ok])
+
+    def test_a_full_back_ahead_of_the_midfield_makes_the_back_to_midfield_gap_unmeasured(self):
+        s = self.s
+        mixed = self.check_gate('gapDM', 'D', 'M1', 'M1X')
+        one, two = (s.t >= 60.4) & (s.t < 63.6), (s.t >= 75.4) & (s.t < 78.6)
+        self.assertGreater(mixed[one].mean(), .9)
+        self.assertGreater(mixed[two].mean(), .9)
+        self.assertFalse(mixed[(s.t < 59) | ((s.t > 65) & (s.t < 74)) | (s.t > 80)].any())
+        self.assertTrue(s.eligible['gapDM'][(s.t > 5) & (s.t < 35)].all())
+        self.assertIn(cs.UNITS_INTERLEAVED, cs.REASONS)
+        self.assertLess(cs.REASONS.index(cs.INCOMPLETE_UNITS), cs.REASONS.index(cs.UNITS_INTERLEAVED))
+
+    def test_each_defenders_offset_from_the_median_of_the_others(self):
+        cd, s = self.cd, self.s
+        data = cd.shape.observed
+        rows = ts.defensive_line(data, 'A', cd.shape.directions, cd.shape.shapes['A'], data.start, data.end)
+        e = s.eligible['lineOffset']
+        self.assertGreater(e.any(axis=1).mean(), .9)
+        self.assertTrue((e.sum(axis=1)[e.any(axis=1)] == 4).all())       # a back four: four defenders measured
+        checked = 0
+        for k in np.flatnonzero(e.any(axis=1))[::7]:
+            dd = rows[k]['defenders']
+            dist = np.array([v['distance'] for v in dd])
+            across = [v['y'] for v in dd]
+            wide = {dd[int(np.argmin(across))]['id'], dd[int(np.argmax(across))]['id']}
+            for i, v in enumerate(dd):
+                j = s.col[v['id']]
+                mid = float(np.median(np.delete(dist, i)))
+                self.assertAlmostEqual(s.lineRef[k, j], mid)
+                self.assertAlmostEqual(s.lineOffsetSigned[k, j], dist[i]-mid)
+                self.assertAlmostEqual(s.lineOffset[k, j], abs(dist[i]-mid))
+                self.assertEqual(s.lineRole[k, j], 'wide' if v['id'] in wide else 'central')
+                checked += 1
+            members = {s.col[v['id']] for v in dd}
+            for j in set(range(len(s.ids)))-members:
+                self.assertEqual(s.reasons['lineOffset'][k, j], cs.NOT_IN_LINE)
+        self.assertGreater(checked, 100)
+
+    def test_a_defender_out_of_the_line_is_measured_even_when_the_line_is_disrupted(self):
+        s = self.s
+        j1, j4 = s.col['A-01'], s.col['A-04']
+        one = (s.t >= 60.4) & (s.t < 63.6)                   # the left back alone ahead: an uneven line
+        self.assertTrue(s.eligible['lineStd'][one].all())
+        self.assertTrue((s.lineOffsetSigned[one, j1] > 15).all() and (s.lineRole[one, j1] == 'wide').all())
+        self.assertTrue((s.lineOffset[one, j4] < 8).all())
+        two = (s.t >= 75.4) & (s.t < 78.6)                   # both full-backs ahead: disrupted, no line std
+        self.assertEqual(set(s.reasons['lineStd'][two].tolist()), {cs.LINE_DISRUPTED})
+        self.assertTrue(s.eligible['lineOffset'][two][:, [j1, j4]].all())
+        self.assertTrue((s.lineOffsetSigned[two][:, [j1, j4]] > 10).all())
+
+
+class Velocity(unittest.TestCase):
+    def test_central_inside_one_sided_at_the_ends(self):
+        t = np.arange(0, 6, .2)
+        S = len(t)
+        X = np.stack([t**2, 50-3.0*t], axis=1)
+        Y = np.stack([10+0*t, 1.5*t], axis=1)
+        vx, vy = cs.velocities(t, X, Y, np.ones((S, 2), bool), np.full(S, 'left'))
+        for s in range(S):
+            a, b = max(0, s-H), min(S-1, s+H)
+            self.assertAlmostEqual(vx[s, 0], (X[b, 0]-X[a, 0])/(t[b]-t[a]))
+        self.assertAlmostEqual(vx[10, 0], 2*t[10])                       # a central difference: exact on a parabola
+        np.testing.assert_allclose(vx[:, 1], -3.0)
+        np.testing.assert_allclose(vy[:, 0], 0.0, atol=1e-12)
+        np.testing.assert_allclose(vy[:, 1], 1.5)
+
+    def test_frame_times_off_the_exact_step(self):
+        t = np.arange(40)*.2002                               # 29.97 fps: six frames are 0.2002 s
+        X = (3.0*t)[:, None]
+        vx, _ = cs.velocities(t, X, X*0, np.ones((40, 1), bool), np.full(40, 'right'))
+        np.testing.assert_allclose(vx[:, 0], 3.0)
+        self.assertTrue(np.isfinite(vx).all())
+        t24 = np.arange(40)*(5/24)                            # 24 fps: five frames
+        vx24, _ = cs.velocities(t24, (2.0*t24)[:, None], np.zeros((40, 1)), np.ones((40, 1), bool), np.full(40, 'left'))
+        np.testing.assert_allclose(vx24[:, 0], 2.0)
+
+    def test_short_tracks_gaps_and_side_changes(self):
+        t = np.arange(0, 12, .2)
+        S = len(t)
+        X = np.stack([.3*t**2]*4, axis=1)                     # accelerating: every window gives its own value
+        side = np.full(S, 'left')
+        side[40:] = 'right'                                   # the halves: the attack frame flips at sample 40
+        X[40:, 3] = L-X[40:, 3]
+        usable = np.ones((S, 4), bool)
+        usable[:, 0] = False
+        usable[30, 0] = True                                  # one sighting: no baseline
+        usable[:, 1] = False
+        usable[30:32, 1] = True                               # two sightings 0.2 s apart: shorter than VEL_MIN_BASE
+        usable[[20, 21, 22], 2] = False                       # three missing: 0.8 s between sightings
+        vx, _ = cs.velocities(t, X, X*0, usable, side, half=1.0, jump_speed=np.inf)
+        self.assertTrue(np.isnan(vx[:, 0]).all() and np.isnan(vx[:, 1]).all())
+        # A gap longer than VEL_MAX_GAP is never spanned, however wide the window.
+        self.assertAlmostEqual(vx[19, 2], (X[19, 2]-X[14, 2])/(t[19]-t[14]))
+        self.assertAlmostEqual(vx[23, 2], (X[28, 2]-X[23, 2])/(t[28]-t[23]))
+        self.assertAlmostEqual(vx[17, 2], (X[19, 2]-X[12, 2])/(t[19]-t[12]))
+        # ... and neither is a side change (here the jump rule is off: the flip alone splits the stretch).
+        self.assertAlmostEqual(vx[39, 3], (X[39, 3]-X[34, 3])/(t[39]-t[34]))
+        self.assertAlmostEqual(vx[40, 3], (X[45, 3]-X[40, 3])/(t[45]-t[40]))
+        self.assertLess(vx[40, 3], 0)                         # after the flip the player runs towards his own goal
+        # A jump no player could run (the amateur clip's lone B-07 sighting 11.3 m from the next one 0.6 s later read
+        # 16.6 m/s) splits the stretch: the odd position stands alone, both sides keep their own velocity.
+        Xj = (2.0*t)[:, None].copy()
+        uj = np.ones((S, 1), bool)
+        uj[[11, 12], 0] = False
+        Xj[10, 0] += 11.0
+        vj, _ = cs.velocities(t, Xj, Xj*0, uj, np.full(S, 'left'))
+        self.assertTrue(np.isnan(vj[10, 0]))
+        np.testing.assert_allclose(vj[np.isfinite(vj[:, 0]), 0], 2.0)
+        self.assertEqual(int(np.isnan(vj[:, 0]).sum()), 3)                 # the lone sighting and the two unusable
+        self.assertAlmostEqual(cs.velocities(t, Xj*0+(2.0*t)[:, None], Xj*0, uj, np.full(S, 'left'))[0][10, 0], 2.0)
+        # At the default window one missing sample is bridged: a central difference across it (exact on a parabola).
+        u = np.ones((S, 1), bool)
+        u[25, 0] = False
+        v, _ = cs.velocities(t, X[:, :1], X[:, :1]*0, u, np.full(S, 'left'))
+        self.assertTrue(np.isnan(v[25, 0]))
+        self.assertAlmostEqual(v[24, 0], .6*t[24])
+        self.assertAlmostEqual(v[26, 0], .6*t[26])
+
+    def test_the_series_velocity_is_the_attack_frame_derivative(self):
+        times, teams, ends = syn.match('4-4-2', '4-2-3-1', seconds=40, fps=10)
+        visible = {'A': np.ones((len(times), 10), bool)}
+        alone = (times >= 18) & (times < 22) & (np.abs(times-20.0) > .05)
+        visible['A'][alone, 9] = False                        # A-10 seen at 20.0 s only within [18, 22)
+        cd = cs.build_series(syn.make_result(times, teams, ends, visible=visible))
+        fi = cd.shape.observed.frame_index
+        for team, side in (('A', 'left'), ('B', 'right')):
+            s = cd.teams[team]
+            out = teams[team][0][fi]
+            X = (out[:, :, 0] if side == 'left' else 1-out[:, :, 0])*L
+            Y = (out[:, :, 1] if side == 'left' else 1-out[:, :, 1])*W
+            S = len(s.t)
+            checked = 0
+            for k in range(H, S-H, 9):
+                for j in range(len(s.ids)):
+                    if not s.eligible['velocity'][k-H:k+H+1, j].all():
+                        continue
+                    self.assertAlmostEqual(s.velX[k, j], (X[k+H, j]-X[k-H, j])/(s.t[k+H]-s.t[k-H]), places=6)
+                    self.assertAlmostEqual(s.velY[k, j], (Y[k+H, j]-Y[k-H, j])/(s.t[k+H]-s.t[k-H]), places=6)
+                    checked += 1
+                    self.assertAlmostEqual(s.speed[k, j], math.hypot(s.velX[k, j], s.velY[k, j]), places=9)
+            self.assertGreater(checked, 100)
+        a = cd.teams['A']
+        k = int(np.argmin(np.abs(a.t-20.0)))
+        self.assertEqual(a.reasons['velocity'][k, 9], cs.SHORT_TRACK)
+        self.assertEqual(set(a.reasons['velocity'][(a.t >= 18) & (a.t < 22) & (np.abs(a.t-20) > .05), 9].tolist()), {cs.NOT_OBSERVED})
+        self.assertTrue(a.eligible['velocity'][:, :9].all())
+        # The velocity is a measurement of its own: no other value moves with it.
+        self.assertEqual(cs.VALUE_METRIC['velX'], 'velocity')
+
+
+class NearestTeammate(unittest.TestCase):
+    HALF =[[-5/L, -5/W], [.5, -5/W], [.5, 1+5/W], [-5/L, 1+5/W]]       # the left half of the pitch (+5 m margins)
+
+    def half_view_series(self, hide_from=40.0, hide_to=50.0):
+        """Team A (defends the left goal: pitch x is its attack X) under a view of the left half, with its left back
+        off camera over [hide_from, hide_to): the team is incomplete only there."""
+        times, teams, ends = syn.match('4-4-2', '4-4-2', seconds=90, fps=10)
+        visible = {'A': np.ones((len(times), 10), bool)}
+        visible['A'][(times >= hide_from) & (times < hide_to), 0] = False
+        result = syn.make_result(times, teams, ends, visible=visible)
+        for f in result['frames']:
+            f['view'] = self.HALF
+        return cs.build_series(result).teams['A']
+
+    def test_certain_only_when_the_disc_is_in_view(self):
+        s = self.half_view_series()
         obs = s.kind == 'O'
+        part = ~s.complete
+        self.assertTrue(part.any() and s.complete.any())
         x = np.where(obs, s.x*L, np.nan)
-        want = obs & (x+s.nearestTeammate <= L/2+1e-9)        # the right edge is the only one inside the pitch
-        np.testing.assert_array_equal(s.eligible['nearestTeammate'], want)
-        self.assertTrue(want.any() and (obs & ~want).any())
-        self.assertEqual(set(s.reasons['nearestTeammate'][obs & ~want].tolist()), {cs.OUT_OF_VIEW})
-        poly = np.array(half)*[L, W]
+        disc = obs & (x+s.nearestTeammate <= L/2+1e-9)        # the right edge is the only one inside the pitch
+        # Incomplete samples (someone of the lineup unseen): the disc rule decides.
+        np.testing.assert_array_equal(s.eligible['nearestTeammate'][part], disc[part])
+        self.assertTrue(disc[part].any() and (obs[part] & ~disc[part]).any())
+        self.assertEqual(set(s.reasons['nearestTeammate'][part][obs[part] & ~disc[part]].tolist()), {cs.OUT_OF_VIEW})
+        poly = np.array(self.HALF)*[L, W]
         inside = cs._disc_inside(poly, np.array([10.0, 50.0, 60.0]), np.array([1.0, 30, 30]), np.array([8.0, 3.0, 1.0]), L, W)
         self.assertEqual(inside.tolist(), [True, False, False])   # a disc over the touchline is fine; beyond the view is not
+
+    def test_the_whole_lineup_observed_lifts_the_view_veto(self):
+        # Critic S8: with every outfield player of the lineup observed no unseen teammate can be nearer, so the view
+        # does not matter (players outside the view polygon included); the other gates still apply.
+        s = self.half_view_series()
+        obs = s.kind == 'O'
+        full = s.complete[:, None] & obs
+        self.assertTrue(full.any())
+        self.assertTrue(s.eligible['nearestTeammate'][full].all())
+        x = np.where(obs, s.x*L, np.nan)
+        self.assertTrue((full & (x+s.nearestTeammate > L/2)).any())      # discs beyond the view, measured all the same
+        self.assertNotIn(cs.OUT_OF_VIEW, set(s.reasons['nearestTeammate'][s.complete].ravel().tolist()))
+        # The value is the plain nearest distance there.
+        k = int(np.flatnonzero(s.complete)[0])
+        P = np.array([(s.x[k, j]*L, s.y[k, j]*W) for j in range(len(s.ids))])
+        D = np.hypot(*(P[:, None, :]-P[None, :, :]).transpose(2, 0, 1))
+        np.fill_diagonal(D, np.inf)
+        np.testing.assert_allclose(s.nearestTeammate[k], D.min(axis=1))
+
+    def test_a_view_without_a_polygon_still_vetoes_an_incomplete_team_only(self):
+        times, teams, ends = syn.match('4-4-2', '4-4-2', seconds=60, fps=10)
+        visible = {'A': np.ones((len(times), 10), bool)}
+        visible['A'][(times >= 20) & (times < 30), 3] = False
+        result = syn.make_result(times, teams, ends, visible=visible)
+        for f in result['frames']:
+            f['view'] = None                                   # the field exists but holds no usable polygon
+        s = cs.build_series(result).teams['A']
+        obs = s.kind == 'O'
+        self.assertTrue(s.eligible['nearestTeammate'][s.complete[:, None] & obs].all())
+        part = (~s.complete)[:, None] & obs
+        self.assertTrue(part.any())
+        self.assertEqual(set(s.reasons['nearestTeammate'][part].tolist()), {cs.OUT_OF_VIEW})
 
     def test_unconfirmed_and_anonymous_kit_people_are_teammates(self):
         times, teams, ends = syn.match('4-4-2', '4-4-2', seconds=60, fps=10)
@@ -489,6 +771,45 @@ class Degenerate(unittest.TestCase):
         json.dumps(cd.summary(), allow_nan=False)
 
 
+class FrameContextKept(unittest.TestCase):
+    """The frame context the situation timeline reads (critic B4 data-quality counts, the view, the unplaced count)
+    is kept on CoachingData and changes no measurement."""
+
+    def test_in_kit_and_confirmed_counts(self):
+        times, teams, ends = syn.match('4-4-2', '4-4-2', seconds=30, fps=10)
+        base = cs.build_series(syn.make_result(times, teams, ends))
+        np.testing.assert_array_equal(base.in_kit['A'], 10)
+        np.testing.assert_array_equal(base.confirmed_in_kit['A'], 10)
+        extra = {}
+        for k in range(len(times)):
+            extra[k] = [{'id': None, 'team': 'A', 'role': 'PLAYER', 'state': 'uncertain', 'pitch': [.4, .4],
+                         'pitchConfidence': .8},                                      # in kit, not confirmed
+                        {'id': 'A-12', 'team': 'A', 'role': 'PLAYER', 'state': 'confirmed'},     # no position: counts
+                        {'id': 'A-13', 'team': 'A', 'role': 'PLAYER', 'state': 'confirmed', 'pitch': [1.3, .5],
+                         'pitchConfidence': .8},                                      # beyond the lines: not on it
+                        {'id': None, 'team': 'A', 'role': 'NON_TARGET', 'state': 'nontarget', 'pitch': [.5, .5],
+                         'pitchConfidence': .8},                                      # not a player
+                        {'id': 'A-14', 'team': 'A', 'role': 'PLAYER', 'state': 'rejected', 'pitch': [.5, .5],
+                         'pitchConfidence': .8}]                                      # rejected
+        cd = cs.build_series(syn.make_result(times, teams, ends, extra_people=extra))
+        np.testing.assert_array_equal(cd.in_kit['A'], 12)
+        np.testing.assert_array_equal(cd.confirmed_in_kit['A'], 11)
+        np.testing.assert_array_equal(cd.unplaced['A'], 1)
+        np.testing.assert_array_equal(cd.in_kit['B'], 10)
+        for name, v in base.teams['A'].values.items():      # nothing else moved but what the extra people move
+            if name not in ('nearestTeammate', 'nearestExtras'):
+                np.testing.assert_array_equal(np.asarray(v), np.asarray(cd.teams['A'].values[name]), err_msg=name)
+
+    def test_the_view_is_kept_per_sample(self):
+        def edit(k, t, f):
+            f['view'] = [[0, 0], [.5, 0], [.5, 1], [0, 1]]
+        _, _, result = build('4-4-2', '4-4-2', seconds=20, edit=edit)
+        cd = cs.build_series(result)
+        self.assertEqual(len(cd.view), len(cd.t))
+        np.testing.assert_allclose(cd.view[0], [[0, 0], [L/2, 0], [L/2, W], [0, W]])
+        self.assertEqual(cs.build_series(build('4-4-2', '4-4-2', seconds=20)[2]).view[0], None)
+
+
 SMOKE = [p for p in os.environ.get('PITCHIQ_COACHING_SMOKE', '').split(os.pathsep) if p]
 
 
@@ -505,10 +826,14 @@ class RealRuns(unittest.TestCase):
                     c = s.coverage(metric)
                     self.assertLessEqual(c['measuredSeconds'], duration+1e-6, (path, team, metric))
                     self.assertLessEqual(c['longestStretchSeconds'], c['measuredSeconds']+1e-6)
-                for metric in ('width', 'hull', 'gapDM', 'gapMF', 'lineStd', 'centreX', 'nearestTeammate'):
+                for metric in ('width', 'hull', 'gapDM', 'gapMF', 'lineStd', 'centreX', 'nearestTeammate', 'lineOffset',
+                               'velX', 'speed'):
                     v = s.values[metric]
-                    e = s.eligible.get(metric, s.eligible.get('centre'))
+                    e = s.eligible[cs.VALUE_METRIC.get(metric, 'centre')]
                     self.assertTrue(np.isfinite(v[e]).all(), (path, team, metric))
+                # Speeds a player can run (the jump rule removes identity jumps), interleaved gaps never measured.
+                self.assertTrue((s.speed[s.eligible['velocity']] < 12).all(), (path, team))
+                self.assertFalse((s.eligible['gapMF'] & (s.reasons['gapMF'] == cs.UNITS_INTERLEAVED)).any())
             json.dumps(cd.summary(), allow_nan=False)
 
 

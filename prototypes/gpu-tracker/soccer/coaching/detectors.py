@@ -4,6 +4,15 @@ reference (soccer/coaching/reference.py). Each detector returns Observation reco
 classification follows the explicit rules below; the words come later (language.py), the evidence moments from
 evidence.py.
 
+Coaching v2 status (DESIGN v2 11.2-11.3): RETIRED as the judge of a team. The v2 engine finds opportunities in
+soccer/coaching/contextual.py and judges them with the coaching profile's own parameters in soccer/coaching/assess.py;
+it never compares a team with this module's professional yardstick (one phase-blind professional match: critic B1-B3),
+never imports this module or reference.py (tested in test_coaching_detectors.V2Retirement), and keeps only the two
+helpers named in V2_KEPT (`confidence` and `not_measured`, the per-observation coverage and abstention wording that
+the v1 report and the PDF still read). Everything else here (classify, strength_check, pooled_strength, the window
+tests, the nine detectors) serves the v1 report until its callers move to v2 (server routes, wave 7): removing it
+now would break the served v1 report and five other roles' tests, so it is deprecated in place (V1_ONLY).
+
 Why a count is never a finding on its own. On the Metrica Sports professional sample (game 1, 5 samples a second,
 both teams) a team spends about 10% of its time above the game's own p90 of every metric by construction, and even
 the strict default rule (enter above p95, leave below p90, at least 5 s, gaps under 3 s merged) fires 3-16 times per
@@ -124,6 +133,11 @@ from . import reference as refs
 from . import series as cs
 
 ENGINE_VERSION = ep.ENGINE_VERSION
+# Coaching v2 (module docstring "Coaching v2 status"): what the v2 engine may still use, and the professional-yardstick
+# logic that only the v1 report runs until wave 7 moves its callers.
+V2_KEPT = ('confidence', 'not_measured')
+V1_ONLY = ('classify', 'strength_check', 'pooled_strength', 'strength_seconds', 'thresholds', 'resolve_reference',
+           'rule_of', 'poisson_tail', 'binomial_tail', 'neutral_state', 'detect', 'DETECTORS')
 
 # ---------- classification rules ----------
 MIN_MEASURED_SECONDS = 20.0     # s: less measured time is not assessed (contract section 5)

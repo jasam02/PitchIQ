@@ -1,0 +1,129 @@
+{
+ "version": 1,
+ "seed": 20261022,
+ "generated": "2026-10-22",
+ "sources": [
+  {
+   "run": "BC60",
+   "video": "2bac432528d0e568.mp4",
+   "footage": "broadcast",
+   "split": "holdout",
+   "segment": [
+    0.0,
+    59.967
+   ]
+  },
+  {
+   "run": "BC180",
+   "video": "2bac432528d0e568.mp4",
+   "footage": "broadcast",
+   "split": "tune",
+   "segment": [
+    42.433,
+    222.4
+   ]
+  },
+  {
+   "run": "BC303",
+   "video": "2bac432528d0e568.mp4",
+   "footage": "broadcast",
+   "split": "holdout",
+   "segment": [
+    222.0,
+    302.967
+   ]
+  },
+  {
+   "run": "AM",
+   "video": "6dfdc88ec6f2d100.mp4",
+   "footage": "amateur",
+   "split": "holdout",
+   "segment": [
+    118.2,
+    182.0
+   ]
+  },
+  {
+   "run": "VEO",
+   "video": "f597d73d53f7b1fd.mp4",
+   "footage": "veo",
+   "split": "holdout",
+   "segment": [
+    1.0,
+    30.967
+   ]
+  },
+  {
+   "run": "AM+coach",
+   "video": "6dfdc88ec6f2d100.mp4",
+   "footage": "amateur",
+   "split": "holdout",
+   "segment": [
+    118.2,
+    182.0
+   ]
+  },
+  {
+   "run": "VEO+coach",
+   "video": "f597d73d53f7b1fd.mp4",
+   "footage": "veo",
+   "split": "holdout",
+   "segment": [
+    1.0,
+    30.967
+   ]
+  }
+ ],
+ "counts": {
+  "moment": 266,
+  "role": 60,
+  "advance": 8,
+  "zone": 48
+ },
+ "countsByFootage": {
+  "moment": {
+   "amateur": 47,
+   "broadcast": 200,
+   "veo": 19
+  },
+  "role": {
+   "broadcast": 60
+  },
+  "advance": {
+   "broadcast": 8
+  }
+ },
+ "zoneSources": {
+  "metrica-game1-full": 45,
+  "BC180": 2,
+  "BC303": 1
+ },
+ "files": {
+  "INSTRUCTIONS.txt": "a4699569cf8c57e56a7e3cdcbdbe98a79f88a846041ee292abb4648d08daeef9",
+  "advance_sheet.csv": "1ef8b52468948a9e45b9e6296c14dbb6fd671db5eb4648a21ddd17a0a7cfd4d3",
+  "advance_sheet.html": "b11f443db9fa1225f7b72627b7268f2512f7fcc9dea995df8dd98120e34f7737",
+  "key/README.txt": "91f04bc77fd6b0a6da79d5dfb8376bf81762e69782a8e240f9ba2dc4f86b55a4",
+  "key/advance_key.json": "50868b845f1356f5114e4a0c959723a113bd55cf45df5027203ee794521b9613",
+  "key/moment_key.json": "1512a4e6c3b277314646b61918e9726e71add1e55701140392ea433ea8eb20c3",
+  "key/role_key.json": "49bfbbc0c90a56e590d13ec0a47d50ccd485ad5ce44abe33be96d8f993d20f85",
+  "key/zone_key.json": "d5aa60b5962af4f6b5b7f03c8de1ccb49db878d4e728229a90290ce28b221fef",
+  "key/zone_reveal.html": "8f362952a4d74da79513105871372323713926ca11199a34c702dd23fe00ccdc",
+  "moment_sheet.csv": "e13d66fd4105ed5b9f730b4cde537ebd6b0190ff259fdc936c5526bbc363ce32",
+  "moment_sheet.html": "ee461188184cbc4670184d4c1f2b21163f0341e24d73f7c239017803a4e8ec24",
+  "role_sheet.csv": "811848804d8273c00d2b194e24eca952e4e74512d8769bc1f72cb67d8e58e2d2",
+  "role_sheet.html": "d4976b60e99373dadba18416ee0ed421c75d18c99a8737899a214d98bf4bf589",
+  "zone_items.csv": "f083fc53eb85f327a0f962313254d67347e5554f82ed0f070711a22ea67bfbbc",
+  "zone_sheet.html": "48d666dfca0cd33d8d06f788ba65cb49940fd280afdc67062139de8b379c06ec"
+ },
+ "zoneRegenerated": {
+  "date": "2026-10-24 14:53:17",
+  "why": "plan section 6 / critic N4: the ZONE sheet shows PitchIQ's own problem text, so it is regenerated from the frozen code after the freeze (the other sheets keep their items and are rekeyed)",
+  "frozenGitWorktree": "19351fe6fe642298ea405d2f6851a2800e736db9aee25ebbd26e855d2fa01c20",
+  "files": [
+   "zone_sheet.html",
+   "zone_items.csv",
+   "key/zone_key.json",
+   "key/zone_reveal.html"
+  ]
+ }
+}

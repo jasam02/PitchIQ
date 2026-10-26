@@ -1,0 +1,59 @@
+{
+ "version": 1,
+ "frozen": {
+  "soccer/coaching/profiles.json": "c1b6534b19506e761c2f114e975143ab93138e8b5fae866e57b65b65b8b7699c",
+  "soccer/coaching/drills.json": "406be312c08595257a111f48bb508ef5bf1cb382fb703f640b742cb604ace53f",
+  "soccer/coaching/progress_rules.json": "40ed4a6da94d99b095a72dc50f7cc0b0f486b8702c2940b2de0fcb70ae9ed023",
+  "soccer/coaching/sources.json": "78c1e92bc2dd951cd8e08ffc962e77193a3df43e92a240b3221fed01f0953b5b",
+  "soccer/coaching/__init__.py": "5d4de6a25eaec0f1025f799d4f4ed8a41b7447073ef5ac03534a4a6f2ab6bfb5",
+  "soccer/coaching/alternatives.py": "665427903e7d9f270d654c419426987af5d61c8862a19336864c7c8865cdb687",
+  "soccer/coaching/assess.py": "4ca2d34717bbf95df1d066ce0cb235e05bda7ad5dd27f09195ed9578e8d3bacb",
+  "soccer/coaching/contextual.py": "9228aa61c1a7d20260e18e1926dec45f0c9505e9497263c3842727bdebc13297",
+  "soccer/coaching/detectors.py": "e466d904ecc05df8c4a3e191948f8e2a00fbcc0a862db05c384b17b46dab2cac",
+  "soccer/coaching/drills.py": "a36d1f563efccb3ae00259bff3405fe62eaf31b67e5c7fccc3298c19bd9960d8",
+  "soccer/coaching/episodes.py": "f4596f0931cc8433599bbd85f2783d9a2b980950bb04d36735476ad20915f430",
+  "soccer/coaching/evidence.py": "79c9192e38d4023b66855829757e31186818907a7b07da61842a266d14451dd1",
+  "soccer/coaching/explain.py": "9fa76973fdf3614188c3ff4500b38a021b9b6c1b05d04e416277ce3b2e558323",
+  "soccer/coaching/frames.py": "9fbf0deab96f054cfef0275d6af2c2a84a18a6bdb383bc68fbcc505866d7c7ba",
+  "soccer/coaching/language.py": "e91a5fef7b17c88879d662eea753f8804a9bbc5a86755e340fdeaa03498f69b8",
+  "soccer/coaching/language_v1.py": "c155790b01c6124863f9061f3bcfb83747403f62a9cbbc3fcd6dfa9329490eac",
+  "soccer/coaching/measuring.py": "3da5bc57aefa8a7d9e4a08b7e9ee548f8a69f85e379960dab329a56e8d06f530",
+  "soccer/coaching/pdf.py": "7bbd55eadfd582bcd25a2bf3c93951fd357106062a1c1515dd07f035f22fc1d2",
+  "soccer/coaching/profiles.py": "b8d96182cc512d42b64ea74221dec9242e2b83f9aa3aa13e5b0c236a53e187e7",
+  "soccer/coaching/progress.py": "7843f99065bf6fff0f51af69e24a90b21f4b90f94427046518b5e8164d54a5ea",
+  "soccer/coaching/reference.py": "810ec197291030a6f5bd08da70205088a23045c69dc7bd24ac0be5dab4b9d09e",
+  "soccer/coaching/render.py": "c1b43fcad9b8f7888430f6ab308cf928ec4be380c3b948e41840987f450b2a27",
+  "soccer/coaching/report.py": "e39ede2df0a3525429279e59243b2c26ad4435a5f3a95539e7b26d314bfa0390",
+  "soccer/coaching/report_v1.py": "ea27b6787492d56e0ed140ac20d5cf1a9b10414ddb4a2e0ba46646a06051c67f",
+  "soccer/coaching/roles.py": "923ceeac783bc783100609f639376e66238bb5c60a26d00037932f203c320384",
+  "soccer/coaching/schema.py": "cd4eb9b07f1a28c8bdabb62de6ff78aa6e6c69339b97df701809ea0cab7b5afd",
+  "soccer/coaching/series.py": "d1574d7af5080f07f77383754f9cb06e90becbd1dc3e5d6fa20f6a29cca17c61",
+  "soccer/coaching/situations.py": "32685ea293a13fa120a7a5eecb021ae35bfbef6fe27efa88311896e888ec06c0",
+  "soccer/coaching/store.py": "4a3ccddb5a82e918bdb6e76e65bf474cb0673dacc2456f3e57d7c44ea5ce1c07",
+  "soccer/coaching/tactics_geom.py": "da5ddbefd695d894f31ac33917bf98c59bf9f0e738dcea80461123a8bc86e0f3"
+ },
+ "sheets": "C:\\Users\\some1\\Documents\\PitchIQ\\fork\\PitchIQ\\.claude\\worktrees\\coaching-v2\\prototypes\\gpu-tracker\\tools\\annotations\\coaching\\labels",
+ "generated": "2026-10-24 14:50:37",
+ "files": {
+  "moment_key.json": "681f32a131b19f41d8bc3f22bc6d113845c0b6556cc43cff2f8545af65d3f338",
+  "role_key.json": "4f4bd011cd6a8cb96c1dd5a5dfddddc48f586cbfffe697466f20a104e7f3cddf",
+  "advance_key.json": "0d8f76afa1e10d23ee3669f96a2d09e82190c95f0b7d980ca23560ab11ac255f"
+ },
+ "changed": {
+  "moment": {
+   "items": 266,
+   "engineFieldsChanged": 64
+  },
+  "role": {
+   "items": 60,
+   "engineFieldsChanged": 0
+  },
+  "advance": {
+   "items": 8,
+   "engineFieldsChanged": 0
+  }
+ },
+ "notRekeyed": {
+  "zone": "regenerate the ZONE sheet after the freeze (critic N4)"
+ }
+}

@@ -1,0 +1,68 @@
+{
+ "kind": "coaching-progress-rules",
+ "version": 1,
+ "label": "Unvalidated PitchIQ rules; review with a coach.",
+ "about": "The mastery rules of PitchIQ coaching v2 progression (DESIGN v2 section 8.4), read by soccer/coaching/progress.py. Every number is a PitchIQ proposal: no federation source gives a threshold for when a team has mastered a positional behaviour, and no coach has labelled a match yet. States are computed per skill from opportunities (moments where the behaviour mattered), never from match totals or report wording.",
+ "origin": "PITCHIQ-PROPOSAL",
+ "validated": false,
+ "interval": {
+  "method": "wilson",
+  "confidence": 0.8,
+  "basis": "DESIGN 8.4: Wilson score interval at 80% (two-sided) on the share of judged opportunities that demonstrated the behaviour.",
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false
+ },
+ "evidence": {
+  "matchOpportunities": 6,
+  "minOpportunities": 20,
+  "minQualifyingMatches": 2,
+  "consistentMatches": 3,
+  "windowQualifyingMatches": 5,
+  "minQuality": "medium",
+  "basis": "DESIGN 8.4: a match qualifies with at least 6 judged opportunities; NOT ENOUGH EVIDENCE below 20 judged opportunities or 2 qualifying matches; CONSISTENT reads the last 3 qualifying matches. The window (the most recent 5 qualifying matches and every match after the first of them) and the quality floor (identity and position at least medium, as the report's guardrails ask of a criticism) are PitchIQ additions.",
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false
+ },
+ "thresholds": {
+  "1": {"s1": 0.5, "s2": 0.65},
+  "2": {"s1": 0.5, "s2": 0.65},
+  "3": {"s1": 0.5, "s2": 0.65},
+  "4": {"s1": 0.6, "s2": 0.75},
+  "5": {"s1": 0.6, "s2": 0.75},
+  "6": {"s1": 0.7, "s2": 0.85},
+  "7": {"s1": 0.7, "s2": 0.85},
+  "basis": "DESIGN 8.4: s1 is the lower bound for DEVELOPING and the per-match share every one of the last qualifying matches needs for CONSISTENT; s2 the lower bound for CONSISTENT and for each context of ADAPTABLE.",
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false
+ },
+ "adaptable": {
+  "minContexts": 2,
+  "contextOpportunities": 6,
+  "dimensions": {
+   "pressure_and_cover": ["zone", "format"],
+   "someone_back_when_attacking": ["zone", "channel", "format"],
+   "wide_defender_support": ["side", "format"],
+   "far_side_protection": ["channel", "format"],
+   "back_line_coordination": ["channel", "format"],
+   "spread_when_attacking": ["zone", "format"]
+  },
+  "basis": "DESIGN 8.4: CONSISTENT in at least 2 contexts with at least 6 judged opportunities each. Contexts: the ball's third (zone), the ball's channel, the wide defender's side, the match format.",
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false
+ },
+ "trend": {
+  "previousMatches": 3,
+  "minDelta": 0.1,
+  "confidence": 0.9,
+  "basis": "The latest qualifying match against the up to 3 qualifying matches before it, per opportunity: a change of at least 0.1 in the share that a two-proportion test also finds at 90% (two-sided); otherwise flat. 90% and not the states' 80%: a trend claims a change between matches, and at 80% one comparison in five of a team that did not change would show one (on Metrica game 1 cut into 15-minute parts, 80% read 'down' for pressure and cover at 7 of the 14 team x level readings, 90% at 1).",
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false
+ },
+ "rates": {
+  "perSeconds": 600,
+  "shortRangeSeconds": 180,
+  "basis": "Rates are per 10 minutes of the skill's relevant phase (DESIGN 8.4), so a 60 s clip and a 90 minute match are compared per opportunity and per phase minute, never on totals; a range under 3 minutes is called a short clip in the note.",
+  "origin": "PITCHIQ-PROPOSAL",
+  "validated": false
+ }
+}

@@ -1,302 +1,1494 @@
 {
-  "version": 1,
-  "notes": "Training exercises the coaching report links to its findings (soccer/coaching/drills.py validates this file). Every exercise is a conventional session format of the kind taught on national-association coaching courses (small-sided games with a zone condition, unit shifting against servers, back-line stepping and dropping, rondo-style keep-ball, shadow play, unit pattern play), described in general terms; none is a specialised or invented drill. Each names its equipment, area, regressions and a success criterion in the exercise and back in the coaching report's own measurement. Plain ASCII only (the PDF writer uses base-14 Helvetica). Names and purposes carry no digits, so a finding that quotes them stays checkable against its facts. Areas, numbers and times are starting points to adapt to the players' age, level and fitness.",
+  "version": 2,
+  "notes": "PitchIQ training drill library, version 2 (soccer/coaching/drills.py validates it; DESIGN v2 section 7). Fourteen drills across the seven playing levels. Every drill is a PitchIQ adaptation or a PitchIQ original session, labelled so in source_reference with the ids of the coaching sources that informed it (see soccer/coaching/sources.json); none is a verbatim federation session and no federation reviewed or endorses PitchIQ. Field sizes, durations, player counts and physical loads are PitchIQ starting points (origin PITCHIQ-PROPOSAL, unvalidated) to adapt to the players. No drill contains heading. A drill is recommended only for a finding of one of its related_tactical_detector values; success_signals_next_match name the measured relation the next match should show in more of its situations, and the report fills in its own numbers. Plain ASCII only (the PDF writer uses base-14 Helvetica). player_count counts every player a drill uses, goalkeepers included: \"N v M with goalkeepers\" is N + M outfield players and two keepers. recommended_format lists the match formats whose squad can play the drill as written: a team of a larger format may play it as a smaller game, a team of a smaller format is never offered it, and a drill offered below 11v11 uses relative role words (wide defender, central midfielder, central defender), not 11v11 role names. Every success signal ends with \"in more of these moments than in this match\"; the report leaves that comparison out when this match did not judge the check. No drill text uses a repetition word the report refuses under 3 minutes of play (repeat, pattern, often).",
   "drills": [
     {
-      "id": "defensive_compactness",
-      "name": "Compact shape small-sided game",
-      "purpose": "Keep the distances between team-mates and between the lines short, so the team defends as one compact group.",
-      "tacticalIssue": "Large spaces between the back line and midfield, or a team shape that stretches wide or long.",
-      "recommendationKeys": ["compact_lines", "compact_shape"],
-      "patterns": ["space_between_defence_and_midfield", "team_width", "team_depth", "team_area"],
-      "players": {"min": 8, "max": 18, "note": "Two teams of 4 to 9 (4 v 4 or 5 v 5 at development level), with or without goalkeepers."},
-      "durationMinutes": {"min": 15, "max": 20, "note": "Four blocks of 4 minutes with 1 to 2 minutes of rest; feedback in the rests."},
-      "area": "About 50 x 40 m for 7 v 7 or 8 v 8, about 35 x 25 m for 4 v 4 or 5 v 5, split lengthways into three equal zones.",
-      "equipment": ["Flat markers for the zone lines and the area", "Two goals with goalkeepers, or four small goals", "Bibs in two colours", "Spare balls around the area"],
-      "setup": "Mark the area (see Area) split lengthways into three equal zones with flat markers. A goal at each end with goalkeepers, or two small goals at each end. Bibs for both teams and spare balls around the area.",
-      "instructions": [
-        "Play a normal small-sided game; keep the first block at walking or jogging pace.",
-        "Condition: the team without the ball keeps all its outfield players inside two neighbouring zones.",
-        "When the condition is broken the coach may freeze play, let the players check their distances and restart with a ball from the coach.",
-        "Each team sets up in two lines (for example 2 and 2 in a 4 v 4, 3 and 3, or 4 and 3) so that the distance between the lines can be seen.",
-        "Change ends and teams every block so that every player defends in the compact shape."
+      "drill_id": "l1_help_your_teammate_2v2",
+      "name": "2v2 Help Your Teammate",
+      "development_level": [
+        1,
+        2
       ],
-      "coachingPoints": [
-        "Short distances between team-mates and between the lines; look across and behind before the ball arrives.",
-        "The whole group moves when the ball moves: towards the ball side, and up or back together.",
-        "One organiser at the back calls the distances and the others pass the call on.",
-        "Stay compact first, then win the ball; nobody leaves the shape to chase alone."
-      ],
-      "progressions": [
-        "Narrow the allowed zones or shorten the area to raise the challenge.",
-        "Give the team with the ball a bonus point for a pass that is received between the opponents' lines.",
-        "Remove the freezes so that the players correct their distances themselves in live play."
-      ],
-      "regressions": [
-        "Play at walking pace with the coach moving the ball by hand between the zones.",
-        "Widen the allowed area to all three zones for the team without the ball, then narrow it again.",
-        "Make the area smaller and the teams smaller (3 v 3) so each player sees the distances to the nearest team-mates."
-      ],
-      "successCriteria": [
-        "In the game: at the coach's freezes, the team without the ball has every outfield player inside two neighbouring zones in at least 4 of 5 freezes.",
-        "Back in the match: the next PitchIQ coaching report shows the team's width, length and area, and the distance between the back line and midfield, at or below the professional median it states for the team's third."
-      ],
-      "variations": {
-        "development": "Play 4 v 4 or 5 v 5 in the smaller area with more freezes; focus on staying close to the nearest team-mate.",
-        "competitive": "Play 7 v 7 or 8 v 8 with two clear lines and at most one freeze per block.",
-        "advanced": "Add a target player between the lines for the team with the ball; the defending lines keep that space closed."
+      "age": {
+        "min": "U6",
+        "max": "Adult"
       },
-      "safety": [
-        "Warm up before the first block and raise the intensity gradually.",
-        "Use flat markers in the playing area and keep a clear run-off around it.",
-        "Adapt the area, block length and rest to the players' age and fitness, with drinks breaks."
+      "primary_skill": "pressure_and_cover",
+      "secondary_skills": [
+        "someone_back_when_attacking"
       ],
-      "source": "Conventional small-sided game with a zone condition."
+      "related_tactical_detector": [
+        "pressure_cover",
+        "behind_ball"
+      ],
+      "recommended_format": [
+        "4v4",
+        "5v5",
+        "7v7"
+      ],
+      "player_count": {
+        "min": 4,
+        "max": 12,
+        "note": "2 v 2 on one or more small pitches; extra pairs wait beside the pitch and swap in every round."
+      },
+      "equipment": [
+        "Flat markers or cones",
+        "Two small goals per pitch",
+        "Bibs in two colours",
+        "One ball per pitch and spares"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 20.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 15.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "A small pitch with a small goal at each end and a helper line about 5 m in front of each goal. Make the pitch smaller for the youngest groups and larger as the players grow."
+      },
+      "duration": {
+        "minutes": 12,
+        "blocks": "4 rounds of 2 min with a 1 min drink and talk break"
+      },
+      "instructions": [
+        "Play 2 v 2 to small goals. When your team does not have the ball, one player goes to the ball and the other player is the helper.",
+        "The helper stays between the helper line and the goal until the ball is back with the team.",
+        "When your team has the ball, the player without it stays a few steps behind the ball, ready to help and to protect our goal.",
+        "There is no tackling or sliding in this game: defenders block the way to goal and poke the ball away when it is loose.",
+        "Swap jobs every round so every player tries both: going to the ball and helping.",
+        "The coach restarts with a new ball after each goal, so everybody plays a lot."
+      ],
+      "coaching_points": [
+        "Who is closest to the ball? That player goes to the ball quickly and slows down when close.",
+        "Helper: stand between the ball and our goal, where you can see the ball and the goal.",
+        "Helper: not too close to your teammate, so you are ready if the dribbler gets past.",
+        "Praise effort and good choices; keep the words short and simple."
+      ],
+      "progression": [
+        "Remove the helper line so the players decide where to help from.",
+        "Make the pitch a little bigger so the helper has to judge the distance.",
+        "Play 3 v 3: one helper and two players near the ball."
+      ],
+      "regression": [
+        "Play 1 v 1 to a goal first, then add the helper.",
+        "Make the pitch smaller so the helper stays close to the goal.",
+        "Walk with the ball for the first round."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "pressure_cover",
+          "relation": "pressure",
+          "text": "When the other team has the ball in our half, someone goes to the ball in more of these moments than in this match."
+        },
+        {
+          "detector": "behind_ball",
+          "relation": "behind_ball",
+          "text": "When we have the ball, someone is ready to protect our goal in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "low",
+        "contact": "no_tackle"
+      },
+      "source_reference": [
+        {
+          "source": "EF-SWIFT-SUPPORT",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the FA swift support game for 7-11s (one player goes to the ball, a teammate guards a line in front of goal); not a verbatim federation session."
+        },
+        {
+          "source": "EF-PROG-7-11",
+          "relation": "inspired_by",
+          "note": "PitchIQ adaptation; the two jobs follow the FA pressing and covering programme for 7-11s."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
     },
     {
-      "id": "lateral_shifting",
-      "name": "Shifting as a unit",
-      "purpose": "Move the back line and midfield across the pitch together as the ball moves from one side to the other.",
-      "tacticalIssue": "The back line and midfield shifting across at different times, leaving gaps between and within the lines on the ball side.",
-      "recommendationKeys": ["lateral_shift", "compact_shape"],
-      "patterns": ["lateral_lag", "team_width"],
-      "players": {"min": 8, "max": 16, "note": "Two defending lines (a back line of 3 to 5 and a midfield of 3 to 5) and 2 to 6 servers or attackers; at development level two lines of 3 with 2 servers."},
-      "durationMinutes": {"min": 15, "max": 20, "note": "Three or four phases of about 5 minutes."},
-      "area": "Half a pitch, the full width; the servers stand on a line across the pitch about 35 to 40 m from goal.",
-      "equipment": ["Flat markers for the servers' line and the halfway line", "A ball for each server and spare balls behind them", "Bibs for the servers or attackers", "Two small goals on the halfway line for the last phase"],
-      "setup": "Use half a pitch. Place two to four servers with balls on a line across the pitch about 35 to 40 m from goal, spread from touchline to touchline. The defending players start in two lines in front of the goal; a goalkeeper is optional.",
-      "instructions": [
-        "Phase one, at walking pace: the coach points to a server, the server holds the ball, and both lines slide towards that side while keeping their distances.",
-        "Phase two: the servers move the ball between them and the lines shift with every movement of the ball.",
-        "Phase three: a server may dribble forward or play to an attacker; the nearest defender closes the ball while the others keep the shape.",
-        "Phase four: play live; the defending team scores on small goals or by dribbling over the halfway line when it wins the ball."
+      "drill_id": "l1_spread_out_4v4",
+      "name": "4v4 Spread Out: Tall, Wide, Deep",
+      "development_level": [
+        1,
+        2
       ],
-      "coachingPoints": [
-        "The players nearest the ball move first; the others follow at the same time and keep the same distances.",
-        "Far-side players narrow towards the ball side; nobody needs to stay on the far touchline when the ball is on the other side.",
-        "Keep the distance between the back line and midfield short while shifting.",
-        "The organiser calls the direction of the shift."
-      ],
-      "progressions": [
-        "Speed up the movement of the ball between the servers.",
-        "Add one or two attackers between the lines whom the defenders keep track of."
-      ],
-      "regressions": [
-        "Walk through every shift with the coach calling the side before the ball moves.",
-        "Use one line only, then join the second line once the first slides together.",
-        "Use two servers close together so the shifts are shorter."
-      ],
-      "successCriteria": [
-        "In the exercise: when the ball reaches a new server, both lines have finished shifting to the ball side at about the same moment, judged by the coach or on video, in at least 4 of 5 repetitions.",
-        "Back in the match: the coaching report's sideways shift of back line and midfield reads at about the same time, or a delay below the professional level it states."
-      ],
-      "variations": {
-        "development": "Use two lines of 3 with 2 servers and walk through each shift before playing at speed.",
-        "competitive": "Use the team's own back line and midfield, with the servers moving the ball at match tempo.",
-        "advanced": "Add switch-of-play calls from the coach and judge the timing of the shift and of the far-side narrowing."
+      "age": {
+        "min": "U6",
+        "max": "Adult"
       },
-      "safety": [
-        "Warm up before the first phase and raise the intensity gradually.",
-        "Keep the servers' balls and spare balls out of the shifting players' path.",
-        "Adapt the area, phase length and rest to the players' age and fitness, with drinks breaks."
+      "primary_skill": "spread_when_attacking",
+      "secondary_skills": [],
+      "related_tactical_detector": [
+        "attacking_shape"
       ],
-      "source": "Conventional unit-shifting exercise against servers."
+      "recommended_format": [
+        "4v4",
+        "5v5",
+        "7v7"
+      ],
+      "player_count": {
+        "min": 8,
+        "max": 16,
+        "note": "4 v 4 on one pitch; with more players run two pitches side by side."
+      },
+      "equipment": [
+        "Flat markers for the pitch and three lanes",
+        "Four small goals",
+        "Bibs in two colours",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 25.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 20.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Two small goals on each end line, one near each corner, so each team attacks two goals. Mark three lanes along the pitch with flat markers for the first rounds."
+      },
+      "duration": {
+        "minutes": 16,
+        "blocks": "4 rounds of 3 min with a 1 min break"
+      },
+      "instructions": [
+        "Play 4 v 4 without goalkeepers; each team attacks two small goals and defends two.",
+        "When your team has the ball, take one job each: one player tall (nearest the goals you attack), two players wide (one near each side line) and one player deep (behind the ball).",
+        "In the first rounds a goal counts double when the scoring team had a player in each of the three lanes.",
+        "Swap jobs every round so each player tries tall, wide and deep.",
+        "The coach restarts with a new ball after every goal."
+      ],
+      "coaching_points": [
+        "Make the pitch big when we have the ball: tall, wide and deep.",
+        "Look up: where is the space with nobody in it?",
+        "Wide players stay near the side line until the ball comes their way.",
+        "Deep player: stay behind the ball so the dribbler can play it back to you."
+      ],
+      "progression": [
+        "Remove the lanes and the bonus; the players find the shape on their own.",
+        "Play 5 v 5 with a goalkeeper for each team, still tall, wide and deep."
+      ],
+      "regression": [
+        "Play 3 v 3 with three jobs: tall, wide and deep.",
+        "Walk the shape first without opponents, then add them."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "attacking_shape",
+          "relation": "width",
+          "text": "When we have the ball, the players use the field from one side to the other in more of these moments than in this match."
+        },
+        {
+          "detector": "attacking_shape",
+          "relation": "depth",
+          "text": "When we have the ball, the team is spread from deep to tall in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "low",
+        "contact": "no_tackle"
+      },
+      "source_reference": [
+        {
+          "source": "USS-F-4V4",
+          "relation": "inspired_by",
+          "note": "Inspired by the U.S. Soccer 4v4 1-2-1 diamond, where each player carries height, width or depth; PitchIQ adaptation, not a verbatim federation session."
+        },
+        {
+          "source": "CS-GAMES",
+          "relation": "inspired_by",
+          "note": "The four-goal game idea comes from the Canada Soccer grassroots game examples; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
     },
     {
-      "id": "back_line_coordination",
-      "name": "Back-line stepping and dropping",
-      "purpose": "Keep the defenders level and moving together, stepping up and dropping as one line.",
-      "tacticalIssue": "An uneven back line, with single defenders clearly deeper or higher than the rest, or a high line with a large gap to midfield.",
-      "recommendationKeys": ["back_line_coordination", "line_height_gap"],
-      "patterns": ["uneven_back_line", "high_line_with_gap"],
-      "players": {"min": 6, "max": 10, "note": "A back line of 3 to 5, a goalkeeper and 2 to 4 attackers or servers."},
-      "durationMinutes": {"min": 15, "max": 20, "note": "Repetitions of 1 to 2 minutes with rest in between."},
-      "area": "The width between the penalty-area lines extended to about 40 m, from the goal line to about 35 m out.",
-      "equipment": ["Flat markers for three reference lines across the area", "A goal and a goalkeeper", "Bibs for the attackers or servers", "Balls with the coach and the servers"],
-      "setup": "Mark three lines across the area with flat markers as reference heights. The coach or the servers start with the ball about 30 m from goal.",
-      "instructions": [
-        "Unopposed first: when the coach holds the ball with nobody near it the line drops together; when a server closes the coach down the line steps up together.",
-        "Add servers who move the ball; the line keeps its shape and height on the organiser's calls.",
-        "Add two attackers who try to run in behind; the line holds or drops together.",
-        "Finish with a live 4 v 3 or 4 v 4 towards the goal; the defenders score by dribbling over a target line."
+      "drill_id": "l1_go_to_the_ball_corridor",
+      "name": "Go to the Ball Corridor Game",
+      "development_level": [
+        1,
+        2
       ],
-      "coachingPoints": [
-        "Look across and stay level with the defender next to you.",
-        "One organiser calls step and drop; the whole line moves on the call.",
-        "Stand side-on, ready to move forwards or backwards.",
-        "Keep a short distance to the midfield in front when the line steps up."
-      ],
-      "progressions": [
-        "Remove the reference markers.",
-        "Add a midfield line of 2 or 3 in front of the defenders so that the back line also keeps its distance to them."
-      ],
-      "regressions": [
-        "Walk through the calls without a ball, holding hands or a rope between the defenders to feel the line.",
-        "Use a line of 2 or 3 before the full back line.",
-        "Keep the reference markers and let the defenders stop on them after every call."
-      ],
-      "successCriteria": [
-        "In the exercise: on each call the whole line steps or drops together and stays level, with no defender more than about 2 m out of line, in at least 4 of 5 repetitions.",
-        "Back in the match: the coaching report's back-line spread stays at or below the professional median it states, with no spell beyond its upper level."
-      ],
-      "variations": {
-        "development": "Use a line of 3, walk through the calls and keep the reference markers throughout.",
-        "competitive": "Use the team's own back line and goalkeeper; the goalkeeper helps the organiser with the calls.",
-        "advanced": "Work on the cues for stepping and dropping (pressure on the ball or none, the direction of the ball) at match tempo."
+      "age": {
+        "min": "U6",
+        "max": "Adult"
       },
-      "safety": [
-        "Warm up before the first repetition and raise the intensity gradually.",
-        "Keep the area behind the defenders clear of balls and markers, because they move backwards.",
-        "Adapt the repetitions and rest to the players' age and fitness, with drinks breaks."
+      "primary_skill": "pressure_and_cover",
+      "secondary_skills": [],
+      "related_tactical_detector": [
+        "pressure_cover"
       ],
-      "source": "Conventional back-line unit exercise (stepping and dropping on calls)."
+      "recommended_format": [
+        "4v4",
+        "5v5",
+        "7v7"
+      ],
+      "player_count": {
+        "min": 4,
+        "max": 16,
+        "note": "1 v 1 in each corridor, then 2 v 2 across two joined corridors; the others queue and rotate."
+      },
+      "equipment": [
+        "Flat markers for the corridors",
+        "Bibs",
+        "One ball per attacker"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 20.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 8.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Long thin corridors about 8 m wide side by side, each with a start line and an end line. The attacker scores by dribbling over the far end line and stopping the ball there."
+      },
+      "duration": {
+        "minutes": 12,
+        "blocks": "6 rounds of 1 min with 1 min rest"
+      },
+      "instructions": [
+        "The attacker starts at one end with the ball; the defender starts at the other end, facing them.",
+        "On the coach's call the defender goes quickly to the ball, slows down when close and tries to stop the attacker from reaching the end line.",
+        "The defender gets a point for stopping the attacker or for poking the ball out of the corridor; there is no tackling or sliding.",
+        "Swap roles every round so everybody attacks and defends.",
+        "Then join two corridors and play 2 v 2: the player nearest the ball goes to it and the other one helps."
+      ],
+      "coaching_points": [
+        "Go to the ball quickly, then take small steps when you get close.",
+        "Stand a little sideways with bent knees, ready to move.",
+        "Watch the ball and try to make the dribbler slow down or go sideways."
+      ],
+      "progression": [
+        "Start the defender further away, so they have to arrive quickly.",
+        "Make the corridor wider, so the attacker has more room to get past."
+      ],
+      "regression": [
+        "The attacker walks with the ball in the first round.",
+        "Make the corridor narrower, so the defender has less space to look after."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "pressure_cover",
+          "relation": "pressure",
+          "text": "When the other team has the ball in our half, the nearest player goes to the ball in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "low",
+        "contact": "no_tackle"
+      },
+      "source_reference": [
+        {
+          "source": "EF-PRACTISING-PRESS",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the corridor game in the FA practising the press session (week one of the 7-11s programme); not a verbatim federation session."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
     },
     {
-      "id": "support_angles",
-      "name": "Support angles possession game",
-      "purpose": "Offer a nearby team-mate an option at a good angle and distance, and adjust it as the ball moves.",
-      "tacticalIssue": "Players left far from their nearest team-mates, with nobody close enough to help.",
-      "recommendationKeys": ["support_distances"],
-      "patterns": ["player_isolation"],
-      "players": {"min": 5, "max": 14, "note": "Start with 4 v 2 or 5 v 2 in a square (4 v 1 or 5 v 1 at development level); progress to 4 v 4 with 3 neutral players; a larger squad works in two groups."},
-      "durationMinutes": {"min": 15, "max": 20, "note": "Blocks of 2 to 3 minutes; change the defenders often."},
-      "area": "A square of about 12 x 12 m for the first stage (about 15 x 15 m at development level) and about 30 x 25 m for the second stage.",
-      "equipment": ["Flat markers or cones for the square and the larger area", "Bibs in three colours (two teams and the neutral players)", "Balls around the outside"],
-      "setup": "Mark the square for the first stage and the larger area for the second stage (see Area). Bibs for both teams and for the neutral players; balls around the outside.",
-      "instructions": [
-        "Stage one: 4 v 2 (or 5 v 2) keep-ball in the square. The players with the ball keep it away from the 2 defenders; a defender who wins it swaps with the player who lost it.",
-        "Stage two: 4 v 4 with 3 neutral players who play for the team with the ball, in the larger area.",
-        "A set number of passes in a row (for example 8) scores a point.",
-        "If needed, limit the players to two touches so that the players without the ball have to move to help."
+      "drill_id": "l2_pressure_and_cover_3v2",
+      "name": "3v2 Pressure and Cover",
+      "development_level": [
+        2,
+        3
       ],
-      "coachingPoints": [
-        "Angle: move so that no defender stands between you and the ball.",
-        "Distance: close enough for a safe pass, far enough to have time and space.",
-        "Open body shape, ready to play forward or to switch the play.",
-        "Check around you before receiving, and move again after passing."
-      ],
-      "progressions": [
-        "Make the area smaller or reduce the touches allowed.",
-        "Add target players at each end so that support also has to create forward options."
-      ],
-      "regressions": [
-        "Play 4 v 1 or 5 v 1 with unlimited touches in a bigger square.",
-        "Let the defender only intercept, not tackle, so the players have time to adjust their angles.",
-        "Freeze after each pass and let the players check that they can see the ball past the defenders."
-      ],
-      "successCriteria": [
-        "In the game: the team with the ball reaches the passes-in-a-row target (for example 8) at least once in each block of 2 to 3 minutes, with a supporting player available at an angle on at least 4 of 5 passes.",
-        "Back in the match: the coaching report shows no player with more spells far from the nearest team-mate than professional players of the same unit."
-      ],
-      "variations": {
-        "development": "Start with 4 v 1 or 5 v 1 in the bigger square with unlimited touches.",
-        "competitive": "Play 4 v 4 with 3 neutral players, two touches and a passes-in-a-row target.",
-        "advanced": "Add directional targets so that the support angles also open forward options."
+      "age": {
+        "min": "U8",
+        "max": "Adult"
       },
-      "safety": [
-        "Warm up before the first block and raise the intensity gradually.",
-        "Keep spare balls outside the square and stop play when a loose ball enters it.",
-        "Adapt the area, block length and rest to the players' age and fitness, with drinks breaks."
+      "primary_skill": "pressure_and_cover",
+      "secondary_skills": [],
+      "related_tactical_detector": [
+        "pressure_cover"
       ],
-      "source": "Conventional rondo-style keep-ball progressing to a possession game with neutral players."
+      "recommended_format": [
+        "4v4",
+        "5v5",
+        "7v7",
+        "9v9"
+      ],
+      "player_count": {
+        "min": 5,
+        "max": 12,
+        "note": "3 attackers v 2 defenders; extra players wait in pairs and swap in after each attack."
+      },
+      "equipment": [
+        "Cones or flat markers",
+        "Two small goals or cone gates",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 22.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 16.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "The defenders guard two small goals or cone gates on one end line; the attackers start from the other end line. Mark a cover line about 6 m in front of the goals for the first rounds."
+      },
+      "duration": {
+        "minutes": 15,
+        "blocks": "5 rounds of 2 min with 1 min rest and questions"
+      },
+      "instructions": [
+        "Three attackers play against two defenders toward the defenders' goals; each attack starts with a ball from the coach.",
+        "The defender nearest the ball gives pressure: goes to the ball, slows down and stops the dribbler from going forward.",
+        "The second defender gives cover: behind and to the side of the first defender, between the ball and the goal.",
+        "If the defenders get the ball, they score by dribbling over the far end line.",
+        "There is no tackling in this game: defenders block the way, poke the ball away or intercept it.",
+        "Swap the defenders after every two attacks so everybody defends."
+      ],
+      "coaching_points": [
+        "Pressure: the closest defender goes, slows down and stands side-on.",
+        "Cover: behind the first defender at an angle, close enough to help and far enough to see the ball and the goal.",
+        "When the ball moves the jobs can change: the new closest player gives pressure and the other one covers.",
+        "Ask the players: who gave pressure, who gave cover, and where did the cover stand?"
+      ],
+      "progression": [
+        "Remove the cover line and let the defenders find the cover position.",
+        "Add a third defender who starts a few seconds late from behind the attackers.",
+        "Widen the pitch so the cover player has to move across as the ball moves."
+      ],
+      "regression": [
+        "Play 2 v 1 with the cover line in front of the goals.",
+        "The attackers walk with the ball in the first round.",
+        "Narrow the pitch so the cover position is easier to find."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "pressure_cover",
+          "relation": "cover",
+          "text": "When a defender goes to the ball, a teammate gives cover behind in more of these moments than in this match."
+        },
+        {
+          "detector": "pressure_cover",
+          "relation": "pressure",
+          "text": "When the other team has the ball in our third, someone gives pressure in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "low",
+        "contact": "no_tackle"
+      },
+      "source_reference": [
+        {
+          "source": "EF-SWIFT-SUPPORT",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the FA swift support session for 7-11s (one player presses while a teammate covers); not a verbatim federation session."
+        },
+        {
+          "source": "EF-PRACTISING-PRESS",
+          "relation": "inspired_by",
+          "note": "The approach cues (side-on, slow down when close) follow the FA practising the press session; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
     },
     {
-      "id": "formation_shadow_play",
-      "name": "Formation shadow play with conditioned opposition",
-      "purpose": "Rehearse the team's shape and each player's position relative to the ball and to team-mates, first without and then with opponents.",
-      "tacticalIssue": "A team shape that is hard to read or changes without a plan, with unclear positions and responsibilities.",
-      "recommendationKeys": ["formation_organisation", "compact_shape"],
-      "patterns": ["formation_change", "formation_ambiguous"],
-      "players": {"min": 7, "max": 22, "note": "The team in its match format (from 7-a-side at development level), plus opponents or servers for the later stages."},
-      "durationMinutes": {"min": 20, "max": 25, "note": "About 8 minutes of shadow play, then 12 to 15 minutes against conditioned opposition."},
-      "area": "Half to three quarters of a pitch for the team's match format.",
-      "equipment": ["Flat markers for reference points of the lines", "Balls with the coach at the side", "Bibs for the opponents or servers", "A goal with a goalkeeper"],
-      "setup": "Use half to three quarters of a pitch with the team set up in its match formation. The coach keeps balls at the side; flat markers can show reference points for the lines.",
-      "instructions": [
-        "Shadow play without opponents: the coach places or plays a ball into an area of the pitch and every player adjusts their position to the ball while keeping their distances.",
-        "Move the ball around the pitch (wide, central, deep and high) and freeze to check each player's position.",
-        "Add a few opponents or servers with restrictions (for example two touches, or only some of them may move) so the shape is tested at low intensity.",
-        "Finish with a conditioned game against full opposition, with one freeze per block to review the shape."
+      "drill_id": "l2_someone_stays_back_4v4",
+      "name": "4v4 Someone Stays Back",
+      "development_level": [
+        2,
+        3
       ],
-      "coachingPoints": [
-        "Every player knows their position relative to the ball, the nearest team-mates and the goal.",
-        "The lines keep their distances and move together.",
-        "When players swap positions, the nearest player fills the space and calls it.",
-        "The organisers at the back and in midfield keep the shape with clear calls."
-      ],
-      "progressions": [
-        "Let the coach call a change to the team's second shape and check how quickly the players reorganise.",
-        "Remove the restrictions on the opponents step by step."
-      ],
-      "regressions": [
-        "Walk through the positions with markers on each player's reference point.",
-        "Rehearse one line at a time, then two, then the whole team.",
-        "Keep the ball still in each area until every player has found their position."
-      ],
-      "successCriteria": [
-        "In the exercise: at each freeze every player stands in the planned position relative to the ball and team-mates in at least 4 of 5 freezes.",
-        "Back in the match: the coaching report reads the shape as the planned formation, and most players keep one role at least three quarters of the time."
-      ],
-      "variations": {
-        "development": "Use the team's small-sided format and a simple shape, walk through the positions and use markers as reference points.",
-        "competitive": "Rehearse the team's main formation and the change to its alternative shape on the coach's call.",
-        "advanced": "Rehearse planned rotations and their triggers, and check that cover and balance are kept."
+      "age": {
+        "min": "U8",
+        "max": "Adult"
       },
-      "safety": [
-        "Shadow play is contact-free; keep the opposed stages at a controlled intensity.",
-        "Warm up before the session and raise the intensity gradually.",
-        "Adapt the duration and rest to the players' age and fitness, with drinks breaks."
+      "primary_skill": "someone_back_when_attacking",
+      "secondary_skills": [
+        "wide_defender_support"
       ],
-      "source": "Conventional shadow play followed by a conditioned game."
+      "related_tactical_detector": [
+        "behind_ball",
+        "wide_defender_advance"
+      ],
+      "recommended_format": [
+        "4v4",
+        "5v5",
+        "7v7",
+        "9v9"
+      ],
+      "player_count": {
+        "min": 8,
+        "max": 14,
+        "note": "4 v 4 with or without goalkeepers; extra players rotate in every round."
+      },
+      "equipment": [
+        "Flat markers",
+        "Two goals (small goals, or goals with goalkeepers)",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 30.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 20.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Mark a safety line across the pitch about 8 m in front of each goal."
+      },
+      "duration": {
+        "minutes": 16,
+        "blocks": "4 rounds of 3 min with 1 min rest"
+      },
+      "instructions": [
+        "Play 4 v 4 to goals. When your team has the ball, at least one player stays behind the ball in your own half, ready to protect your goal.",
+        "A goal does not count if the scoring team had nobody behind the ball when the shot was taken.",
+        "Anyone can be the player who stays back: when a back player dribbles forward, a teammate takes the place behind.",
+        "When the other team has the ball, one player guards the safety line in front of your goal while the others defend.",
+        "Rotate so everyone has a turn as the player who stays back."
+      ],
+      "coaching_points": [
+        "Before you join the attack, look back: is someone staying behind the ball?",
+        "If a teammate dribbles forward from the back, take their place behind the ball.",
+        "The player who stays back stands in the middle, behind the ball, where they can reach either side.",
+        "Staying back is a job, not a punishment: praise the player who does it well."
+      ],
+      "progression": [
+        "Remove the safety line and let the players judge where to stay.",
+        "Give the defending team a bonus point for a quick attack that starts while the other team has nobody behind the ball.",
+        "Play 5 v 5 with goalkeepers and keep one player behind the ball at all times when attacking."
+      ],
+      "regression": [
+        "Name the player who stays back for each round instead of letting the players decide.",
+        "Make the pitch shorter so the player who stays back is closer to the play."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "behind_ball",
+          "relation": "behind_ball",
+          "text": "When we have the ball beyond our own third, someone stays behind the ball in more of these moments than in this match."
+        },
+        {
+          "detector": "wide_defender_advance",
+          "relation": "channel_cover",
+          "text": "When a back player moves forward, a teammate fills the space behind in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "low",
+        "contact": "no_tackle"
+      },
+      "source_reference": [
+        {
+          "source": "EF-SUPPORT-LINE",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the England supporting on the line session (one player keeps a line in front of goal; the page states no age); not a verbatim federation session."
+        },
+        {
+          "source": "USS-F-7V7",
+          "relation": "inspired_by",
+          "note": "In the U.S. Soccer 7v7 1-3-2-1 the back players also support the attack; PitchIQ adds the stay-back job."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
     },
     {
-      "id": "off_ball_movement",
-      "name": "Position-specific off-ball movement",
-      "purpose": "Practise the movements each position makes without the ball to stay connected to team-mates and to offer support between and behind the lines.",
-      "tacticalIssue": "A large distance between midfield and the front line, or players separated from their team-mates.",
-      "recommendationKeys": ["support_distances", "compact_lines"],
-      "patterns": ["space_between_midfield_and_forwards", "player_isolation"],
-      "players": {"min": 5, "max": 12, "note": "Groups by position (for example 2 midfielders and 2 forwards) with a server, then passive defenders."},
-      "durationMinutes": {"min": 15, "max": 20, "note": "Pattern repetitions of 1 to 2 minutes per group, changing positions."},
-      "area": "A third of a pitch, the full width, with a goal at one end.",
-      "equipment": ["Mannequins or flat markers standing in for opponents", "Balls with the servers near the halfway line", "Bibs for the passive defenders", "A goal with a goalkeeper"],
-      "setup": "Use a third of a pitch with mannequins or flat markers standing in for opponents. Servers with balls start near the halfway line.",
-      "instructions": [
-        "Unopposed patterns: a server plays to a midfielder; one forward comes short to support and the other runs in behind, and the midfielders adjust their distance.",
-        "Repeat on both sides and through the middle, changing which player comes short and which runs.",
-        "Add passive defenders, then active defenders, so that the timing of the movements is tested.",
-        "Finish with a small game in which a goal counts double when it follows a supporting movement between the lines."
+      "drill_id": "l3_defensive_recovery_5v4",
+      "name": "5v4 Defensive Recovery",
+      "development_level": [
+        3,
+        4
       ],
-      "coachingPoints": [
-        "Timing: move when the team-mate on the ball can see you and is ready to play.",
-        "Check over your shoulder before moving, then move away from opponents into space.",
-        "Stay connected: forwards and midfielders stay close enough to help each other.",
-        "Make the movement clear with a call or a gesture."
-      ],
-      "progressions": [
-        "Let the defenders choose where to stand so that the players read which movement is on.",
-        "Limit the touches of the players receiving between the lines."
-      ],
-      "regressions": [
-        "Walk through each pattern with the coach naming who comes short and who runs.",
-        "Use one forward and one midfielder before adding the second pair.",
-        "Keep the mannequins in fixed places until the timing is right."
-      ],
-      "successCriteria": [
-        "In the exercise: the supporting player is open and in view of the team-mate on the ball when the ball is played, in at least 4 of 5 repetitions.",
-        "Back in the match: the coaching report's distance from midfield to the front line stays at or below the professional median it states."
-      ],
-      "variations": {
-        "development": "Keep the patterns simple (one player comes short, one runs) and unopposed for longer.",
-        "competitive": "Use the team's own positions and patterns at match tempo with passive defenders.",
-        "advanced": "Add opposition cues (where the defenders stand and how high their line is) that decide which movement to make."
+      "age": {
+        "min": "U11",
+        "max": "Adult"
       },
-      "safety": [
-        "Warm up before the first pattern and raise the intensity gradually.",
-        "Use soft mannequins or flat markers as opponents and keep them clear of the running lines.",
-        "Adapt the repetitions and rest to the players' age and fitness, with drinks breaks."
+      "primary_skill": "pressure_and_cover",
+      "secondary_skills": [
+        "back_line_coordination"
       ],
-      "source": "Conventional unit pattern play progressing from unopposed to opposed."
+      "related_tactical_detector": [
+        "pressure_cover",
+        "defensive_spacing"
+      ],
+      "recommended_format": [
+        "7v7",
+        "9v9",
+        "11v11"
+      ],
+      "player_count": {
+        "min": 9,
+        "max": 16,
+        "note": "5 attackers v 4 defenders, plus a goalkeeper if available; extra players rotate in as the defender who recovers."
+      },
+      "equipment": [
+        "Flat markers and two start cones",
+        "One goal with a goalkeeper",
+        "Two small target goals",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 40.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 35.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "About half of a 9v9 pitch: a goal with a goalkeeper on one end line and two small target goals on the far line. Two start cones about 10 m behind the play mark where the recovering defender starts."
+      },
+      "duration": {
+        "minutes": 18,
+        "blocks": "4 blocks of 3 min with 1 to 2 min rest; feedback in the rests"
+      },
+      "instructions": [
+        "Five attackers attack the goal against three defenders in place and one defender who starts from a cone behind the play.",
+        "On the coach's call the recovering defender runs back by the shortest route to get between the ball and the goal.",
+        "The defenders in place delay: the nearest one gives pressure, the next one covers, and the others stay compact in front of the goal until the recovering defender arrives.",
+        "If the defenders get the ball, they score by dribbling or playing it into a small target goal.",
+        "Start the recovering defender from different cones so the route back changes.",
+        "The ball is in play in every repetition; avoid plain running without the ball."
+      ],
+      "coaching_points": [
+        "Recover by the shortest route toward your own goal, then look up to find the ball.",
+        "Delay first: the nearest defender slows the attack while teammates get into position.",
+        "Cover at an angle behind the first defender, not too close to them.",
+        "Keep the gaps between defenders small on the ball side; the far side can be wider.",
+        "Ask: where could you have stood to help if the attack had come to your side?"
+      ],
+      "progression": [
+        "Start the recovering defender further away or later.",
+        "Play 6 v 5 with two recovering defenders starting from different cones.",
+        "Add a second, wider target for the attackers so the back players have to shift across together."
+      ],
+      "regression": [
+        "Play 4 v 3 with the recovering defender starting closer.",
+        "Limit the attackers to three touches each so the defenders have more time."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "pressure_cover",
+          "relation": "cover",
+          "text": "When the other team has the ball in our half, cover behind the nearest defender is there in more of these moments than in this match."
+        },
+        {
+          "detector": "pressure_cover",
+          "relation": "goal_side",
+          "text": "When the other team has the ball, our players get goal-side of the ball in more of these moments than in this match."
+        },
+        {
+          "detector": "defensive_spacing",
+          "relation": "lateral_gap",
+          "text": "When the other team has the ball, the ball-side gaps between our back players stay small in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "EF-COVER-RECOVER",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation built on the England description of covering and recovering (shortest route back, between ball and goal); not a verbatim federation session."
+        },
+        {
+          "source": "EF-COVER-RECOVER-SESSION",
+          "relation": "inspired_by",
+          "note": "Delay and recover ideas from the England cover and recover session for 12-16s; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l3_wide_and_deep_9v9_shape",
+      "name": "9v9 Wide and Deep Shape",
+      "development_level": [
+        3
+      ],
+      "age": {
+        "min": "U11",
+        "max": "Adult"
+      },
+      "primary_skill": "spread_when_attacking",
+      "secondary_skills": [
+        "wide_defender_support"
+      ],
+      "related_tactical_detector": [
+        "attacking_shape",
+        "wide_defender_advance"
+      ],
+      "recommended_format": [
+        "9v9"
+      ],
+      "player_count": {
+        "min": 14,
+        "max": 20,
+        "note": "Two teams of 7 to 9 with goalkeepers; with fewer players play 7 v 7 with the same jobs."
+      },
+      "equipment": [
+        "Flat markers for three lanes and the thirds",
+        "Two goals with goalkeepers",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 64.0,
+          "unit": "m",
+          "scaleWith": "format"
+        },
+        "width": {
+          "value": 46.0,
+          "unit": "m",
+          "scaleWith": "format"
+        },
+        "notes": "Use the team's normal 9v9 pitch, marked into three lanes along its length and split into thirds."
+      },
+      "duration": {
+        "minutes": 20,
+        "blocks": "Shadow play 4 min, then 3 game blocks of 4 min with 1 to 2 min rest"
+      },
+      "instructions": [
+        "Shadow play: the team moves the ball through its 1-3-2-3 shape without opponents; at every change of direction everyone adjusts to stay tall, wide and deep.",
+        "Game: 9 v 9. When your team has the ball, keep at least one player in each lane and players in at least two of the thirds.",
+        "When a back player moves forward with the ball, a teammate fills the space behind in that lane.",
+        "A goal counts double when the scoring team had a player in all three lanes.",
+        "Rotate positions between blocks so the players learn the jobs of the back block and the front block."
+      ],
+      "coaching_points": [
+        "Width: the wide players hold their lane until the ball comes their way.",
+        "Depth: someone stays behind the ball to support and to protect the goal.",
+        "Height: the player furthest forward keeps the opponents deep.",
+        "When a back player goes forward, who fills the space behind? Agree it before the block starts."
+      ],
+      "progression": [
+        "Remove the lanes so the players judge the width on their own.",
+        "Limit the touches of the team with the ball so it has to find the open lane quickly."
+      ],
+      "regression": [
+        "Play 7 v 7 with jobs given by the coach.",
+        "Make the shadow play longer and add one passive defender at a time."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "attacking_shape",
+          "relation": "channels",
+          "text": "When we have the ball, the left, the middle and the right are all used in more of these moments than in this match."
+        },
+        {
+          "detector": "attacking_shape",
+          "relation": "depth",
+          "text": "When we have the ball, the team is spread from deep to tall in more of these moments than in this match."
+        },
+        {
+          "detector": "wide_defender_advance",
+          "relation": "channel_cover",
+          "text": "When a wide defender moves forward, the space behind in that lane is filled in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "USS-F-9V9",
+          "relation": "inspired_by",
+          "note": "Inspired by the U.S. Soccer 9v9 1-3-2-3 (two blocks of four); PitchIQ adaptation, not a verbatim federation session."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l4_defensive_unit_6v6",
+      "name": "6v6 Defensive Unit Coordination",
+      "development_level": [
+        4,
+        5
+      ],
+      "age": {
+        "min": "U12",
+        "max": "Adult"
+      },
+      "primary_skill": "wide_defender_support",
+      "secondary_skills": [
+        "someone_back_when_attacking",
+        "back_line_coordination"
+      ],
+      "related_tactical_detector": [
+        "wide_defender_advance",
+        "behind_ball",
+        "defensive_spacing"
+      ],
+      "recommended_format": [
+        "7v7",
+        "9v9",
+        "11v11"
+      ],
+      "player_count": {
+        "min": 14,
+        "max": 16,
+        "note": "6 v 6 plus goalkeepers on half of an 11v11 pitch; extra players rotate in every block."
+      },
+      "equipment": [
+        "Flat markers for three channels",
+        "Two goals with goalkeepers",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 50.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 45.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Half of an 11v11 pitch split into three channels along its length. Each team has a back group of three and a front group of three."
+      },
+      "duration": {
+        "minutes": 20,
+        "blocks": "4 blocks of 4 min with 1 min rest"
+      },
+      "instructions": [
+        "Play 6 v 6 with goalkeepers; each team sets up with three at the back and three in front.",
+        "A wide back player may join the attack only when the nearest central back has moved across toward that side and one teammate holds behind the ball.",
+        "If the defending team gets the ball while the attacking team has fewer than two players behind it, a goal from that move counts double.",
+        "When the ball goes wide, the defending back group shifts across together and keeps the middle protected.",
+        "Swap roles between blocks so each player has a turn as the wide back player."
+      ],
+      "coaching_points": [
+        "Before the wide back goes forward: who covers the space behind, and who holds behind the ball?",
+        "Central back: move across toward the ball side as the wide back advances.",
+        "Protect the middle first, then shift across as a unit when the ball goes wide.",
+        "Near enough to step in, far enough apart to support each other: keep the gaps small on the ball side."
+      ],
+      "progression": [
+        "Remove the condition and let the players decide when the wide back can go.",
+        "Add a neutral player for the team with the ball, so the defenders are outnumbered.",
+        "Widen the pitch to make the shift across longer."
+      ],
+      "regression": [
+        "Play 4 v 4 plus goalkeepers with one wide back and one central back per team.",
+        "Walk through the shift and the cover once without opponents before each block."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "wide_defender_advance",
+          "relation": "channel_cover",
+          "text": "When a wide defender advances, the channel behind is covered in more of these moments than in this match."
+        },
+        {
+          "detector": "behind_ball",
+          "relation": "behind_ball",
+          "text": "When we have the ball beyond our own third, enough players stay behind the ball in more of these moments than in this match."
+        },
+        {
+          "detector": "defensive_spacing",
+          "relation": "lateral_gap",
+          "text": "When the other team has the ball, the ball-side gaps in our back line stay small in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "EF-PROG-PRESS-COVER",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation drawing on the England press and cover programme for 12-16s (protect the middle, shift across as a unit); not a verbatim federation session."
+        },
+        {
+          "source": "USS-GM-U1314",
+          "relation": "inspired_by",
+          "note": "Built around the U.S. Soccer U13-U14 attacking principle of keeping a defensive shape behind the ball; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l4_cover_the_line_3v3",
+      "name": "3v3 Cover the Line",
+      "development_level": [
+        4,
+        5
+      ],
+      "age": {
+        "min": "U12",
+        "max": "Adult"
+      },
+      "primary_skill": "pressure_and_cover",
+      "secondary_skills": [
+        "far_side_protection"
+      ],
+      "related_tactical_detector": [
+        "pressure_cover",
+        "weak_side_balance"
+      ],
+      "recommended_format": [
+        "4v4",
+        "5v5",
+        "7v7",
+        "9v9",
+        "11v11"
+      ],
+      "player_count": {
+        "min": 6,
+        "max": 12,
+        "note": "3 v 3, or 2 v 2 to start, on parallel small pitches; rotate teams every round."
+      },
+      "equipment": [
+        "Flat markers",
+        "Cones for the end lines",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 18.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 14.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Parallel pitches about 18 x 14 m with a covering line about 9 m in front of each end line. A team scores by dribbling over the other team's end line."
+      },
+      "duration": {
+        "minutes": 15,
+        "blocks": "5 rounds of 2 min with 1 min rest"
+      },
+      "instructions": [
+        "Play 3 v 3; a team scores by dribbling over the other team's end line.",
+        "The team without the ball keeps one player on or behind its covering line at all times.",
+        "One defender presses the ball at an angle, the second covers behind, and the third stays goal-side on the side away from the ball, ready for a switch.",
+        "Rotate who guards the covering line after every goal."
+      ],
+      "coaching_points": [
+        "One presses, one covers: two defenders do not go to the ball at the same time.",
+        "Press at an angle to steer the attacker toward the side line.",
+        "The far-side defender stays goal-side of the ball in the half away from it, so a switch can be met.",
+        "As the ball moves the jobs change: the new nearest player presses and the others adjust."
+      ],
+      "progression": [
+        "Remove the covering line condition.",
+        "Make the pitch wider so the far-side job matters more.",
+        "Add a time limit for the defending team to stop the attack."
+      ],
+      "regression": [
+        "Play 2 v 2 with one presser and one cover on the line.",
+        "Make the pitch narrower so the cover distance is shorter."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "pressure_cover",
+          "relation": "cover",
+          "text": "When our nearest defender presses, a teammate covers behind in more of these moments than in this match."
+        },
+        {
+          "detector": "weak_side_balance",
+          "relation": "weak_side",
+          "text": "When the ball is wide, someone protects the far side goal-side of the ball in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "EF-COVER-RECOVER-SESSION",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the cover the line game in the England cover and recover session for 12-16s; not a verbatim federation session."
+        },
+        {
+          "source": "EF-SUPPORT-LINE",
+          "relation": "inspired_by",
+          "note": "The covering line also appears in the England supporting on the line session; PitchIQ adaptation."
+        },
+        {
+          "source": "EF-PCB25",
+          "relation": "inspired_by",
+          "note": "The press, cover and far-side jobs follow the England press, cover and balance session for 12-16s; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l5_transition_and_cover_8v8",
+      "name": "8v8 Transition and Cover",
+      "development_level": [
+        5,
+        6
+      ],
+      "age": {
+        "min": "U13",
+        "max": "Adult"
+      },
+      "primary_skill": "wide_defender_support",
+      "secondary_skills": [
+        "someone_back_when_attacking"
+      ],
+      "related_tactical_detector": [
+        "wide_defender_advance",
+        "behind_ball"
+      ],
+      "recommended_format": [
+        "9v9",
+        "11v11"
+      ],
+      "player_count": {
+        "min": 18,
+        "max": 22,
+        "note": "8 v 8 with goalkeepers; with more players add up to four neutral players who join the team with the ball."
+      },
+      "equipment": [
+        "Flat markers for three channels",
+        "Two goals with goalkeepers",
+        "Bibs in three colours",
+        "Spare balls around the pitch"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 60.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 45.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "About two thirds of an 11v11 pitch with three channels marked along its length. Spare balls at the sides for quick restarts."
+      },
+      "duration": {
+        "minutes": 24,
+        "blocks": "4 blocks of 5 min with 1 min rest"
+      },
+      "instructions": [
+        "Play 8 v 8 with goalkeepers; each team defends with a back line of three or four, with a wide defender on each side.",
+        "Wide defenders are encouraged to advance with the ball, but the team keeps at least two outfield players behind the ball whenever it is in the final third.",
+        "When a wide defender advances, a central midfielder drops or the nearest central defender shifts across to cover the channel behind.",
+        "If the ball changes team while the attacking side had fewer than two players behind it, a goal from that move counts double.",
+        "After each goal the coach restarts with a ball to the team that conceded, so the switch of jobs is quick."
+      ],
+      "coaching_points": [
+        "Plan the cover while you attack, in case the ball changes team: who looks after the advanced wide defender's channel?",
+        "Central midfielder: drop toward the back line on the side the wide defender left.",
+        "Nearest central defender: shift toward the touchline as the wide defender advances.",
+        "A teammate taking the wide defender's place is a valid answer too: name it when you see it."
+      ],
+      "progression": [
+        "Add four neutral players who play for the team with the ball, so the defending team is outnumbered.",
+        "A goal scored within five seconds of the ball changing team counts double."
+      ],
+      "regression": [
+        "Play 6 v 6 with one wide defender per team.",
+        "Freeze play when a wide defender advances and ask who covers before restarting."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "wide_defender_advance",
+          "relation": "channel_cover",
+          "text": "When a wide defender advances, the channel behind is covered by a teammate in more of these moments than in this match."
+        },
+        {
+          "detector": "behind_ball",
+          "relation": "behind_ball",
+          "text": "When we have the ball in the final third, enough players stay behind the ball in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "EF-RR26",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the England read and react session for 12-16s (5v5 plus four neutral players, quick goals after the ball changes team score more); not a verbatim federation session."
+        },
+        {
+          "source": "USS-GM-U1516",
+          "relation": "inspired_by",
+          "note": "The U.S. Soccer U15-U16 game model asks for a defensive shape behind the ball while attacking; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l5_shift_nine_zones",
+      "name": "8v8 Shift Across Nine Zones",
+      "development_level": [
+        5,
+        6
+      ],
+      "age": {
+        "min": "U13",
+        "max": "Adult"
+      },
+      "primary_skill": "far_side_protection",
+      "secondary_skills": [
+        "back_line_coordination",
+        "pressure_and_cover"
+      ],
+      "related_tactical_detector": [
+        "weak_side_balance",
+        "defensive_spacing",
+        "pressure_cover"
+      ],
+      "recommended_format": [
+        "9v9",
+        "11v11"
+      ],
+      "player_count": {
+        "min": 16,
+        "max": 22,
+        "note": "8 v 8 with goalkeepers; with fewer players, 6 v 6 on a smaller pitch."
+      },
+      "equipment": [
+        "Flat markers to divide the pitch into nine zones",
+        "Two goals with goalkeepers",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 60.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 45.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Divide the pitch into nine zones: three channels across and three thirds along. The zone lines help players see the ball side and the far side."
+      },
+      "duration": {
+        "minutes": 24,
+        "blocks": "4 blocks of 5 min with 1 to 2 min rest"
+      },
+      "instructions": [
+        "Play 8 v 8. When the defending team stops an attack and scores from that move, the goal is worth the number of its players who were in the zone where it got the ball.",
+        "When the ball is in a wide channel, the defending team keeps at least one player goal-side of the ball in the far half.",
+        "The back line shifts across with the ball and keeps the gaps on the ball side small.",
+        "The nearest player presses the ball and a teammate covers behind.",
+        "The coach freezes play now and then to check the ball side, the far side and the cover."
+      ],
+      "coaching_points": [
+        "Shift as a unit toward the ball; protect the middle first.",
+        "Far side: stay goal-side and inside, close enough to meet a switch of play.",
+        "Ball side: keep the gaps between the back players small, especially with an opponent between them.",
+        "Pressing all game is not possible: when the press is off, delay and keep the shape."
+      ],
+      "progression": [
+        "Lock players into their thirds so the shift has to happen as a unit.",
+        "Give the attacking team a floating player."
+      ],
+      "regression": [
+        "Play 6 v 6 on a smaller pitch.",
+        "Shadow the shift first: the coach moves the ball by hand and the team adjusts."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "weak_side_balance",
+          "relation": "weak_side",
+          "text": "When the ball is in a wide channel, a defender is goal-side in the far half in more of these moments than in this match."
+        },
+        {
+          "detector": "defensive_spacing",
+          "relation": "lateral_gap",
+          "text": "When the other team has the ball, the ball-side gaps in our back line stay small in more of these moments than in this match."
+        },
+        {
+          "detector": "pressure_cover",
+          "relation": "cover",
+          "text": "When the nearest defender presses, cover behind is there in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "EF-PZ",
+          "relation": "adapted_from",
+          "note": "PitchIQ adaptation of the nine-zone game in the England pressing zones session for 12-16s; not a verbatim federation session."
+        },
+        {
+          "source": "EF-PCB25",
+          "relation": "inspired_by",
+          "note": "Ball-side and far-side jobs from the England press, cover and balance session for 12-16s; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l6_rest_defence_9v9",
+      "name": "9v9 Rest-Defence Structure",
+      "development_level": [
+        6,
+        7
+      ],
+      "age": {
+        "min": "U15",
+        "max": "Adult"
+      },
+      "primary_skill": "someone_back_when_attacking",
+      "secondary_skills": [
+        "wide_defender_support"
+      ],
+      "related_tactical_detector": [
+        "behind_ball",
+        "wide_defender_advance"
+      ],
+      "recommended_format": [
+        "9v9",
+        "11v11"
+      ],
+      "player_count": {
+        "min": 18,
+        "max": 22,
+        "note": "9 v 9 with goalkeepers; with 18 players use 8 v 8 plus goalkeepers."
+      },
+      "equipment": [
+        "Flat markers",
+        "Two goals with goalkeepers",
+        "Bibs",
+        "Balls"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 75.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 55.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "About three quarters of an 11v11 pitch. Mark a line across the end of each team's defensive third."
+      },
+      "duration": {
+        "minutes": 25,
+        "blocks": "Walk-through 5 min, then 4 blocks of 4 min with 1 min rest"
+      },
+      "instructions": [
+        "Rest defence is a PitchIQ term here: the players who stay behind the ball while the team attacks, counted against the opponents' forwards who stay up.",
+        "Each team attacks with a rest-defence group of at least two outfield players behind the ball, taken from the back line and the central midfielders.",
+        "The defending team leaves two forwards up; the rest-defence group keeps at least one more player behind the ball than those forwards.",
+        "If the defending team gets the ball and scores within ten seconds, the goal counts double.",
+        "The coach can freeze an attack to check the rest-defence group: who is in it, where they stand and which channel is open."
+      ],
+      "coaching_points": [
+        "The central midfielders and the back line agree the rest-defence group before the wide defenders go forward.",
+        "Stay compact behind the ball and close to the forwards left up, so a quick ball forward can be stopped.",
+        "When a wide defender advances, the nearest central defender moves across or a midfielder drops into that channel.",
+        "Judge it against the plan: a team that attacks with more players accepts fewer behind; agree the number for each match."
+      ],
+      "progression": [
+        "The defending team leaves three forwards up, so the rest-defence group has to grow.",
+        "Add a target player for the defending team on the halfway line."
+      ],
+      "regression": [
+        "Name the rest-defence group for each block.",
+        "Play 7 v 7 with one forward left up."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "behind_ball",
+          "relation": "rest_margin",
+          "text": "When we attack, the players behind the ball outnumber the opponents' forwards left up in more of these moments than in this match."
+        },
+        {
+          "detector": "wide_defender_advance",
+          "relation": "channel_cover",
+          "text": "When a wide defender advances, the channel behind is covered in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "high",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "USS-GM-U17",
+          "relation": "pitchiq_original",
+          "note": "PitchIQ original session, informed by the U.S. Soccer U17+ game model idea of preparing a defensive shape behind the ball while attacking."
+        },
+        {
+          "source": "EF-DLE-ROLES",
+          "relation": "inspired_by",
+          "note": "The jobs (who presses, who covers, who stays back) follow the England defending roles and responsibilities article; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l6_block_compactness_shadow",
+      "name": "Block Compactness: Shadow to 8v8",
+      "development_level": [
+        6,
+        7
+      ],
+      "age": {
+        "min": "U15",
+        "max": "Adult"
+      },
+      "primary_skill": "back_line_coordination",
+      "secondary_skills": [
+        "far_side_protection",
+        "pressure_and_cover"
+      ],
+      "related_tactical_detector": [
+        "defensive_spacing",
+        "weak_side_balance",
+        "pressure_cover"
+      ],
+      "recommended_format": [
+        "11v11"
+      ],
+      "player_count": {
+        "min": 14,
+        "max": 22,
+        "note": "Eleven players against a coach-moved ball first, then 8 v 8 with goalkeepers; with fewer players, 7 v 7."
+      },
+      "equipment": [
+        "Flat markers for thirds and channels",
+        "Two goals with goalkeepers",
+        "Bibs",
+        "Balls",
+        "Mannequins or poles (optional)"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 80.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "width": {
+          "value": 60.0,
+          "unit": "m",
+          "scaleWith": "age"
+        },
+        "notes": "Most of an 11v11 pitch marked in thirds and three channels. In the shadow phase the coach places a ball by hand to set each picture."
+      },
+      "duration": {
+        "minutes": 25,
+        "blocks": "Shadow phase 7 min, then 3 game blocks of 5 min with 1 min rest"
+      },
+      "instructions": [
+        "Shadow phase: on the coach's call the team sets a low, mid or high block and moves as the coach places the ball.",
+        "On every move the player nearest the ball steps out, the next ones cover, and the far side tucks in.",
+        "Game phase: 8 v 8. The defending team scores a bonus point when it stops an attack while its back line is level and close to the midfield line.",
+        "Change the block height between blocks so the team practises each one."
+      ],
+      "coaching_points": [
+        "Short distances between the lines; the back line moves up and down together.",
+        "A compact block accepts space out wide: protect the middle and shift when the ball goes wide.",
+        "Far side: tuck in toward the middle but stay ready for a switch of play.",
+        "Block height is a plan, not a verdict: agree when to step up and when to drop."
+      ],
+      "progression": [
+        "Give the attacking team a floating player in the middle third.",
+        "Add a target on each wing so the attacking team can switch play quickly."
+      ],
+      "regression": [
+        "Run the shadow phase again with the coach calling out each picture.",
+        "Play 7 v 7 on a narrower pitch."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "defensive_spacing",
+          "relation": "unit_gap",
+          "text": "When the other team has the ball, the gap between the back line and midfield stays within range in more of these moments than in this match."
+        },
+        {
+          "detector": "defensive_spacing",
+          "relation": "line_evenness",
+          "text": "When the other team has the ball, the back line is level in more of these moments than in this match."
+        },
+        {
+          "detector": "weak_side_balance",
+          "relation": "weak_side",
+          "text": "When the ball is wide, the far side is protected goal-side in more of these moments than in this match."
+        },
+        {
+          "detector": "pressure_cover",
+          "relation": "cover",
+          "text": "When the nearest player steps out to the ball, cover behind is there in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "moderate",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "EF-PHASES",
+          "relation": "inspired_by",
+          "note": "Inspired by the England description of game phases with low, mid and high blocks; PitchIQ adaptation, not a verbatim federation session."
+        },
+        {
+          "source": "EF-DLE-ROLES",
+          "relation": "inspired_by",
+          "note": "Step out, cover and far-side jobs from the England defending roles article (senior-team inspired); PitchIQ adaptation."
+        },
+        {
+          "source": "EF-DLE-WIDE",
+          "relation": "inspired_by",
+          "note": "That a compact block accepts space out wide comes from the England article on defending wide areas; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
+    },
+    {
+      "drill_id": "l7_tactical_phase_11v11",
+      "name": "11v11 Tactical Phase Training",
+      "development_level": [
+        7
+      ],
+      "age": {
+        "min": "U17",
+        "max": "Adult"
+      },
+      "primary_skill": "someone_back_when_attacking",
+      "secondary_skills": [
+        "wide_defender_support",
+        "back_line_coordination"
+      ],
+      "related_tactical_detector": [
+        "behind_ball",
+        "wide_defender_advance",
+        "defensive_spacing"
+      ],
+      "recommended_format": [
+        "11v11"
+      ],
+      "player_count": {
+        "min": 18,
+        "max": 24,
+        "note": "11 v 11 when the squad allows; otherwise 11 v 7 phase play with the coach starting each phase."
+      },
+      "equipment": [
+        "Full pitch with flat markers for the channels",
+        "Two goals with goalkeepers",
+        "Bibs",
+        "Balls",
+        "Video clips or notes from the last match"
+      ],
+      "field_setup": {
+        "length": {
+          "value": 100.0,
+          "unit": "m",
+          "scaleWith": "format"
+        },
+        "width": {
+          "value": 64.0,
+          "unit": "m",
+          "scaleWith": "format"
+        },
+        "notes": "Full pitch. Each phase restarts from agreed positions so every rehearsal begins from the same picture."
+      },
+      "duration": {
+        "minutes": 30,
+        "blocks": "3 phases of 8 min with 2 min reviews"
+      },
+      "instructions": [
+        "Phase one: build up and attack in the agreed shape against seven defenders; the full-backs advance and the agreed rest-defence group stays behind the ball.",
+        "Phase two: the coach plays a new ball to the defending side the moment an attack ends, and the attacking side re-forms its block.",
+        "Phase three: 11 v 11 to the match plan; the coach freezes play to review the spacing between the holding midfielder and the near central back.",
+        "Choose the phase that starts each block from the analysis of the team's last match."
+      ],
+      "coaching_points": [
+        "Agree the rest-defence numbers for the declared style: a possession plan may leave fewer behind than a plan built on quick breaks.",
+        "Rotations are welcome when the vacated slot is filled; name who fills it.",
+        "Keep the holding midfielder and the near central back close together when a full-back has gone.",
+        "Show clips from the last match to set the picture the team wants."
+      ],
+      "progression": [
+        "Rehearse against the next opponent's usual shape from the match analysis.",
+        "Start phases from awkward pictures, for example both full-backs high."
+      ],
+      "regression": [
+        "Walk each phase first without opponents.",
+        "Use 11 v 7 for every phase until the shape holds."
+      ],
+      "success_signals_next_match": [
+        {
+          "detector": "behind_ball",
+          "relation": "rest_margin",
+          "text": "When we attack, the rest-defence margin (a PitchIQ measure) is positive in more of these moments than in this match."
+        },
+        {
+          "detector": "wide_defender_advance",
+          "relation": "channel_cover",
+          "text": "When a full-back advances, the vacated channel is covered in more of these moments than in this match."
+        },
+        {
+          "detector": "defensive_spacing",
+          "relation": "unit_gap",
+          "text": "When the other team has the ball, the gap between the back line and midfield stays within range in more of these moments than in this match."
+        }
+      ],
+      "safety": {
+        "heading": "none",
+        "physicalLoad": "high",
+        "contact": "normal"
+      },
+      "source_reference": [
+        {
+          "source": "UEFA-PRO",
+          "relation": "pitchiq_original",
+          "note": "PitchIQ original session, informed by the match-plan and match-analysis competences in the course description; no course content is reproduced."
+        },
+        {
+          "source": "USS-GM-U17",
+          "relation": "inspired_by",
+          "note": "The U.S. Soccer U17+ game model idea of a defensive shape behind the ball while attacking; PitchIQ adaptation."
+        }
+      ],
+      "origin": "PITCHIQ-PROPOSAL"
     }
   ]
 }
