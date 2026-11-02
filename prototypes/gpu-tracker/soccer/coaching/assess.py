@@ -684,7 +684,8 @@ def _clear_moments(detector, o, c, moments_of, index, players, step, params, set
     if not in_view:
         return []
     ph = o['phase']
-    if ph['state'] != _relevant_phase(detector) or ph['nearChange'] or ph['source'] not in ('possession-4', 'coach'):
+    if ph['state'] != _relevant_phase(detector) or ph['nearChange'] or \
+            ph['source'] not in ('possession-4', 'possession-amateur', 'coach'):
         return []
     sig = o['intentSignals']
     if sig['recovering'] or sig['interchange'] or sig['formationChangeNear']:
@@ -1030,7 +1031,11 @@ def _finding(detector, family, items, ctx, allow_moments=True):
     # Findings resting on coach-marked phases say so (user decision 1): the phase source of all its opportunities.
     srcs = {x['phase']['source'] for x in all_opps} - {'none'}
     if srcs:
-        meas['phaseSource'] = 'coach' if srcs == {'coach'} else ('mixed' if 'coach' in srcs else 'possession-4')
+        # (the image-based estimate is used only outside the coach's spans once they agreed: possession-amateur, or
+        # mixed-amateur beside coach-marked opportunities; possession-4 and it never name one run together)
+        image = 'possession-amateur' in srcs
+        meas['phaseSource'] = 'coach' if srcs == {'coach'} else (
+            ('mixed-amateur' if image else 'mixed') if 'coach' in srcs else ('possession-amateur' if image else 'possession-4'))
     prim = _modal((x['actors']['primary'] or [None])[0] for x in cited)
     if detector == 'pressure_cover' and CX.valid_id(meas.get('fdId')):
         prim = meas['fdId']             # the presser at the moment the text links (critic B-3)
@@ -1058,7 +1063,7 @@ def _finding(detector, family, items, ctx, allow_moments=True):
                 break
     zones = _modal(x['ball']['zone'] for x in cited)
     chans = _modal(x['ball']['channel'] for x in cited)
-    estimated = any(x['phase']['source'] == 'possession-4' for x in cited) if cited else True
+    estimated = any(x['phase']['source'] in ('possession-4', 'possession-amateur') for x in cited) if cited else True
     quality = [x['quality'] for x in cited] or [x['quality'] for x in all_opps]
     vis = _worst([q['visibility'] for q in quality], VISIBILITY_RANK) or 'none'
     balls = {q['ball'] for q in quality}
@@ -1302,11 +1307,11 @@ def _next_objective(findings, priorities, profile, shown=None, unsupported=()):
 
 
 def phase_available(obs):
-    """Did anything name who had the ball on this run: the possession estimate (possession-4 available) or coach-marked
-    spans that name a team?"""
+    """Did anything name who had the ball on this run: the possession estimate (possession-4 available, or the
+    image-based estimate used once the coach's marks agreed) or coach-marked spans that name a team?"""
     pq = (obs.get('timeline') or {}).get('phaseQuality') or {}
     coach = pq.get('coach') or {}
-    return bool(pq.get('available')) or float(coach.get('own') or 0.0)+float(coach.get('opp') or 0.0) > 0.0
+    return SI.engine_named(pq) or float(coach.get('own') or 0.0)+float(coach.get('opp') or 0.0) > 0.0
 
 
 def unavailable(obs, profile):
@@ -1341,7 +1346,7 @@ def assess(obs, roles, profile, t0=None, t1=None):
            'moments': moments, 'index': index, 'players': int(str(timeline.get('format') or '11v11').split('v')[0]),
            'too_little': {}, 'by_id': {}, 'settle': settle_index(timeline)}
     pq = timeline.get('phaseQuality') or {}
-    marked = SI.one_sided(pq.get('coach'), bool(pq.get('available')), team)
+    marked = SI.one_sided(pq.get('coach'), SI.engine_named(pq), team)
     available = phase_available(obs)
     findings, statuses = [], []
     shown, unsupported = {}, set()

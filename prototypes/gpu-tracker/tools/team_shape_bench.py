@@ -1,7 +1,8 @@
 """Team shape analytics (soccer/team_shape.py) on full-pitch tracking data: the Metrica Sports sample games turned into
 a PitchIQ result, with or without a simulated broadcast camera.
 
-    python tools/team_shape_bench.py --data DIR --game 1 [--rate 5] [--camera WIDTH] [--minutes M] [--no-switch] [--json out]
+    python tools/team_shape_bench.py --data DIR --game 1 [--rate 5] [--camera WIDTH] [--noise-tau S] [--max-missing N]
+                                     [--seed K] [--minutes M] [--no-switch] [--json out]
 
 DIR holds the Metrica sample data (Sample_Game_<n>_RawTrackingData_{Home,Away}_Team.csv; 25 Hz, positions 0..1 on a
 105 x 68 m pitch, the goalkeeper in each team's first column, NaN while a player is off the pitch). Home is team A, away
@@ -15,11 +16,20 @@ estimates with soccer/imputation.py, as the pipeline does. The full-coverage run
 sample the camera run measured, the error of its width / depth against the true value is reported by status
 (complete, reliable, partial), which is what the coverage rules promise.
 
+The noise is correlated in time, as a tracked position's error is (camera_error: sigma 0.5-2 m per axis, an AR(1)
+process with a --noise-tau time constant, 1.5 s by default). --noise-tau 0 draws it independently on every sample, as
+the bench did until 2026-10-18: steps of several metres every 0.2 s, which analytics._breaks takes for registration
+jumps, so TeamShape dropped about half of the players in view as glitches and the coverage measured the noise model.
+--max-missing N classifies formation windows missing up to N players of the lineup (team_shape.FORMATION_MAX_MISSING
+otherwise), to measure what a looser rule would label.
+
 Reported: per team the width / depth / line aggregates, the formation periods per half and the share of time per label,
-how often the label changes, and with --camera the errors by status and the formation coverage.
+how often the label changes, and with --camera what was inside the window against what TeamShape kept, the errors by
+status, the formation agreement and the camera run's own formation periods.
 """
 import argparse
 import json
+import math
 import sys
 import time
 from collections import Counter
@@ -33,6 +43,33 @@ sys.path.insert(0, str(ROOT/'tools'))
 
 from soccer import analytics, imputation, team_shape  # noqa: E402
 from metrica_bench import LENGTH, WIDTH, load_team, simulate_view  # noqa: E402
+
+NOISE_SIGMA = (.5, 2.0)       # m: the simulated camera's position error per axis, drawn per sighting
+NOISE_TAU = 1.5               # s: its time constant (AR(1)); 0 draws it independently on every sample
+SIGHTING_GAP = 2.0            # s: a player out of view longer than this comes back as a new sighting (a new sigma)
+
+
+def camera_error(state, pid, t, rng, tau=NOISE_TAU):
+    """The simulated camera's position error (x, y metres) of a player in view at time t: sigma * z, with z a unit
+    AR(1) process per player (z_t = phi z_s + sqrt(1 - phi^2) n, phi = exp(-(t - s) / tau), s the player's previous
+    sample in view, which is exact across the time out of view) and sigma ~ U(NOISE_SIGMA) per sighting. Every sample's
+    error has the same distribution as with tau = 0, which draws sigma and the error anew on every sample (the bench
+    before 2026-10-18, with the same random numbers, so its results reproduce)."""
+    if not tau:
+        sigma = rng.uniform(*NOISE_SIGMA)
+        return rng.normal(0, sigma), rng.normal(0, sigma)
+    n = rng.normal(size=2)
+    prev = state.get(pid)
+    if prev is None:
+        z, sigma = n, rng.uniform(*NOISE_SIGMA)
+    else:
+        s, z, sigma = prev
+        phi = math.exp(-(t-s)/tau)
+        z = phi*z+math.sqrt(1-phi*phi)*n
+        if t-s > SIGHTING_GAP:
+            sigma = rng.uniform(*NOISE_SIGMA)
+    state[pid] = (t, z, sigma)
+    return float(sigma*z[0]), float(sigma*z[1])
 
 
 def load_game(data, game):
@@ -54,8 +91,9 @@ def _periods(path):
     return np.array(out)
 
 
-def build_result(teams, periods, rate=5.0, minutes=None, camera=None, seed=0):
-    """A PitchIQ-style result: frames, match roster, roster slots, goal ends, pitch size."""
+def build_result(teams, periods, rate=5.0, minutes=None, camera=None, seed=0, noise_tau=NOISE_TAU):
+    """A PitchIQ-style result: frames, match roster, roster slots, goal ends, pitch size. With a camera, only the
+    players inside its window, each with camera_error added."""
     times, _, ball, _ = teams['A']
     step = max(1, int(round(25/rate)))
     keep = np.arange(0, len(times), step)
@@ -66,6 +104,7 @@ def build_result(teams, periods, rate=5.0, minutes=None, camera=None, seed=0):
         x0, x1, ymax = simulate_view(times, ball, camera, 1.5, seed=seed)
         view = (x0, x1)
     rng = np.random.default_rng(seed)
+    noise = {}
     frames = []
     seen = {}
     for k in keep:
@@ -80,8 +119,8 @@ def build_result(teams, periods, rate=5.0, minutes=None, camera=None, seed=0):
                 if view is not None and not (view[0][k] <= x <= view[1][k]):
                     continue
                 if view is not None:
-                    sigma = rng.uniform(.5, 2.0)
-                    x, y = x+rng.normal(0, sigma), y+rng.normal(0, sigma)
+                    ex, ey = camera_error(noise, pid, float(times[k]), rng, noise_tau)
+                    x, y = x+ex, y+ey
                 nx, ny = float(x/LENGTH), float(y/WIDTH)
                 if not (-.02 <= nx <= 1.02 and -.02 <= ny <= 1.02):
                     continue
@@ -113,6 +152,23 @@ def build_result(teams, periods, rate=5.0, minutes=None, camera=None, seed=0):
     second = keep[periods[keep] == 2]
     switch = float(times[second[0]]) if len(second) else None
     return result, ends, switch
+
+
+def in_view(teams, result, camera, seed=0):
+    """What the simulated camera had in its window, before noise and before TeamShape's rules, per team over the
+    result's frames: the mean of outfield players inside it, the share of frames with every outfield player on the
+    pitch inside it, and with at least team_shape.RELIABLE_MIN inside it."""
+    times, _, ball, _ = teams['A']
+    x0, x1, _ = simulate_view(times, ball, camera, 1.5, seed=seed)
+    k = np.array([f['frame'] for f in result['frames']], np.int64)
+    out = {}
+    for team in ('A', 'B'):
+        pos = teams[team][1][k, 1:]
+        on = np.isfinite(pos[:, :, 0])
+        inside = (on & (pos[:, :, 0] >= x0[k, None]) & (pos[:, :, 0] <= x1[k, None])).sum(axis=1)
+        out[team] = {'meanPlayers': round(float(inside.mean()), 2), 'fullShare': round(float((inside == on.sum(axis=1)).mean()), 3),
+                     'reliableShare': round(float((inside >= team_shape.RELIABLE_MIN).mean()), 3)}
+    return out
 
 
 def summarize(shape, team, switch):
@@ -170,7 +226,8 @@ def errors_by_status(ref_shape, cam_shape, team):
 def formation_agreement(ref_shape, cam_shape, team):
     """How the camera run's formation labels compare with the full-coverage run, window by window: the share of windows
     labelled, and among the labelled ones the agreement (exact, and within a related pair such as 3-5-2 / 5-3-2), broken
-    down by the number of players the camera run had in the window."""
+    down by the number of players the camera run had in the window; `ownAgreement` is the window's own best fit against
+    the reference label, before the stabilization lends it its neighbours' label."""
     ref_w = {w['centre']: lab for w, lab in zip(ref_shape.shapes[team]['windows'], ref_shape.shapes[team]['labels'])}
     by = {}
     total = labelled = agree = related = 0
@@ -186,13 +243,15 @@ def formation_agreement(ref_shape, cam_shape, team):
         rel = same or frozenset((truth, lab)) in team_shape.RELATED
         agree += same
         related += rel
-        k = by.setdefault(int(w.get('players') or 0), [0, 0, 0])
+        k = by.setdefault(int(w.get('players') or 0), [0, 0, 0, 0])
         k[0] += 1
         k[1] += same
         k[2] += rel
+        k[3] += w.get('best') == truth
     return {'windows': total, 'labelledShare': round(labelled/max(total, 1), 3), 'agreement': round(agree/max(labelled, 1), 3),
             'agreementRelated': round(related/max(labelled, 1), 3),
-            'byPlayers': {n: {'windows': v[0], 'agreement': round(v[1]/v[0], 3), 'agreementRelated': round(v[2]/v[0], 3)} for n, v in sorted(by.items())}}
+            'byPlayers': {n: {'windows': v[0], 'agreement': round(v[1]/v[0], 3), 'agreementRelated': round(v[2]/v[0], 3),
+                              'ownAgreement': round(v[3]/v[0], 3)} for n, v in sorted(by.items())}}
 
 
 def main(argv=None):
@@ -202,9 +261,14 @@ def main(argv=None):
     ap.add_argument('--rate', type=float, default=5.0)
     ap.add_argument('--minutes', type=float)
     ap.add_argument('--camera', type=float, help='simulated camera window length in metres')
+    ap.add_argument('--noise-tau', type=float, default=NOISE_TAU, help='time constant (s) of the camera noise; 0 = independent per sample')
+    ap.add_argument('--max-missing', type=int, help='formation windows may miss this many players (default team_shape.FORMATION_MAX_MISSING)')
+    ap.add_argument('--seed', type=int, default=0, help="the camera's pans and noise")
     ap.add_argument('--no-switch', action='store_true', help='do not tell the analysis that the sides swap at half time')
     ap.add_argument('--json')
     a = ap.parse_args(argv)
+    if a.max_missing is not None:
+        team_shape.FORMATION_MAX_MISSING = a.max_missing
     report = {}
     for game in a.game:
         t0 = time.perf_counter()
@@ -215,12 +279,15 @@ def main(argv=None):
         entry = {'goalEnds': ends, 'switchAt': switch, 'seconds': round(time.perf_counter()-t0, 1),
                  'A': summarize(shape, 'A', switch), 'B': summarize(shape, 'B', switch)}
         if a.camera:
-            cam_result, _, _ = build_result(teams, periods, a.rate, a.minutes, camera=a.camera)
+            cam_result, _, _ = build_result(teams, periods, a.rate, a.minutes, camera=a.camera, seed=a.seed, noise_tau=a.noise_tau)
             cam = team_shape.TeamShape(cam_result, settings=settings)
-            entry['camera'] = {'width': a.camera}
+            view = in_view(teams, cam_result, a.camera, a.seed)
+            entry['camera'] = {'width': a.camera, 'noiseTau': a.noise_tau, 'seed': a.seed, 'formationMaxMissing': team_shape.FORMATION_MAX_MISSING}
             for team in ('A', 'B'):
-                entry['camera'][team] = {'errors': errors_by_status(shape, cam, team), 'formation': formation_agreement(shape, cam, team),
-                                         'coverage': cam.report(team)['coverage']}
+                rep = cam.report(team)
+                entry['camera'][team] = {'inView': view[team], 'coverage': rep['coverage'], 'excluded': rep['excluded'],
+                                         'errors': errors_by_status(shape, cam, team), 'formation': formation_agreement(shape, cam, team),
+                                         'halves': summarize(cam, team, switch)}
         report[f'game{game}'] = entry
         print(json.dumps(entry, indent=1, default=float), flush=True)
     if a.json:

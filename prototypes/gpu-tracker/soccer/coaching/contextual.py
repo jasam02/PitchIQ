@@ -347,7 +347,7 @@ class _StoredView:
         self.frame = np.asarray(s['frame'], np.int64)
         n = len(self.t)
         self.phase = np.asarray(s['phase'], dtype='<U7')
-        self.source = np.asarray(s['source'], dtype='<U12')
+        self.source = np.asarray(s['source'], dtype='<U20')     # situations.SOURCE_DTYPE
         self.span = np.asarray(s['span'], float)
         # within 2 s of a coach-marked change between the two teams' spans (situations.coachNear; fix round 1, S-16)
         self.near = np.asarray(s['near'], bool) if len(s.get('near') or ()) == n else np.zeros(n, bool)
@@ -401,8 +401,9 @@ def _phase_of(view, idx):
     src = str(view.source[idx[0]])
     state = str(view.phase[idx[0]])
     span = float(np.min(view.span[idx])) if state in ('own', 'opp') else None
-    return {'state': state, 'source': src if src in ('possession-4', 'coach') else 'none',
-            'estimated': src == 'possession-4', 'spanSeconds': None if span is None else round(span, 2),
+    return {'state': state, 'source': src if src in ('possession-4', 'possession-amateur', 'coach') else 'none',
+            'estimated': src in ('possession-4', 'possession-amateur'),
+            'spanSeconds': None if span is None else round(span, 2),
             'nearChange': bool(np.any(view.near[idx]))}
 
 

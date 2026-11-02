@@ -387,7 +387,11 @@ POSS_RE = re.compile(r"\b(our|the other team's) possession\b(\s*\([^)]*\))?", re
 PHASE_LOOSE = re.compile(r"\b(?:when|while) (?:we|they|the other team) (?:were )?"
                          r"(?:attack(?:ed|ing)|defend(?:ed|ing))\b"
                          r"|\b(?:in|out of) possession\b|\b(?:when|while) they had the ball\b", re.I)
-QUALIFIER = {'possession-4': '(estimated)', 'coach': '(coach-marked)', 'mixed': '(estimated, partly coach-marked)'}
+QUALIFIER = {'possession-4': '(estimated)', 'coach': '(coach-marked)', 'mixed': '(estimated, partly coach-marked)',
+             # the image-based estimate (soccer/possession_amateur.py), used only outside the coach's spans once they
+             # agreed (situations.image_use), so always beside coach-marked time on the run
+             'possession-amateur': '(estimated, image-based)',
+             'mixed-amateur': '(estimated, image-based, partly coach-marked)'}
 # A headline or short label of a finding whose phase is unknown never says who had the ball (critic B-4: "Attacking
 # shape" / "Team shape with the ball" on 28 of 28 amateur findings while the report said the phase was unknown).
 PHASE_CLAIM_RE = re.compile(r'\bwith the ball\b|\battack(?:s|ing|ed|ers?)?\b|\bin attack\b|\bin possession\b', re.I)
@@ -2436,8 +2440,9 @@ def _source_for(code, level, profile):
 
 
 def phase_source_of(finding, opportunities=None):
-    """Where the finding's phase came from: 'possession-4' (estimated), 'coach' (coach-marked spans), 'mixed', or
-    'none' when no phase is named. Read from its opportunities (obs/roles files) when given, else from
+    """Where the finding's phase came from: 'possession-4' (estimated), 'possession-amateur' (the image-based
+    estimate), 'coach' (coach-marked spans), 'mixed' / 'mixed-amateur' (coach-marked and estimated), or 'none' when no
+    phase is named. Read from its opportunities (obs/roles files) when given, else from
     context.phase.estimated (a coach-marked phase is not an estimate)."""
     state = finding['context']['phase']['state']
     if state not in ('own', 'opp'):
@@ -2456,6 +2461,8 @@ def phase_source_of(finding, opportunities=None):
         return 'possession-4' if finding['context']['phase']['estimated'] else 'coach'
     if srcs == {'coach'}:
         return 'coach'
+    if 'possession-amateur' in srcs:
+        return 'mixed-amateur' if 'coach' in srcs else 'possession-amateur'
     return 'mixed' if 'coach' in srcs else 'possession-4'
 
 

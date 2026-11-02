@@ -984,11 +984,15 @@ corrections apply. The README's "Team shape analytics" section has the rules; th
   Metrica game 1; a Viterbi change-point search (switch penalty 0.45 of relative fit error, an "unclear" state at
   0.42) brought that to 3 / 0 (team A) and 3 / 9 (team B) changes per half. On the held-out game 2: team A 4-4-2 for
   61% / 59% of the halves (5 / 4 changes), team B 4-4-2 for 93% / 66% (0 / 1 change).
-- **Coverage before claims.** With a simulated 60 m side camera on Metrica a whole team was in view only about 0.1% of
-  the time; those complete and reliable widths and depths were within about 2 m (90th percentile 1.3 to 3.5 m), while
-  partial ones were 3.4 to 5.4 m short on average (90th percentile 11 to 16 m), so partial values are labelled, drawn
-  faded and kept out of the averages. Formation windows with 8 of 10 players agreed with the full-coverage label only
-  25 to 56% of the time, so a window may miss at most one player of the lineup.
+- **Coverage before claims.** Corrected on 2026-10-18 (see "Team shape bench: correlated camera noise" below): the
+  numbers first written here ("a whole team in view only about 0.1% of the time", "8-player windows agreed 25 to 56%")
+  measured the bench's noise model, not the camera. With a simulated 60 m side camera on Metrica game 1 and position
+  errors that persist (AR(1), 1.5 s), a sample is complete 55% of the time (63% in play); complete and reliable widths
+  and depths are off by about 1.1 m (median; 90th percentile 2.7 to 3.4 m), while partial widths are 2 to 4 m short on
+  average (90th percentile 8 to 11 m) and partial depths 7 to 11 m short (19 to 23 m), so partial values are labelled,
+  drawn faded and kept out of the averages. A formation window may miss at most one player of the lineup: an 8-player
+  window's own fit matched the full-coverage label 21 to 38% of the time, and allowing it would mostly lend it its
+  neighbours' label.
 - **No silent side changes.** Without the half-time swap set, the second half of game 2 is reported as "direction
   uncertain" for 99.9% of its time and no defensive line is measured there. The first version still measured 0 to 3%
   of that half from the wrong goal: windows where the goalkeeper's side and the team ordering disagreed were
@@ -1340,6 +1344,79 @@ event log byte-identical. The stabilizer never mixes identities.
   the tracker).
 - Tests: 653 pass (1 skipped). Nothing committed.
 
+## Team shape bench: correlated camera noise (2026-10-18)
+
+**The artifact.** A coaching audit found that `tools/team_shape_bench.py --camera` added independent noise of 0.5-2 m
+to every 5 Hz sample. Consecutive samples then differ by metres, which `analytics._breaks` (faster than 12 m/s over at
+least 2 m) takes for registration jumps, and `TeamShapeData._fill` drops the short runs between them as glitches:
+116,715 / 118,776 positions of team A / B on game 1. The 60 m window held 8.4 of the 10 outfield players on average
+(9.0 in play) and the whole team 60% of the time (70% in play); TeamShape kept 4.3 of them. Every camera number of the
+2026-10-17 section and of the README came from that noise model.
+
+**The change.** `camera_error` makes a player's error sigma * z, with z a unit AR(1) process (time constant
+`--noise-tau`, 1.5 s by default, exact across the time out of view) and sigma ~ U(0.5, 2) m per sighting (drawn again
+after 2 s out of view). Each sample's error keeps the old distribution; only its persistence changed. `--noise-tau 0`
+reproduces the old runs exactly (the same random numbers: 4.34 / 4.23 players kept, the same spike counts and errors).
+Also new: `--max-missing`, `--seed`, and per team what the window held (`inView`), the exclusions and the camera
+run's own formation periods. Three tests in `tests/test_tools.py`. The tracking, `team_shape` and `analytics` code is
+unchanged (one comment rewritten).
+
+**Why 1-2 s.** On real results TeamShape drops as spikes 0% of the observed outfield positions of the broadcast 0-60 s,
+1.9% / 4.7% of amateur 3 118-182 s and 12-13% of Veo 1-31 s (about two players observed per sample). On game 1's first
+20 minutes with the 60 m camera: white noise 49% / 51%, AR(1) with 1 s 2.3% / 2.6%, 1.5 s 0.7%, 2 s 0.3%.
+
+**Re-measured on game 1** (game 2 not run: it stays held out). Team A / B, all samples (in play in brackets):
+
+| noise | kept by TeamShape (in the window: 8.39 / 8.35) | complete | >= 8 kept | spikes dropped |
+|---|---|---|---|---|
+| white (the old bench) | 4.34 / 4.23 (4.53 / 4.44) | 0.1% / 0.1% | 4.6% / 4.3% | 116,715 / 118,776 |
+| AR(1) 1 s | 8.18 / 8.12 | 46.9% / 47.0% | 73.0% / 73.2% | 5,123 / 5,789 |
+| AR(1) 1.5 s | 8.31 / 8.27 (8.88 / 8.90) | 54.8% / 55.8% (63.4% / 62.9%) | 74.0% / 74.5% (82.0% / 83.4%) | 1,333 / 1,458 |
+| AR(1) 2 s | 8.34 / 8.30 | 56.7% / 58.0% | 74.3% / 74.7% | 454 / 512 |
+
+The window held the whole team 60.3% / 60.7% of the samples (69.9% / 68.9% in play). A 45 m camera (1.5 s): 7.2 in the
+window, the whole team 34% / 36%, complete 31% / 34%.
+
+Width and depth against full coverage by status, 60 m, 1.5 s (share of samples, median and 90th percentile absolute
+error, mean error, metres):
+
+| status | width | depth |
+|---|---|---|
+| complete | 54.8% / 55.8%; 1.12 / 1.18, 2.90 / 2.99; +0.09 / +0.11 | the same samples; 1.16 / 1.17, 2.98 / 3.09; +0.61 / +0.50 |
+| reliable | 7.8% / 9.0%; 1.04 / 1.23, 2.71 / 3.04; +0.16 / +0.27 | 1.6% / 1.1%; 1.14 / 1.27, 3.19 / 3.34; +0.52 / +0.64 |
+| partial | 23.2% / 18.9%; 2.25 / 1.85, 10.75 / 8.80; -3.52 / -2.54 | 29.4% / 26.8%; 8.97 / 7.74, 20.07 / 20.21; -9.73 / -9.14 |
+| unavailable | 14.2% / 16.3% | 14.2% / 16.3% |
+
+Over 1 to 2 s and the 45 m camera: complete and reliable 90th percentiles 2.7 to 3.4 m; partial widths 2.0 to 3.8 m
+short on average (90th percentile 8.0 to 11.2 m), partial depths 7.0 to 10.7 m short (18.6 to 22.6 m). The white noise
+had put partial depths at 3.4 to 3.7 m short: it removed players at random, while a window removes one end of the
+team. Complete depths read 0.5 m long on average: the noise widens the extremes.
+
+Formations (the shipped rule, at most one missing; 60 m, 1.5 s, camera seeds 0-3): 64-67% of the windows labelled
+(white noise: 0.9-1.3%), 85-94% (A) and 65-73% (B) of them as with full coverage; 1 s and 2 s alike (A 92% / 83%, B
+68% / 73%). Read against the base rates: with full coverage team A is 4-4-2 for 96% of its labelled time, team B
+3-5-2 for 60%.
+
+**FORMATION_MAX_MISSING stays 1.** Paired runs with 2 (16 team runs: 60 m 1.5 s seeds 0-3, 1 s and 2 s seed 0, 45 m
+seeds 0-1):
+
+- 40 to 117 eight-player windows per run. Their stabilized label agreed with full coverage 54-94% of the time (median
+  71%; nine-player windows 55-100%, median 74%), but their own best fit only 21-38% (nine players 31-52%, ten 47-62%):
+  the label is mostly lent by the neighbours.
+- Labelled windows +3.5 to +5.2 points at 60 m, +8 to +10 at 45 m. Agreement up in 13 of 16 runs (by up to 15 points,
+  mean +4.3), down in 3 (by at most 1 point). Much of the gain is on windows labelled anyway (team B's ten-player
+  windows +4 to +14 points at 60 m): fewer coverage gaps cut the stabilization short (a gap ends a Viterbi run).
+- Label changes per match at 60 m: A 0-2 -> 1-3, B 2-5 -> 4-9 (full coverage: 3 and 12).
+- Time called clear (seeds 0 and 1): A 7.8% -> 4.2% and 6.3% -> 2.7%, B 5.6% -> 3.8% and 7.9% -> 5.1% (a clear period
+  needs every window complete, and the bridged periods are longer).
+- The real results (broadcast 0-60 s, amateur 3 118-182 s, Veo 1-31 s) do not change: the broadcast has all ten, the
+  others fewer than eight.
+
+The windows a second missing player admits carry little evidence of their own; the gain is continuity, which a
+stabilization run that crosses a short coverage gap could give without labelling them. Identity errors, which the bench
+does not have, are not measured either. The constant stays; its comment and the README carry these numbers.
+Tests: 669 pass (1 skipped). Nothing committed.
+
 ## Possession tracking: who has the ball, and when it was lost (2026-10-19/20)
 
 **The request.** Possession tracking from the 2D view, judging as accurately as possible who has the ball and when it
@@ -1631,3 +1708,526 @@ rules.
 Tests: the worktree's full suite passes, 1853 tests OK (7 skipped) in 625 s. The new files are
 `test_coaching_counterexamples.py`, `test_coaching_levels.py` and `test_coaching_eval.py`. Nothing is committed, and
 the demo checkout is untouched.
+
+## The penalty-arc tip shown as the ball on amateur 3 (2026-10-18)
+
+**The complaint.** In the user's amateur 3 run `runs/6dfdc88ec6f2d100/20261018-143030-812a5f` (118.2-182 s, keyless)
+the final ball sat on the tip of the painted penalty arc, pitch (0.83, 0.46), for 269 frames (18% of the shown ball):
+118.2-120.1 s, where the first pass LOCKED on it, and 125.8-132.8 s, bridged through three single weak sightings by
+3 s stationary links. The painted-spot discount needs a trusted registration (>= .5; keyless runs sit near .4), the
+tip is not a spot, the lock earned the acceptance bonus, and a "still, nobody within 3 m, 1.5 s" rule caught only 2.0
+of the 8.9 s.
+
+**Diagnosis.** A re-decode of the stored first pass (registration.json motions, the frames' stored calibration)
+reproduces the stored final path on every frame of all four runs below (state, origin, motion, phase, bridged, track
+equal; centres within 0.02 px, the saved boxes' rounding), so the decoder was studied without the GPU. In the frames:
+
+- 118.3-120.1 s is a throw-in from the right touchline. The ball is in the thrower's hands, then in the air, landing
+  near (1590, 497); it is never detected. The arc tip is the only candidate, and the causal pass locks on it from
+  SEARCHING at the run's first frames.
+- At 125.4-125.7 s the causal pass takes the real ball at the far goal, 14 m away. The arc tip is seen again as
+  tracklets 7, 12, 13 and 16 (rejected TRAJECTORY, JUMP, STATIC, FIELD_LINE) until 132.5 s.
+- 126-132 s the keeper holds the ball and punts it at about 132.4 s.
+- The camera compensation keeps the tip within 4.5 px (about 0.3 m) over the 14 s.
+- The same tip was the stepping stone of an out-and-back excursion at 139.97 s (30 m/s each way) while the ball was
+  dribbled, undetected, at a player's feet 139.3-140.8 s.
+
+**The fix: fixed places** (`soccer/ball_path.py` `_places`, `_fixed_places`; README "Fixed places"). Static-object
+evidence over time, with no registration needed. Every sighting, whatever its tracklet or status, joins the place it
+stands at: within 0.6 m of where the place was first seen, camera-compensated (on the pitch when registered), unseen
+for at most 6 s. There is one ball, and it does not come back to the exact spot it left by itself.
+
+- **Fixed:** a place is a fixed object when a still thing stood there for 2 s (four sightings or more), then the
+  causal pass took the ball at least 3 m away four times or more, then a still thing stood there again for 2 s.
+- **Unattended:** at most a quarter of the place's sightings may be within a player's reach.
+- **Stays:** the sightings are split into stays at those acceptances.
+- **Kept (the ball on that spot):** a stay the ball was seen coming into or going out of. That means the nearest
+  causal acceptance elsewhere within 1 s, at no more than 40 m/s, its tracklet in between no further from the place,
+  and not turning back beyond it within 0.3 s, give or take a ball's diameter.
+- **Kept (rolling over):** a sighting whose own tracklet is seen 1.2 m from the place within 0.3 s.
+- **Demoted:** everything else is a field marking (MARKING_FACTOR, the causal lock included, without its acceptance
+  bonus), and the review cuts it as one.
+
+`BALL FIXED OBJECT` events log the places that withdrew causal acceptances; `summary.ball.fixedPlaces` counts the
+places. It runs on every frame of a small-scene run: amateur 3's first small-scene frame is at 143.7 s, after the arc.
+
+**Measured.** Ball truth is `tools/check_ball_truth.py` on the 28 hand marks. 17 new marks (118.8-140.3 s, this
+session, 4x crops with a 10 px grid) were added to `tools/annotations/ball_positions.json` for the throw-in, the far
+goal, the keeper holding the ball, the punt and the dribble.
+
+| amateur 3 118.2-182 s | stored run (base) | GPU scratch run (final code) |
+|---|---|---|
+| TRACKED / MISSING / UNKNOWN | .346 / .434 / .220 | .317 / .330 / .354 |
+| ball truth (28 marks) hit / wrong / absent / hidden | 13 / 15 / 0 / 0 | 13 / 4 / 8 / 3 |
+| the 11 older marks (146-150 s) | 10 / 1 | 10 / 1 (unchanged) |
+| frames on the arc tip | 269 + the 139.97 s excursion | 0 |
+
+- The GPU run (`tools/run_segment.py`, the stored run's config, 328 s, GPU otherwise idle) has the same first pass
+  and candidates as the user's run on every frame. Its final path equals the re-decode with the final code (centres
+  equal to 4 decimals).
+- 118.2-120.1 s and 139.3-140.8 s are now NOT VISIBLE: absent, not wrong.
+- 125.8-130.8 s is NOT VISIBLE.
+- The path changes nowhere else; the confidence and identity of the run that no longer contains the arc are
+  recomputed.
+- Four fixed places on amateur 3: the arc tip (121 sightings, six tracklets, 55 causal acceptances withdrawn) and
+  three specks that the path never used.
+
+**Broadcast and Veo unchanged.** These were re-decoded from their stored first passes with the final code:
+
+- broadcast 0-60 s (`20261018-024712-3485a2`);
+- broadcast 42.4-222.4 s (the audit's scratch run `BC_42_222_fixed`);
+- Veo 1-31 s (`20261018-143758-8b0bab`, a small-scene run, 61%).
+
+All three are byte-identical to the base decode on every field of every frame, with identical events. The report only
+gains `fixedPlaces: 0`.
+
+**Ungated, measured and left gated.** Without the small-scene gate, broadcast 0-60 s and Veo stay identical, but the
+42-222 s window changes in four spans:
+
+- 93.3-96.3 s and 100.7-103.8 s: the base path sat on a spare ball / painted dash 1.5 m beyond the near touchline,
+  pitch (0.558, 1.021), seen 1365 times over 67 s. The real ball was in play in midfield and at the far side
+  (verified on zoomed frames), so the audit's "genuine balls out of play" note for these spans is wrong. The rule
+  corrects both.
+- 42.4-43.6 s: one wrong place for another.
+- 192.6-196.2 s: base on a fixed white object at the goal line (tracklet 1297, already seen at 192.3 s while the causal
+  pass locked the real ball 10 m away; the keeper held the ball), about 50 px off. New: a bridge through the box,
+  about 150 px off.
+
+Taking the decoder off a wrong stepping stone lets it bridge through the next one, so the rule stays behind the gate.
+
+**Tried and dropped** (each failed on these windows):
+
+- A place needing only four sightings each side: on broadcast the real ball revisiting a spot during a dribble (2-3
+  sightings, 3-4 m) became "fixed". Now 2 s and four sightings each side, and unattended.
+- The review's entry rule ("rolling under 8 m/s within 0.5 s") as the only way in. It missed a ball crossing the left
+  penalty-arc tip at 10 m/s (broadcast 199.0 s) and a shot into a place.
+- A departure judged from the departing ball's next sighting alone: a ball pausing at a foot failed it.
+- An arrival without a direction check: a ball kicked away from a mark, last seen 10 m off, counted as arriving at the
+  mark's next stay.
+- "Rolling over" when the tracklet was seen anywhere off the place: a still speck whose detections jitter across the
+  0.6 m radius kept full weight, and the path moved onto it (amateur 132.87-133.1 s). Now the tracklet must be seen
+  1.2 m away.
+
+**Not solved.**
+
+- 130.87-132.8 s (57 frames) is an invented flight. With the arc gone, the decoder bridges from a det .18 flicker on a
+  player's white shirt (130.87 s) to a det .11 one (131.73 s) into the punted ball. The attachment test covers the
+  lower body only, and a bridged frame (.8) is cheaper than NOT VISIBLE (1.0). These three marks were wrong before too
+  (on the arc). It is the decoder's bridge economy, not this rule.
+- The keeper's held ball and the dribbled ball at 139.3-140.8 s are never detected.
+
+Tests: `tests/test_ball_path_fixed.py` (7: the arc-tip lock with the gate open and closed, a watched mark, a ball kicked
+from a mark, a ball rolling over one, places across tracklets, gate closed equals no profile); the whole suite: 673
+pass (1 skipped). Nothing committed.
+
+## Amateur possession: an image-based estimate where possession-4 abstains (2026-10-26)
+
+**The request.** Possession on amateur and Veo footage, which possession-4 declines (a small scene on 60% / 61% of the
+frames of amateur 3 and the Veo clip), without touching possession-4 where it judges the footage, and a coaching
+report that may use it only under rules. The possession audit (scratch amball/possession_audit) had found possession-4
+forced past its gates at .574 on .600 of amateur 3's labelled team points (always the commoner team: .567), its image
+metric blind to depth on a low camera, and its wrong calls coming from the ball path (an arc tip) and the people
+layer (an undetected carrier near the camera, teamless keepers on reversed goal ends, an identity on the other kit).
+
+**What was built.** `soccer/possession_amateur.py` (version `possession-amateur-1`): `compute()` is the dispatch
+every consumer calls (the server's `/api/possession`, the coaching measurement tier), possession-4's own record where
+it judges the footage, else (small scene or failed agreement) an estimate in the same record shape. A team is at the
+ball when one of its eligible carriers (a confirmed identity whose kit readings agree, or a goalkeeper; teamless ones
+from `tactical.goalEnds`) is within 1-2 m of a trusted ball (tracked, or bridged for 0.5 s at most, the first pass
+agreeing or pointing to the same team) in a depth-aware reach (the local shape of each frame's calibration at the ball,
+scaled by the people's box heights) and nobody else is; possession-4's decoder, with no carry across 1.5 s of a
+trusted ball nobody is at, dead balls only with a line near the ball in view, abstention per span with a reason,
+never `high`, changes as span boundaries with low confidence. `tools/possession_amateur_bench.py` scores it;
+`tests/test_possession_amateur.py` checks it.
+
+**Measured (DEV labels: AM and VEO were used before; amateur 3 0-60 s and 182-242 s are held out for blind labels and
+were not looked at).** Before: no frame named (possession-4 abstains); after: amateur 3 1.0 at .356 (32 of 32 team
+points), 2 changes reported (2 of the 4 within 2 s, 1 within 1 s), 20 of 22 dead points; Veo 1.0 at .196 (10 of 10),
+no change, 0 of 8 dead points. Of the 23 amateur points the forced possession-4 had wrong, 22 are unknown and 1 right.
+The BALL agent's interim reruns (small scene from the first frame): .968 at .344 (30 of 31) and 1.0 at .235. Each rule
+off on amateur 3: first pass .886 at .389, no-carry .648 at .600, 1.2 s bridges .947 at .422, rows doubled instead of
+the depth .952 at .467, wider reach .738-.750 at .62-.68. Forced on broadcast 0-60 / 42-222 s: 1.0 at .898 / .974 at
+.852; on Metrica game 1 (tuned, forced): full .980 at .659, camera .965 at .697, the stress test possession-4 declines
+.975 at .684. It names little because the ball and the people give it little (49 of amateur 3's 58 unknown team
+points in `ball_untrusted` spans).
+
+**possession-4 unchanged.** The dispatch is byte-identical to `possession.compute()` (sha256 of `json.dumps`) on the
+run copies of broadcast 0-60, 42-222 and 222-303 s and on all 40 Metrica game-1 windows of full tracking and the
+camera; `soccer/possession.py` still hashes 75b65939... (the v4 freeze).
+
+**Coaching.** Coach-marked spans stay authoritative; the estimate fills only the time outside them, with the +-2 s
+change exclusion and the source `possession-amateur` ("estimated, image-based"), and only when it named the coach's
+team on 90% of the 20 s or more it named inside the marks; its carrier is never used (D1 stays 'no carrier'). Without
+marks it is not used (decided: 141 DEV points on two
+clips are too few to name a phase nobody checked; DESIGN 3.2's "phase unknown without marks" and every coaching test
+hold). On the amateur and Veo copies with the blind labels as marks it named only 9-13 s and 5 s inside them, so it
+was not used there.
+
+**Not done / open.** The held-out blind labels (amateur 3 0-60 s, 182-242 s) are being made: the estimate is frozen
+(scratch amball/poss/FROZEN.md) for them. `goalEnds` is reversed on amateur 3 as stored (no DEV frame rests on a
+teamless keeper). A pass of 1.5 s or more breaks possession; midfield stoppages are never dead; an opponent pressing at
+the ball while the true carrier is undetected is named (125.7 s on the interim rerun).
+
+## Full Match Mode: a whole match analysed on this computer (2026-10-28)
+
+**The request.** The user's 19-part spec: a whole recorded match (90 minutes or more) analysed locally in about 2-3
+hours on the RTX 5080 by running bounded segment jobs of the unchanged pipeline in parallel and assembling them into
+one match that plays, analyses and reports as one; no cloud, Segment mode unchanged (its 180 s cap kept), no frame
+skipping in v1, the target claimed only after a measured end-to-end run, never an invented benchmark.
+
+**Built** (worktree `.claude/worktrees/full-match`, uncommitted): `fullmatch/` (plan, manifest, system, worker,
+scheduler, routes, calibration, identities, assemble, analytics, corrections, coaching), `match.js` and the page's
+mode switch, match panel and match playback in `index.html`, the server's hooks (`server.py`: models released while a
+match runs, Segment runs refused meanwhile, `?match=` on the analytics, possession and team-shape routes; the coaching
+routes answer a match from `fullmatch/routes.py`), `tools/match_run.py`, and the penalty-spot lock fix in
+`soccer/ball_path.py` (every run). README "Full match mode" describes each part.
+
+**Measured.**
+- A worker's segment equals the Segment runner's on the same window: exact_diff identical on CAN-ISL (20 s) and on the
+  broadcast (148.7-304.4 s, 4641 frames: people, pitch positions, ball, mapping, match, roster, tracks, labels, events).
+- Concurrency (CAN-ISL 40 s, results identical to a lone run): 1 / 2 / 3 workers 7.5 / 11.7 / 14.6 fps aggregate. Thread
+  caps (3 workers x 3 x 40 s): defaults 13.09 fps, 4 threads 12.11, 2 threads 6.29 (contaminated by a replay): kept the
+  defaults (Ultralytics already makes OpenCV single-threaded and sets OMP to 1).
+- 3 vs 4 workers on one plan (CAN-ISL 440-920 s as 12 x 40 s segments, the 3 keyframes, no discovery, no assembly, a
+  quiet GPU before each): 3 workers 13650 frames in 1022 s = 13.35 fps (a segment 4.09-6.17 fps), 4 workers 957 s =
+  14.26 fps (3.34-5.06); peaks 3 / 4 workers: GPU 96% / 96%, 5.24 / 6.41 GB, workers 7.95 / 10.41 GB, system 21.4 /
+  23.5 GB, CPU 65% / 77%.
+- dev12 (CAN-ISL 420-1140 s, 4 segments, 3 workers): 18450 frames in 1695 s = 10.88 fps (the last segment alone 11 min at
+  7 fps); peaks 8.56 GB workers, 22 GB system, GPU 4.79 GB at 96%, CPU 80%; assembly 32 s; views 8-9 MB gz (85 MB JSON).
+- Broadcast 0-303 s (2 segments, 2 workers): 9283 frames in 603 s = 15.39 fps; assembly 16.8 s; 20 of 21 boundary pairs.
+- Stitching on dev12: 9/9, 14/16, 17/17 people matched over the boundaries; ball agreeing at the cuts; calibration
+  disagreement .5-1.3 m. Gap links measured and not automatic: gallery similarity .42 same person vs .35 teammates (the
+  right one most similar 49%), position 19-30%: roster 54 entries for ~24 people -> coach merges with suggestions.
+- Calibration discovery (research agent, scratch fullmatch/calib/; truth: 9 hand keyframes carried to every sampled
+  frame by SIFT registration): of 1679 measured CAN-ISL anchors 8.6% more than 3 m off, all with their camera 20.4 m or
+  more from the match's; the camera rule alone leaves none (largest 1.20 m), the neighbour rule alone 18; with all three
+  rules 1259 kept, none of 1243 measured more than 1.5 m (median .26, p99 .58, max .92). Broadcast segment 148-303 s
+  without a keyframe: the automatic route 27 of 58 frames > 3 m off (35 m at 150-180 s).
+- Spot locks replayed from the saved first passes: only CAN-ISL 561.8-577.7 s changed (kf3 and dev12 s0); 0 frames on
+  19 broadcast, 6 amateur 3 and 3 Veo runs and the other CAN-ISL segments.
+- Match coaching (dev12, 4 segments): both teams measured in 18-25 s, a level change .06 s.
+- **End to end** (CAN-ISL, the whole 96.5-minute recording, started from the page at 06:21:38 on a quiet machine;
+  halves 00:10-47:34 and 48:05-96:32; 33 segments; AUTO = 3 workers; discovery on; the video's 3 saved keyframes):
+  ready at 09:09:39, **2 h 48 min** (10081.5 s). The panel's estimate at the click: 3 h 15 min (2 h 35 - 4 h 05, the
+  benchmark's 13.14 fps). Discovery 228.8 s (8 processes: 2876 frames sampled, 1723 anchors, 1261 kept, camera
+  (53.75, 113.11) 24.27 m high, share .857, 86 keyframes, 33/33 segments anchored); tracking 9642.7 s (148417 frames,
+  15.39 fps aggregate; segments 573-1112 s, 4.13-7.72 fps on one worker; the workers busy their whole span, no wait
+  between segments; the tail: one worker idle from 09:01:33, a second from 09:04:58, the last segment ended 09:06:09); assembly 209.8 s (stitching ~47 s, writing
+  the match 165 s: views 46, samples 5, possession 76). 33/33 segments on the first attempt, 0 restarts, 0 errors.
+  Peaks CPU 87.8%, GPU 96% / 7.33 GB, RAM 23.3 GB system / 9.26 GB workers. 2.9 GB on disk (segments 2.6 GB,
+  assembly 298 MB). Verified in the page: playback over the cuts (a prepared swap .04 ms) and halftime (shown as not analysed), seeks 0.1-0.4 s, the match analytics (heatmap), team shape (34.7 s for the match), possession, the
+  coaching report (team A ~110 s, PDF 1.27 MB).
+- Found in that run: 392 roster entries (203 seen in one segment; 407 of 439 boundary pairs matched); footage classed
+  per segment (amateur 29, broadcast 2, Veo 2 on one camera), so possession came from possession-amateur-1 in 31
+  segments and possession-4 in 2, and the coaching checks that need a named possession had 68 s; ball disagreement
+  flagged at 9 of 31 cuts; calibration disagreement over 2 m at 5 of the 20 cuts with both sides calibrated; 9.1% of the
+  owned frames uncalibrated (13048 of 143767), every sampled one a plain wide view.
+- Keyframe placement for reach (after that run): a run given keyframes turns its automatic calibration off and a
+  keyframe carries ~26.7 s (CAN-ISL segments 20, 23, 30: calibrated from 26.7 s before their lone keyframe). 309 s of
+  the gaps had kept anchors inside, 211 s none (midfield views). Offline on the run's discovery chunks: 141 keyframes
+  instead of 86, 88.0% of owned seconds within 25 s of one instead of 67.7%, 136 measured median .25, max .77 m (in-frame
+  p90 max 1.27, none over 1.5). Segments 30, 13, 20 run again with them (the worker's config, only the synthetic
+  keyframes changed): calibrated 49.5 -> 100%, 86.2 -> 100%, 49.2 -> 72.4%; against the reference on every sampled
+  second 382 calibrated samples instead of 244, 3.4% over 1.5 m instead of 4.9%, none over 3 m; frames calibrated in
+  both runs: median within .03 m, worst 2.18 -> .49, 1.69 -> .59, .66 -> .23 m; the new frames of segment 20 1.5-2.3 m
+  off at worst where carried 5-17 s across a midfield pan (confidence .49-.85). Speed within the run-to-run spread
+  (872 / 885 / 976 s against 825 / 789 / 1038 s; the detector's ms per frame moved the same way, +11 / +15 / -11%).
+
+**Decisions forced by measurements.** Frames, not timestamps, identify a frame (irregular decoder timestamps); the
+stdin pipe read through a private duplicate (a pending read deadlocked numpy's DLL load); no automatic gap links (see
+above); calibration discovery with the camera-consensus rule (the temporal rule alone kept repeating wrong solutions);
+keyframes placed for reach (a keyframe per third left segment starts uncalibrated); AUTO 3 workers on the 5080 (a
+fourth measured 6.8% faster on 12 x 40 s with 2.5 GB more memory: not made the default on one short benchmark); spot
+locks for every run (replay: nothing else moved). Fixed after the run: the latest match is the newest by creation (a
+test match named dev12 sorted first and opened instead), and a stopped match a newer complete one replaced is no longer
+offered for resume.
+
+**Not done / open.** The whole match was not run again with the reach placement (three segments were). Roster
+fragmentation needs the coach's merges. The footage class (and so the possession engine and the coaching's named
+possession) is decided per segment. Midfield-only views longer than ~50 s stay uncalibrated (no single-frame solution;
+a fixed-camera solve from the consensus camera would be the next step). Ball disagreement at cuts is flagged, not
+resolved. No whole broadcast match has been run end to end. The view parse costs 176-361 ms per segment change.
+Coaching for a match has no coach-marked possession, squads, feedback or match date; the estimated team-shape mode is
+not available for a match.
+
+**Then: the results stored compressed** (the same day, asked for after the report). The segments' plain results were
+2.50 of the 2.87 GB the match took on disk; a worker now keeps its result as `result.json.gz` (gzip level 6, written
+beside the plain file, read back and compared by length and sha256 before the plain file is deleted, the same bytes
+every time); the readers, the verification (segment.json names the stored file) and resume accept both forms.
+- Levels on 8 results (6 CAN-ISL, 2 broadcast; 70-93 MiB): 1: 6.4-7.9x in .26-.41 s; 5: 9.8-12.4x in .45-.74 s; 6:
+  10.4-13.4x in .58-1.05 s; 9: 11.2-14.4x in 1.1-2.7 s. Decompressing .07-.11 s against a JSON parse of .50-.79 s.
+- The whole CAN-ISL match, copied with hard links (the original only read: still 3,077,580,978 bytes) and assembled
+  twice with the same code: the 33 results 2.504 GiB -> 238.1 MiB (10.77x, 9.9-13.4x per segment, .76-1.18 s each
+  with the read-back); the match 3,077,580,978 -> 638,764,214 bytes (the coaching cache and the logs included);
+  assembly 209.1 s plain, 214.6 s compressed; all 38 assembled files the same (views decompressed, the index without
+  its timings, samples, possession, summaries); tools/exact_diff.py (it now reads .gz) on a compressed result against
+  its plain original: identical.
+- On the GPU through the page's route (CAN-ISL 600-780 s, 3 x 60 s, AUTO 3 workers, discovery on, the saved settings):
+  ready in 430.7 s (the panel's estimate 411 s, 329-514); each worker stored its result in .36-.40 s (9.7-10.2x); every
+  artifact verified with its checksum, a deep reconcile changed nothing, no plain result was left; that match (21.5 MB)
+  and the older plain full match both opened in the page and loaded their views; the video's saved settings came back
+  byte-identical.
+- The disk estimate counts the compressed results (2.2 KB a frame), the other segment files, the assembled match (2.5
+  KB a frame; 2.0-2.3 measured) and the plain results of the segments running at once: 1.2 GB for the whole CAN-ISL
+  match (4.8 GB before; the match took 0.6 GB).
+- The full suite then failed once, in a scheduler discovery test: the fake workers share one journal and read it to
+  count attempts, and under load one read half a line another process was writing, crashed, and the match gave up
+  (reproduced 2 of 15 runs with 14 busy CPU processes; 0 of 10 on a quiet machine). Not the product code: the journal's
+  appends and reads now hold an OS file lock (tests/fullmatch_journal.py), 0 of 30 under the same load.
+
+**Coaching intelligence v2: key moments** (2026-10-30, the user's 19-part spec; built in worktree coaching-moments).
+The earlier report of CAN-ISL (team A, level 7) had 0 strengths, 0 improvements, 0 reviews and 2 attacking-shape
+descriptions with no player named: every player-level check waited for possession-4, which named the phase for 68 s of
+96 minutes on this camera. New package `soccer/moments` (README "Key moments"): a 5 Hz data cache from the assembled
+views (59 s once), roles from pairwise relative positions, seven detectors, moments / patterns / suggested zones /
+words by level, a report per team, routes, the page's moment player.
+- Audit numbers (all 143,767 owned frames): both teams with 8+ positioned players in 80% of frames, the camera a median
+  67% of the pitch, the ball placed in 37-39%, possession named on 42% of live play (settled 29%), dead ball 41%.
+  Team letters of the match: A = white (Iceland), B = red (Canada) in all 33 segments (a Segment run at 435 s had them
+  the other way: letters are per run).
+- Video checks (validation sheets: board, key frame, crop, lead-up, follow-up) drove the rules: defensive judgements
+  need the ball near (a gap 36 m from the ball and an opponent 'between the lines' with the ball already in the box
+  meant nothing), a defender marking the deepest attacker is not 'dropped off', a lone striker pressing 73 m from her
+  own goal is not 'pressure without cover', the player on the ball is not the cover and is never asked to move, a
+  defender standing in its own zone is not a 'positive' cover, the nearest cover is the one named, a 'free' opponent
+  needs an open line. Synthetic tests then found two more: a presser beside the ball counted as blocking every pass
+  (now a pass is blocked only by a player in front along the line), and windows of the team's own possession
+  re-labelled a pushed-on full back as a midfielder (now the defensive windows are preferred).
+- Final reports (level 7): A 8 strengths / 4 improvements / 3 patterns, B 7 / 4 / 2; 4.5 s each once the data is
+  cached. Of the 23 moments shown, 21 correct or plausible on video, 1 unclear, 1 not viewed: development data, not
+  held out.
+
+**Full match intelligence: people and slots, halftime, the match's state** (2026-10-31, the user's 21-part spec; built in
+worktree match-intel). README "Full match intelligence".
+- Audit of CAN-ISL: 392 match chains numbered as they came (A-197, B-150, GK-44); 295 begin at a segment start (a
+  player is followed over a boundary only when both runs saw him in the ~6 s overlap: a median 12 of ~22 people);
+  gap links accepted 2; within a segment 10-13 identities per team. The 11+ team A outfield players seen in 8.14% of the
+  samples were 27 fragments of two static boxes on a broadcast graphic (bottom right of the picture).
+- Identity cues across a boundary, the overlap-matched chains as truth with the overlap hidden (scratch matchintel
+  link_cues / role_test / look_test / fit_links): appearance top-1 42% of ~5 candidates (55% with the best-match
+  gallery similarity), the last position 77% at a 0 s gap and 28% at 60 s, offsets to the teammates seen on both sides
+  70% -> 55%; a logistic model of them 80% -> 57%. Agglomerative and windowed-assignment linkers reached 75-81% precision
+  at 14-45% recall; a 10-path min-cost flow over each team kept 60-64% of hidden continuations in their place, and its
+  links scored 0.95 or more were right 54-74% (two folds). Decision: no automatic person joins; the slots show the
+  flow's continuations as estimates ('A-04?'); the coach's merges and confirmations join people.
+- Two video checks found data faults the layer handles: a referee inside a team-A run identity (an ID switch in the run;
+  kit histograms do not catch it) and a coach in black taken for a player (caught by the kit check).
+- State: dead spells from the possession record, restarts by the players' speed, kick-offs from the two teams in
+  opposite halves; the 4 scoreboard goals found with the right teams (508 / 1278 / 4182 / 4683 s against score changes
+  shown by 511 / 1281 / 4201 / 4721 s), 6 kick-offs. Restart kinds checked on 17 zoomed video frame sets: about half
+  right with the ball's place alone (crowded boxes called goal kicks, a duel called a throw-in) -> a placed (still)
+  ball and, for a goal kick, a near-empty penalty area are now required; 15 restarts stay UNKNOWN_RESTART.
+- Tried and dropped: an automatic scoreboard reader (the see-through panel over the moving crowd), a direction-bound
+  kick-off rule (a wrong halftime setting hid the goals; now direction-free and it checks the setting instead).
+- Substitution candidates: a place passing to someone else near the halfway line gave 8, 5 of them plainly play or set
+  pieces on video; the law-3 rule (a team's player last seen and one first seen by the halfway line on a touchline in
+  one stoppage) gives 3, none confirmable at broadcast resolution, and a likely Iceland change around 4210 s is missed
+  (they came on while the camera could not be placed). Candidates only; the coach confirms.
+- Last checks on the 11+ players still seen (team B 2.33%, unchanged by the flags): video crops showed tracks that join
+  two people where segments meet, two of them a keeper stitched to an outfield player (B-111: Iceland's keeper, then a
+  Canada player; A-163: Iceland's keeper, then a white player) and one a player stitched to the assistant referee
+  (A-41). The two keeper ones are now 'mixed' (a keeper member next to an outfield one, or shirts and shorts both under
+  0.4 alike: 1 of 408 member links, the next lowest 0.67): no automatic place, a note in the roster review. A-163 had
+  pushed a real 23-minute player (A-150) out of the places: the solver drops the longest fragment present at the
+  eleven-at-once moments; unresolved outfield time 5.4% -> 4.4%. B-101 (20 min) and B-23 (21 min) stayed out for 2 and
+  20 conflicting samples: the fragment reward stopped growing at 300 s; without the cap the hidden-link test is
+  identical (64% / 59% same place) and the unresolved time fell to 2.7% (a larger reward per second cost same-place
+  links: 61% / 58% at 0.05/s). Also fixed: the slot numbers read the offsets' sums as means (a place's line ordered by
+  how long its starter was seen); now by the mean place, deepest first.
+- Final CAN-ISL: 324 people for 392 fragments; 20 sure slot starters, 269 estimates, 31 unresolved, keepers GK-A (16
+  fragments) and GK-B (20) plus one small group each shown GK-A? / GK-B?; 27 overlays, 4 kit, 1 off the pitch left out;
+  of the 308 labels above 10 before, 262 continue a place, 27 left out, 19 unresolved. State: 45.8% in play, 20.9%
+  stopped, 22.0% possible stoppage, 11.3% unknown; 4 goals, 6 kick-offs, 3 substitution candidates, direction check 5 of
+  5; the people and the state built in about 4 s from the match data (about 12 s more the first time, when the pitch
+  check of the blind stretches reads the video; then remembered).
+- Tests: halftime 13, persons 27, state 17, routes 4, the page 49 (node).
+
+## Ball possession v2: hidden-ball inference and full-match possession analytics (2026-10-31)
+
+The user's spec asked for four things:
+- better ball tracking where the detector loses the ball;
+- team possession inferred through hidden-ball gaps;
+- a possession timeline;
+- possession percentages in the Analytics tab (match, halves, custom ranges) with coverage shown honestly.
+
+Built in worktree `ball-possession`, merged uncommitted. Nothing was re-run on the GPU for the match.
+
+### Audit (CAN-ISL, 143,767 owned frames)
+- **Final ball path:** observed .350, weak .038, bridged .466, unknown .146.
+- **Live play:** 1,183 s bridged against 133 s unknown.
+- **Unseen frames:** 2.6% have no detection at all. 92% hold a candidate the tracker rejected with a detector score of .5 or more, mostly STATIC or OTHER_OBJECT.
+- **Against blind hand marks (four dev windows, 276 ticks with the ball visible):**
+  - the path was on the ball within 12 px on 96 ticks, bridged within 24 px on 54, wrong on 103, absent on 23;
+  - of the 180 misses, 139 had no detector candidate within 8 px of the ball (detector misses);
+  - 37 had a candidate the tracker rejected: 16 FIELD_LINE (the path bridged within 7 px anyway), 8 OTHER_OBJECT, 6 TRAJECTORY;
+  - 88 more ticks had the ball hidden, unfindable or off screen;
+  - wrong bridges are mostly dead balls carried in the hands.
+- **The old match possession record:**
+  - it ran per segment, so it restarted at all 32 boundaries;
+  - it summed spans as t1 - t0, losing 153 s;
+  - of the live time it named a team on .438, left .505 unknown, and counted .036 dead.
+- **Ball tiles (scan the whole frame at 0.8x while not locked),** GPU runs of the four dev windows with tiles on and off:
+  - ticks with a candidate on the ball 138 and 138;
+  - hits 92 and 93;
+  - wrong 146 and 136 (mostly one window);
+  - 4-12% slower (machine shared with the agents).
+  - Not a gain: the default stays.
+
+### Possession v2
+See the README section "Ball possession analytics (possession v2)".
+- **Model:** six states, fitted on Metrica game 3's first half through possession_sim (variant `tactical_gaps`, set to CAN-ISL's unplaced share).
+- **Operating constants:** chosen by rules written before each run, scratch `possv2/PREDECLARED.md`:
+  - Metrica floors, plus a score on the dev windows W1 W3 W6 W8 (96 team ticks);
+  - min_posterior .7: the lowest threshold that keeps dev accuracy at .92 or more AND passes every case test (at .5 a duel and an 8 s hidden ball were named a team).
+- **What the dev windows changed:**
+  - a 3 s pass between team-mates read as free, so contested and free now remember the team that lost the ball;
+  - the gap context was fitted on 1% of hidden frames, so a gap-rich simulator variant was added;
+  - 'nothing to go on' (22% of CAN-ISL's live frames) is neutral;
+  - open-ball frames are tempered as one event;
+  - the carrier context ends when the ball is seen away.
+- **Disclosure:** a labeller's hand-back message summarised the held-out window W7 (90 dead ticks, 1 free) before the freeze. Nothing was tuned on it.
+
+### Results
+- **CAN-ISL, four development windows** (W1 W3 W6 W8, 96 team ticks; the constants were chosen on them):
+  - coverage .615 at accuracy .932, with 4 of 105 named ticks the wrong team;
+  - the old match record: .562 at .944.
+- **CAN-ISL, four HELD-OUT windows** (W2 W4 W5 W7; blind labels; scored once after the freeze; 77 team ticks, 234 dead):
+  - accuracy .962 at coverage .338; the old record on the same ticks: .429 at .273.
+  - Wrong team: 1 of 73 named ticks.
+  - Dead ticks counted as live possession: 39 of 234 (16.7%). These are stoppages the match state calls in play: an offside free kick and a goal kick being prepared.
+  - Changes found: 0 of 7.
+  - Pre-declared targets: accuracy (.90) and wrong team (5%) passed. Coverage (old + .20), dead leakage (15%) and change recall (.5) failed.
+  - The long possessions left unknown are mostly a carrier 1.5-2.5 m from a seen ball, outside the 1 m zone.
+- **The whole match's live time** (IN_PLAY and the state's UNKNOWN, 3,285 s):
+  - unresolved .505 (old record) -> .430; a team named .438 -> .521; free .049;
+  - team A 37.0% / B 63.0% (old record 37.9 / 62.1);
+  - first half 33.6 / 66.4, second half 40.6 / 59.4;
+  - in the 3 s after the 32 segment boundaries, unresolved .716 -> .61.
+- **Broadcast Segment runs** (hand labels, old convention; possession v2 against possession-4, coverage / accuracy):
+  - BC60: .907 / 1.0 against .992 / 1.0;
+  - BC180: .813 / .988 against .975 / .981;
+  - BC303: .854 / .943 against .932 / .958.
+  - On broadcast possession v2 names less than possession-4.
+- **Metrica game 3 through the simulated camera** (tactical_gaps), the second half (not tuned on):
+  - team accuracy .975 at coverage .634; .913 at .464 where the ball was not placed;
+  - named frames the truth's team .935;
+  - changes within 2 s: precision .77, recall .28.
+
+### Coaching and runtime
+- **Key moments:** the report keeps a phase only where v2 and the segments' record agree. CAN-ISL went from 97 moments to 77 (60 unchanged). The replace mode would have changed 153 of 188.
+- **Runtime:**
+  - the match frame table: 45.6 s once (33 views);
+  - the decode: 2-3 s;
+  - the record: 331 KB;
+  - segment mode: 0.57 s for 5400 frames.
+- **Tests:**
+  - tests/test_possession_v2.py: 16;
+  - tests/test_possession_stats_panel.py: the page;
+  - the full suite: 2460 OK (7 skipped) in the worktree; 2460 OK (6 skipped) in the checkout after the merge.
+
+
+## Goals: what led to each one, what allowed it, and a cleaner timeline (2026-11-01)
+
+The user asked for four things:
+- recognise when a goal happens;
+- analyse each goal for the team: before a goal it scored, what was good and led to it; before a goal it conceded,
+  what went wrong and why it was allowed;
+- a goal marker on the time control;
+- a filter for what the time control shows (free kick, stoppage and the rest only when wanted).
+
+Built in worktree `goal-analysis`, merged uncommitted. Nothing was re-run on the GPU for the analysis itself.
+
+### What already existed
+Goal recognition: the match state (`fullmatch/gamestate.py`) finds a GOAL from the kick-off after it (law 10). It found
+CAN-ISL's four goals (4 of 4) and their teams. Its goal time was the last moment the ball was placed in the goal mouth.
+
+### The reference: a blind narrator
+An agent that saw only the video and a brief described each goal: when the ball crossed the line, how the ball was won,
+the build-up, what went well, what went wrong, the foul for a penalty, and how sure it was of each point. It saw no
+PitchIQ output. Its notes and labels are in session scratch `goals/narratives/`.
+- Goal 1, 508.24 s, Iceland: a poke in Iceland's own half at 499.7 s; the ball ran loose; the forward won the race near
+  halfway (about 501-503 s), ran 45 m and shot low from about 20 m at 507.4 s past a keeper who had come out to the
+  penalty spot.
+- Goal 2, 1276.0 s, Iceland: a tackle at the centre circle at 1271.2 s, a carry, a pass at 1273.4 s, the scorer dribbled
+  between two defenders and shot from the edge of the box at 1275.5 s.
+- Goal 3, 4180.59 s, Canada: a penalty for a challenge in the box at 4059.0-4059.65 s, taken two minutes later.
+- Goal 4, 4684.75 s, Canada: a penalty for a challenge 11-12 m out at about 4591.5 s, taken at 4684.35 s.
+
+### What the first version got wrong, and the fixes
+Against the narrator, the first analysis:
+- called goal 2 'a loss of the ball 1 s before the goal'. The state's goal time was 2 s late (1278.0): the shot was lost
+  by the tracker, the ball seen again in the net, and possession after the goal was read as the attack's start;
+- called goal 3 'a penalty or a direct free kick' (no ball placed on the mark);
+- called goal 4 'open play' when nothing before it had been seen.
+The fixes (`soccer/moments/goals.py`, `fullmatch/gamestate.py`):
+- **The strike** ends every attack: the ball's last fast move towards that goal (12 m/s or more, from 35 m or closer).
+  CAN-ISL: 507.39 s and 1275.39 s against the narrator's 507.4 and 1275.5.
+- **The goal time** in the state is when the ball went in: the earliest of the last sight in the goal mouth, the start
+  of that spell in the mouth and the crossing from the strike (`_goal_time`), only after the last restart of play
+  before the goal's stop (the floor), and a penalty taken in that span is the goal (the same law-14 layout,
+  `goals.penalty_layout`; state VERSION 5). CAN-ISL: 507.99 / 1275.91 / 4180.58 / 4684.78 against 508.24 / 1276.0 /
+  4180.59 / 4684.75; before: 507.99 / 1277.99 / 4182.38 / 4683.38 (time uncertain). The goal analysis's own estimate:
+  508.17 / 1276.16 / 4180.58 / 4684.78.
+- **What the rerun showed** (match 20261101-035319-ba987c, the same video and settings, the merged code): it tracked
+  more of the stretch before goal 4 and saw the ball in Iceland's goal mouth at 4553.6 s (a goal kick); the play after
+  it, about 11 s up to the foul, was under the 12 s that says 'play went on', so the state made that the goal, two
+  minutes early, with high confidence. The floor and the penalty rule above were added for it (tests: a ball in the
+  goal mouth before a restart and 10 s of play, then a penalty, with and without the penalty).
+- **Penalties by the players' layout** (law 14): one person on the goal line, one at the mark, everyone else out of the
+  box and 9.15 m away, held 1 s or more. Over the whole of CAN-ISL it holds 1 s or more twice, at the two penalties
+  (5.2 s and 1.2 s); the next longest is 0.8 s.
+- **The play that won a penalty**: the scoring team's last loss of the ball before it (possession v2). CAN-ISL: 4059.54 s
+  (narrator 4059.0-4059.65), the ball in the box 5 m out; 4590.90 s (narrator about 4591.5), 13 m out, right of centre.
+- **A turnover from the possession runs** when possession v2 records no change between the two teams' runs, and the
+  attack's start where the other team lost the ball (the ball loose 4 s or less).
+- **Names as the page shows them**: the key-moments report named players by the assembly's labels (B-16, B-95), while
+  the page shows the match's slots (B-06?, B-01?); 10 of 311 people agreed. The report now takes the slots' labels, for
+  its goals and its moments. In the browser on the rerun the moment cards showed internal person ids ('A-P281 right
+  midfielder'): the page's label map has them, but the cards went through the text pass, which rewrites only ids shaped
+  like track ids ('A-12'). The cards now look each id up in the page's labels, then in report.labels (every person the
+  report's moments involve).
+- **Each team told the place in its own direction** (the conceding team 'lost the ball in its own third (left)').
+
+### Result on CAN-ISL (the same four goals: development data, not held out)
+20 findings: 14 right, 4 partly right, 2 the video cannot confirm, none wrong.
+- Partly right: where and when the ball was won. Goal 1: the race at halfway, 3 s after the poke in Iceland's half.
+  Goal 2: 2 s after the tackle and 8 m nearer goal (possession v2 still named a Canada player during Iceland's carry).
+- Cannot confirm: the player on the ball (no shirt number legible) and the keeper 6 m off his line at goal 2.
+- The match state labelled the play before goals 1 and 3 a POSSIBLE_STOPPAGE (Canada's 25 s of pressure before the
+  penalty included): possession v2 then names nobody there, which is why goal 1's poke is not seen. Not changed here.
+
+### The rerun (the user's request: the whole match again, into the checkout's runs/)
+- Match `20261101-035319-ba987c`: the same video, the old match's three keyframes (437 / 530 / 580 s; the video's saved
+  settings had lost them on 2026-10-30, a stopped Full Match start with none), halftime 2854-2885 s, 3 workers,
+  discovery on (141 synthetic keyframes). 33 of 33 segments, no restart, 10,320 s (discovery 240, tracking 9,771,
+  assembly 308; 15.2 fps; the CPU shared with test suites and agents, so not a benchmark). 642 MB.
+- Calibrated samples 95.5% (the old match 90.9%). Its layers were built after it with the merged code (state version 5,
+  possession v2, both teams' key moments at level 7): the four goals at 507.99 / 1275.91 / 4180.58 / 4684.78.
+- Its goal analysis against the narrator: 19 findings, 11 right, 6 partly right (where and when the ball was won for
+  goals 1-2 as before; goal 4's penalty placed at 4593.1 s, when play stopped, 1.6 s after the challenge, 9 m out
+  against 11-12 m), 2 the video cannot confirm, none wrong.
+
+### The page
+- `coaching.js`: the GOALS section after the summary (agent; brief in session scratch `goals/FRONTEND_BRIEF.md`).
+  Cards with the time (rounded like the timeline), the score after the goal, how it came about, findings with source,
+  sureness and a time link, notes, WATCH GOAL on the moment player.
+- `match.js` / `index.html`: goal markers with the running score; TIMELINE MARKERS (goals only at first, eleven kinds and
+  the play-state band, remembered with try/catch). In the browser on the real match the popover was cut off under the
+  sticky header on a 768 px window: it now opens below the seek bar when there is no room above, with its own scroll.
+- Checked in the browser (worktree server, the CAN-ISL copy): the four markers and scores, the filter (free kicks on: 6
+  more markers, '2 of 11', saved; Goals only: 4), both teams' Goals sections built from the page, WATCH GOAL on a
+  penalty (from 69:32.38), a finding's link pausing at 67:39.54 on the challenge, no console errors.
+
+### Tests
+- tests/test_moments_goals.py: 24 (synthetic scenes and hand-made states).
+- tests/test_intel_state.py: a goal's time when the ball went in; a ball in a goal mouth before a restart of play is not the
+  goal; a penalty taken after it is.
+- tests/test_moments_panel.py: the Goals section (the fixture regenerated from the backend's current output).
+- tests/test_match_intel_panel.py: the timeline filter and the goal markers.
+
+### Not done
+- No held-out goals: another match with goals and a reference is needed before any number here is a claim beyond CAN-ISL.
+- Shots, passes and the scorer are not measured. Whether a keeper's position was right is not judged.
+- The match state does not classify the penalty restart itself (the timeline shows 'Unknown restart' at 69:40); the
+  goal analysis tells it from the layout.
+- The POSSIBLE_STOPPAGE spells over real play before goals 1 and 3 (above).

@@ -671,9 +671,11 @@ RELATED = {frozenset(p) for p in (('4-3-3', '4-1-4-1'), ('3-5-2', '5-3-2'), ('3-
 WINDOW_SECONDS = 15.0         # s: a formation window (the team's average shape over it)
 WINDOW_STEP = 5.0             # s: windows start this far apart (they overlap)
 MIN_PRESENT = .5              # share of a window a player must be observed in to take part
-FORMATION_MAX_MISSING = 1     # outfield players of the lineup a window may miss and still be classified (9 of 10: on Metrica
-                              # with a simulated camera, windows of 8 agreed with the full-coverage label only 25-56% of the
-                              # time); a 'clear' formation needs all of them
+FORMATION_MAX_MISSING = 1     # outfield players of the lineup a window may miss and still be classified (9 of 10); a 'clear'
+                              # formation needs all of them. On Metrica game 1 with a simulated 60 m camera (tools/
+                              # team_shape_bench.py), an 8-player window's own best fit matched the full-coverage label only
+                              # 21-38% of the time (9: 31-52%, 10: 47-62%); allowing 2 labelled 4-6% more of the match, mostly
+                              # with the neighbours' label, and cut the time called clear by a third to a half
 SCALE_BOUNDS = (.6, 1.8)      # the elastic template's stretch per axis, relative to its nominal size
 UNCLEAR_ERROR = .42           # relative fit error above which no formation describes the window ('unclear')
 SWITCH_PENALTY = .45          # change-point cost: a new formation must fit better by this much, summed over windows (tuned on

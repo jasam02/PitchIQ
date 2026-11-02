@@ -71,7 +71,18 @@
    lines through a paint-checked HIGH registration; pinned: shapes from the players' feet on that frame; image: boxes and
    labels only), diagrams draw the observed positions the record lists (an estimate would be dashed and hollow), and a
    suggested area is dotted, labelled, and drawn only where an alternative was validated (the v1 'suggested' circle is
-   still drawn for old reports). */
+   still drawn for old reports).
+
+   Key moments (full-match playback, kind 'coaching-moments' v1: soccer/moments/report.py). In a full match (run
+   'match-<id>') the tab opens on the key-moments report of one team: MATCH COACHING SUMMARY (team, level, Generate and
+   the build's progress), WHAT THE TEAM DID WELL, WHAT NEEDS IMPROVEMENT, KEY MATCH MOMENTS (a timeline of both halves
+   and the list), REPEATED TACTICAL PATTERNS, TRAINING PRIORITIES, SUPPORTING TEAM METRICS, DATA COVERAGE AND
+   LIMITATIONS, then MORE MOMENTS on request; the v2 report stays one link away ("Previous report (team-shape checks)").
+   A moment card is short (badge, time, players with their roles, the finding, the top-down diagram) with its details on
+   demand. WATCH MOMENT hands the moment to the page's moment player (index.html watchMoment): the lead-up from the
+   window's start with the players followed, a pause on the key frame with the whole annotation and the explanation in
+   the coach chip, the follow-up on Continue, Replay, Video / 2D, Previous / Next, back to the report. A Segment run
+   never asks for it, and a server without the route (HTTP 404) keeps the v2 report. */
 (function (global) {
 'use strict';
 
@@ -1551,6 +1562,52 @@ class PhaseMarks {
   }
 }
 
+// ---------- KEY MOMENTS: the coaching report of a full match (soccer/moments/report.py, kind 'coaching-moments' v1) ----------
+// In full-match playback the coaching tab shows this report first: one team's summary, what it did well, what needs
+// improvement, the key moments on a timeline of the match, repeated patterns, training priorities, then the team-shape
+// numbers and the data coverage as context, and more moments on request. GET /api/coaching/moments?team= answers
+// {state 'ready' | 'building' | 'missing', report, profile, progress} (fullmatch/routes.py; index.html's api() adds
+// match=<id>); POST /api/coaching/moments/build {team} starts a build (one at a time: 'busy' while another runs). A
+// Segment run has no such route and keeps the v2 report; in a match the v2 report (the team-shape checks of the whole
+// match) stays one link away ("Previous report"). Every moment is watched on the page's one clock (index.html
+// watchMoment): the lead-up from its window's start, a pause on the key frame with the whole annotation, the follow-up
+// on request; the moment's text names players by the display labels of the result shown (labelMap), never its ids.
+const isKeyMoments = r => !!r && typeof r === 'object' && r.kind === 'coaching-moments' && r.version === 1 && !!r.moments && typeof r.moments === 'object';
+const KM_POLL_MS = 1500;          // a build in progress is asked again this often
+const KM_QUEUE_MS = 2000;         // Generate while another build runs (the server builds one at a time) is posted again this often
+const KM_BADGE = {positive: ['Positive', 'strength'], improvement: ['Review', 'improvement']};
+const KM_LANE_GAP = 2.6;          // % of a half's width: closer timeline markers go on another lane (at most KM_LANES)
+const KM_LANES = 3, KM_LANE_PX = 15;
+const KM_HEADING = ['Key moments of the match', 'What the team did well and what needs improvement, each on the video: a moment opens a few seconds before, pauses on the key frame with its annotation and plays on when you continue. Read for the level set in the coaching setup.'];
+const KM_NO_ALT = 'No validated alternative position.';
+// The setup of a team with no saved block, under the key moments (soccer/moments/report.profile_from_settings).
+const KM_SETUP_NOTE = 'Not saved for this team yet: its key moments are read for the other team\u2019s level, or PitchIQ\u2019s default level when neither team is set. Choose the age group and the playing level to read them for this team; the match\u2019s measurements never change with them.';
+const KM_LEGEND = 'On the diagrams: a ring marks the player the moment is about, a dashed ring a teammate involved; the solid arrow is the run that player made and thin lines join the players who mattered.';
+const KM_LEGEND_ZONE = ' A dotted area with a dashed arrow is a possible better position: one player moved, everyone else kept where they were.';
+const kmBadge = m => KM_BADGE[m && m.category] || ['Moment', 'describe'];
+const capFirst = s => { const t = String(s === undefined || s === null ? '' : s); return t.charAt(0).toUpperCase() + t.slice(1); };
+const mmss = t => { const s = Math.max(0, Math.round(Number(t) || 0)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+// The goals of the report (soccer/moments/goals.py): a finding's time as the report's own words write it (whole seconds,
+// floored: language.clock, so a link says 08:27 where its text says 08:27; the goal's own time rounds, as the timeline's
+// marker does), how a goal came about in words, the tone of a finding's sureness chip.
+const kmClock = t => { const s = Math.max(0, Math.floor(Number(t) || 0)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const KM_RESTART = {CORNER_KICK: 'corner kick', FREE_KICK: 'free kick', THROW_IN: 'throw-in', GOAL_KICK: 'goal kick', KICK_OFF: 'kick-off', PENALTY_KICK: 'penalty kick', UNKNOWN_RESTART: 'restart'};
+const KM_SURE_TONE = {measured: 'ok', clear: 'ok', estimated: 'est', 'fairly sure': 'est', plausible: 'est', uncertain: 'low'};
+function kmGoalKind(g) {
+  // 'open play', 'a set piece (corner kick)', 'a penalty', 'a penalty or direct free kick', 'a kick-off'; '' when not known
+  const r = g.restart && typeof g.restart === 'object' ? KM_RESTART[g.restart.type] : null;
+  return g.kind === 'open_play' ? 'open play' : g.kind === 'set_piece' ? `a set piece${r ? ` (${r})` : ''}` : g.kind === 'penalty' ? 'a penalty'
+    : g.kind === 'direct_set_piece' ? 'a penalty or direct free kick' : g.kind === 'kick_off' ? 'a kick-off' : '';
+}
+function kmIcon(id) {
+  // One of the page's sprite icons (index.html: <symbol id="i-play">), decorative.
+  const svg = document.createElementNS(SVG_NS, 'svg'), use = document.createElementNS(SVG_NS, 'use');
+  svg.setAttribute('aria-hidden', 'true');
+  use.setAttribute('href', '#' + id);
+  svg.append(use);
+  return svg;
+}
+
 // ---------- the view ----------
 class CoachingView {
   constructor(options) {
@@ -1578,13 +1635,22 @@ class CoachingView {
     this.progressAsk = new Map(); this.progressOpen = null; this.spansSaved = false;
     // The coach-marked possession tool (index.html gives its elements; without them there is none).
     this.marks = options.marks ? new PhaseMarks(this, options.marks) : null;
+    // Key moments (full-match playback). watch: the page's moment player (index.html watchMoment); heading: the tab's
+    // title and lede, named after the report shown. mView 'moments' | 'v2' (the previous report); mGone: the server has
+    // no moments route. mAnswers: the last answer per team; mKits: the teams' kit labels from a report; mQueue: a
+    // Generate waiting for another build; mOpen: the cards whose details are open; mWatching: the moment being watched
+    // and the list Previous / Next move along; momentView: the coach's Video / 2D choice.
+    this.watchTo = options.watch || null; this.heading = options.heading || null; this.headingText = null;
+    this.mView = 'moments'; this.mGone = false; this.mAnswers = new Map(); this.mKits = {A: null, B: null}; this.mQueue = null; this.mBuilding = false;
+    this.mMore = false; this.mOpen = new Set(); this.mCards = new Map(); this.mWatching = null; this.mSelected = null; this.momentView = 'tracking';
+    this.mSig = null; this.mLabels = null; this.mBuildEl = null; this.mProfileEl = null; this.mRedraw = null;
     this.c.team.addEventListener('change', () => this.teamChanged());
     this.c.range.addEventListener('change', () => { this.syncRange(true); this.request(); });
     for (const input of [this.c.t0, this.c.t1]) input.addEventListener('change', () => this.request());
     if (this.c.context) this.c.context.addEventListener('change', () => this.request());
     this.c.generate.addEventListener('click', () => this.generate());
     this.c.pdf.addEventListener('click', () => this.exportPdf());
-    for (const input of options.colourInputs || []) input.addEventListener('input', () => { this.renderSide(); if (this.marks) this.marks.render(); });
+    for (const input of options.colourInputs || []) input.addEventListener('input', () => { this.renderSide(); if (this.marks) this.marks.render(); if (this.momentsOn()) this.kmRedraw(); });
     if (this.media && typeof this.media.addEventListener === 'function') this.media.addEventListener('change', () => this.placeSide());
     this.syncRange(false);
     this.render();
@@ -1593,7 +1659,7 @@ class CoachingView {
   label(id) { return this.labels.get(id) || id; }
   teamChanged() {
     // The report's team is also "us" for the possession marks.
-    this.setupPanel = null; this.setupMessage = '';
+    this.setupPanel = null; this.setupMessage = ''; this.mQueue = null;
     if (this.marks) this.marks.render();
     this.request();
   }
@@ -1628,6 +1694,8 @@ class CoachingView {
       this.drafts.clear(); this.notes.clear(); this.selected = null; this.selectedEvidence = null; this.loadedRun = run;
       this.setupAnswer = null; this.setupAsk = null; this.setupRun = undefined; this.setupDraft = {A: null, B: null}; this.setupOpen = null;
       this.setupPanel = null; this.setupMessage = ''; this.squadName = null; this.selectedMoment = null; this.adjusting = null;
+      this.mView = 'moments'; this.mGone = false; this.mAnswers.clear(); this.mKits = {A: null, B: null}; this.mQueue = null; this.mMore = false;
+      this.mOpen.clear(); this.mWatching = null; this.mSelected = null; this.mSig = null;
     }
     this.result = result; this.info = info; this.labels = labelMap(result);
     if (run !== this.spansRun) { this.spansRun = run; this.spansSaved = false; this.progressAsk.clear(); this.progressOpen = null; }
@@ -1681,6 +1749,7 @@ class CoachingView {
   }
 
   async request() {
+    if (this.momentsOn()) return this.requestMoments();   // a full match: its key moments (KEY MOMENTS below)
     // Every request supersedes the ones still in flight, also one answered at once (from the cache, or an unreadable
     // range): their late answers fail the seq check. Before, a cache hit left an older request current: with team B
     // asked and A then shown from the cache, B's late answer replaced A's report while the selector said A, and the
@@ -1809,7 +1878,11 @@ class CoachingView {
 
   // ---------- rendering ----------
   render() {
+    this.chrome();
+    if (this.momentsOn()) { this.renderSetup(); this.renderMoments(); return; }
     this.renderSetup(); this.renderBar(); this.renderBanner(); this.renderMain(); this.renderSide();
+    // a full match's previous report (the team-shape checks) leads back to its key moments
+    if (this.result && this.isMatch() && !this.mGone && typeof this.main.prepend === 'function') this.main.prepend(this.kmBackRow());
   }
 
   renderBar() {
@@ -2218,6 +2291,7 @@ class CoachingView {
   }
 
   renderSide() {
+    if (this.momentsOn()) { this.side.hidden = true; return; }
     if (isV2(this.report())) { this.renderSideV2(); return; }
     const side = this.side, r = this.report();
     side.replaceChildren(el('h3', null, 'Evidence'));
@@ -2396,7 +2470,8 @@ class CoachingView {
     host.hidden = !this.result || this.mode === null;
     if (host.hidden) return;
     const team = this.teamKey(), d = this.setupBlock(team), saved = this.savedSetup(team), dirty = this.setupDirty(team);
-    const open = this.setupOpen === null ? !saved || dirty : this.setupOpen;
+    // under the key moments an unsaved team's setup starts closed: its moments are read for the other team's level
+    const open = this.setupOpen === null ? (this.momentsOn() ? dirty : !saved || dirty) : this.setupOpen;
     const head = el('div', 'cr-setup-head'), title = el('div', 'cr-setup-title');
     title.append(el('h3', null, 'Coaching setup'), el('span', 'cr-setup-sum', `Team ${team} · ${this.setupSummary(d)}`));
     const toggle = button(open ? 'Hide' : 'Edit setup', 'quiet cr-setup-toggle', () => { this.setupOpen = !open; this.renderSetup(); });
@@ -2404,7 +2479,7 @@ class CoachingView {
     head.append(title, toggle);
     host.append(head);
     if (!saved && !dirty) {
-      host.append(el('p', 'cr-setup-note', this.mode === 'v2'
+      host.append(el('p', 'cr-setup-note', this.momentsOn() ? KM_SETUP_NOTE : this.mode === 'v2'
         ? 'Not saved for this team yet: the report uses PitchIQ’s defaults. Choose the age group and the playing level so it speaks to your players; the measurements never change with them.'
         : 'This server still builds the earlier report (one professional reference, three wordings): the setup is kept on this page and only the level picks the wording.'));
     }
@@ -2683,6 +2758,14 @@ class CoachingView {
     this.setupMessage = 'Saved.' + note;
     this.cache.clear(); this.gen++;
     await this.request();
+    if (this.momentsOn()) {
+      // the key moments are keyed by the level and the age group: the same match data, read again on Generate
+      const ma = this.mAnswer(team);
+      this.setupMessage = (ma && ma.state === 'ready' ? 'Saved. The key moments below are read for this profile.'
+        : 'Saved. Press Generate key moments to read the match for this profile (a few seconds: the match\u2019s data is re-used).') + note;
+      this.renderSetup();
+      return;
+    }
     // What the save did, from the report answer that followed it (CODE L3: a format change back to a measurement made
     // before said "press Generate" beside "Report up to date", and a first save said "worked out again from the same
     // measurements" before anything was measured).
@@ -2717,11 +2800,16 @@ class CoachingView {
   }
   phaseWords(ph, f) {
     // DESIGN 3.2 rule 8: "when we had the ball (estimated)"; a coach-marked span is said to be the coach's, and a
-    // finding resting on both (measurements.phaseSource 'mixed', DETECT) says so.
+    // finding resting on both (measurements.phaseSource 'mixed', DETECT) says so; the image-based estimate (used on
+    // amateur footage only where the coach's marks agreed with it: 'possession-amateur' / 'mixed-amateur') says so too.
     if (!ph || typeof ph !== 'object') return null;
     const w = {own: 'when we had the ball', opp: 'when the other team had the ball', dead: 'while the ball was out of play'}[ph.state];
     const source = f && f.measurements ? f.measurements.phaseSource : null;
-    return w ? `${w} (${ph.estimated === false || source === 'coach' ? 'marked by the coach' : source === 'mixed' ? 'estimated, partly marked by the coach' : 'estimated'})` : null;
+    const how = ph.estimated === false || source === 'coach' ? 'marked by the coach'
+      : source === 'mixed' ? 'estimated, partly marked by the coach'
+      : source === 'mixed-amateur' ? 'estimated from the image, partly marked by the coach'
+      : source === 'possession-amateur' ? 'estimated from the image' : 'estimated';
+    return w ? `${w} (${how})` : null;
   }
   drillName(id) { const lib = this.answer && this.answer.drills, d = lib && typeof lib === 'object' ? lib[id] : null; return d && typeof d.name === 'string' && d.name ? d.name : words(id); }
   sourceTitle(id) {
@@ -3004,7 +3092,7 @@ class CoachingView {
       chip.append(document.createTextNode(ui[0] + ' '), el('b', null, text));
       box.append(chip);
     }
-    if (m.phaseSource === 'coach' || m.phaseSource === 'mixed') box.append(el('span', 'cr-metric cr-coach-tag', m.phaseSource === 'coach' ? 'Who had the ball: marked by the coach' : 'Who had the ball: partly marked by the coach'));
+    if (m.phaseSource === 'coach' || m.phaseSource === 'mixed' || m.phaseSource === 'mixed-amateur') box.append(el('span', 'cr-metric cr-coach-tag', m.phaseSource === 'coach' ? 'Who had the ball: marked by the coach' : 'Who had the ball: partly marked by the coach'));
     return box.children.length ? box : null;
   }
   guardNotes(f) {
@@ -3506,9 +3594,779 @@ class CoachingView {
     await this.request();
   }
 
+  // ================= KEY MOMENTS: the report of a full match and its moment player =================
+  // The run of a full match is 'match-<id>' (FullMatch.coachingRun): there the key-moments report is shown first, the v2
+  // report a link away; a Segment run never asks for it. A server without the route (HTTP 404) keeps the v2 report.
+  isMatch() { return /^match-/.test(String(this.runName() || '')); }
+  momentsOn() { return this.isMatch() && this.mView === 'moments' && !this.mGone; }
+  mAnswer(team) { return this.mAnswers.get(team || this.teamKey()) || null; }
+  mReport(team) { const a = this.mAnswer(team); return a && isKeyMoments(a.report) ? a.report : null; }
+  kmTeamLabel(t) { const k = this.mKits[t]; return k && typeof k.label === 'string' && k.label ? k.label : `Team ${t}`; }
+  kmIds(r, key) { return (Array.isArray(r[key]) ? r[key] : []).filter(id => typeof id === 'string' && r.moments[id] && typeof r.moments[id] === 'object'); }
+  kmWhen(m) { return [typeof m.clock === 'string' && m.clock ? m.clock : mmss(m.time), m.half].filter(x => typeof x === 'string' && x).join(' \u00b7 '); }
+  mTake(team, a) {
+    // An answer of the moments routes for one team; the kits it names label both teams' buttons from then on.
+    const answer = a && typeof a === 'object' ? a : {state: 'error', error: 'The server sent no answer.'};
+    this.mAnswers.set(team, answer);
+    const teams = isKeyMoments(answer.report) && answer.report.match && answer.report.match.teams;
+    if (teams && typeof teams === 'object') for (const t of ['A', 'B']) if (teams[t] && typeof teams[t] === 'object') this.mKits[t] = teams[t];
+  }
+
+  async requestMoments() {
+    // One team's key moments: the cached answer is shown at once while the server is asked; a build in progress is
+    // asked again every KM_POLL_MS (each request supersedes the ones in flight, as the v2 request does).
+    this.stopPoll(); this.message = '';
+    const seq = ++this.seq, gen = this.gen, team = this.teamKey();
+    if (!this.result) { this.loading = false; this.render(); return; }
+    await this.prepare();
+    if (seq !== this.seq || gen !== this.gen) return;
+    if (!this.momentsOn()) { this.request(); return; }
+    this.loading = !this.mAnswers.has(team);
+    this.render();
+    let a = null, failed = null;
+    try { a = await this.api('/api/coaching/moments?' + new URLSearchParams({run: this.runName() || '', team}).toString()); } catch (error) { failed = error; }
+    if (seq !== this.seq || gen !== this.gen) return;
+    this.loading = false;
+    if (failed && failed.status === 404 && !this.mAnswers.size) { this.mGone = true; this.request(); return; }   // no such route: the v2 report
+    if (failed) a = {state: 'error', error: `The key moments could not be read (${failText(failed)}).`};
+    this.mTake(team, a);
+    this.render();
+    this.mSchedule(team);
+  }
+  mSchedule(team) {
+    if (!this.active || team !== this.teamKey() || !this.momentsOn()) return;
+    const a = this.mAnswer(team);
+    if (this.mQueue === team) this.timer = setTimeout(() => { this.timer = null; this.generateMoments(true); }, KM_QUEUE_MS);
+    else if (a && a.state === 'building') this.timer = setTimeout(() => { this.timer = null; this.request(); }, KM_POLL_MS);
+  }
+  async generateMoments(queued) {
+    // POST the build; while another build runs the server answers busy and nothing starts, so the page posts again
+    // every KM_QUEUE_MS until this one starts (or is ready).
+    const team = this.teamKey(), a = this.mAnswer(team);
+    if (!this.result || this.mBuilding || (!queued && a && a.state === 'building')) return;
+    this.stopPoll(); this.message = '';
+    const seq = ++this.seq, gen = this.gen;
+    this.mBuilding = true; this.kmUpdateBuild();
+    let b = null, failed = null;
+    try { b = await this.post('/api/coaching/moments/build', {run: this.runName(), team}); } catch (error) { failed = error; }
+    this.mBuilding = false;
+    if (seq !== this.seq || gen !== this.gen) return;
+    if (failed) { this.mQueue = null; this.mTake(team, Object.assign({}, a || {}, {state: 'error', report: null, error: `The key moments could not be built: ${failText(failed)}`})); this.render(); return; }
+    if (b && b.busy) { this.mQueue = team; this.mTake(team, {state: 'queued', report: null, profile: (a && a.profile) || (b && b.profile) || null}); }
+    else { this.mQueue = null; this.mTake(team, b); }
+    this.render();
+    this.mSchedule(team);
+  }
+  kmGenerateClick() { const a = this.mAnswer(); if (a && a.state === 'ready') this.request(); else this.generateMoments(false); }
+  showV2() { this.mView = 'v2'; this.mQueue = null; this.stopPoll(); this.cache.clear(); this.gen++; this.request(); }
+  showMoments() { this.mView = 'moments'; this.stopPoll(); this.gen++; this.mSig = null; this.request(); }
+
+  chrome() {
+    // The options bar (team, range, PDF) and the evidence column belong to the v2 report: the key moments carry their
+    // team choice and Generate in their summary and take the grid's whole width. The heading says which report it is.
+    const on = this.momentsOn(), bar = this.c.generate ? this.c.generate.parentElement : null, h = this.heading;
+    if (bar && bar !== this.main && 'hidden' in bar && bar.hidden !== on) bar.hidden = on;
+    if (this.home && this.home.classList) this.home.classList.toggle('km-one', on);
+    if (on) this.side.hidden = true;
+    if (h && h.title && h.lede) {
+      if (!this.headingText) this.headingText = [h.title.textContent, h.lede.textContent];
+      const [title, lede] = on ? KM_HEADING : this.headingText;
+      if (h.title.textContent !== title) h.title.textContent = title;
+      if (h.lede.textContent !== lede) h.lede.textContent = lede;
+    }
+  }
+  kmBanner() {
+    const box = this.banner;
+    box.replaceChildren(); box.className = 'cr-banner';
+    box.hidden = !this.message;
+    if (this.message) { box.classList.add('error'); box.append(el('span', null, this.message)); }
+  }
+  renderMoments() {
+    // The cards are drawn again only when the report, the labels or the team changed; a poll during a build, the tab
+    // shown again or Refresh update the summary's build line in place (its status is a live region), so open details
+    // and the scroll position stay.
+    const team = this.teamKey(), a = this.mAnswer(team), r = this.mReport(team);
+    this.kmBanner();
+    this.side.hidden = true;
+    const sig = [team, r ? `${r.generated || ''}|${(r.engine && r.engine.report) || ''}|${r.team}` : `none|${JSON.stringify((a && a.profile) || null)}`,
+                 this.kmTeamLabel('A'), this.kmTeamLabel('B'), this.result ? 1 : 0].join('|');
+    if (sig === this.mSig && this.mLabels === this.labels && this.mBuildEl && this.main.children.length) { this.kmUpdateBuild(); return; }
+    this.mSig = sig; this.mLabels = this.labels; this.mBuildEl = null; this.mProfileEl = null;
+    this.main.replaceChildren(); this.mCards = new Map(); this.renderedGen = this.gen;
+    if (!this.result) { this.main.append(this.empty('Coaching reports appear here after a run.')); return; }
+    this.main.append(this.kmSummary(a, r));
+    if (r) this.main.append(...[this.kmGoals(r), this.kmStrengths(r), this.kmImprovements(r), this.kmKey(r), this.kmPatterns(r), this.kmTraining(r), this.kmMetrics(r),
+                                this.kmCoverage(r), this.kmMore(r)].filter(Boolean));   // an older report has no goals section
+    this.kmMark();
+  }
+  kmRedraw() {
+    // A team colour changed: the diagrams are drawn again (once the picker rests).
+    if (this.mRedraw) return;
+    this.mRedraw = setTimeout(() => { this.mRedraw = null; if (this.momentsOn()) { this.mSig = null; this.renderMoments(); } }, 120);
+  }
+  kmBackRow() {
+    const row = el('div', 'km-back'), b = button('\u2190 Key moments of the match', 'quiet', () => this.showMoments(), 'Back to the key-moments report of this match');
+    row.dataset.km = 'back'; b.dataset.km = 'moments';
+    row.append(b, el('span', 'cr-intro', 'This is the previous report of the match: its team-shape checks, unchanged.'));
+    return row;
+  }
+
+  // ---------- 1. match coaching summary ----------
+  kmSummary(a, r) {
+    const team = this.teamKey(), s = this.section('mSummary', 'Match coaching summary'), head = el('div', 'km-sum-head');
+    head.append(el('div', 'cr-team', this.kmTeamLabel(team)), this.kmTeams(team));
+    s.append(head);
+    const prof = el('p', 'km-profile');
+    prof.dataset.km = 'profile'; this.mProfileEl = prof;
+    s.append(prof);
+    if (r && r.summary && typeof r.summary.text === 'string' && r.summary.text) { const p = this.para(null, r.summary.text, 'km-summary'); p.dataset.km = 'summary'; s.append(p); }
+    if (r) s.append(this.kmCounts(r));
+    s.append(this.kmBuildRow());
+    this.kmUpdateBuild();
+    return s;
+  }
+  kmTeams(team) {
+    const box = el('div', 'km-teams');
+    box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Team the report is about');
+    for (const t of ['A', 'B']) {
+      const b = button(this.kmTeamLabel(t), null, () => { if (t !== this.teamKey()) this.setTeam(t); });
+      b.dataset.team = t; b.setAttribute('aria-pressed', String(t === team));
+      box.append(b);
+    }
+    return box;
+  }
+  kmProfileText(rp, ap, team) {
+    // The level, age group and format the report was read for (its own profile), and where the setup's level comes
+    // from now (the answer's profile: a team's own setup, the other team's, or PitchIQ's default).
+    const p = Object.assign({}, ap && typeof ap === 'object' ? ap : {}, rp && typeof rp === 'object' ? rp : {});
+    if (ap && typeof ap === 'object' && typeof ap.source === 'string') p.source = ap.source;
+    if (!Object.keys(p).length) return '';
+    const lv = this.catalogue.levels.find(l => l.level === p.level);
+    const level = lv ? `level ${lv.level} ${titleCase(lv.name)}${p.band ? ` (${p.band})` : ''}` : Number.isInteger(p.level) ? `level ${p.level}` : null;
+    const parts = [p.ageGroup, level, p.format].filter(x => typeof x === 'string' && x);
+    const from = p.source === 'team' ? `from Team ${team}\u2019s coaching setup`
+      : p.source === 'other team' ? `Team ${team} has no coaching setup of its own: the other team\u2019s is used`
+      : p.source === 'default' ? 'PitchIQ\u2019s default level: choose the age group and the level in the coaching setup' : null;
+    return parts.length ? `Read for ${parts.join(' \u00b7 ')}${from ? ` (${from})` : ''}.` : '';
+  }
+  kmCounts(r) {
+    const box = el('div', 'km-counts'), n = k => this.kmIds(r, k).length, goals = r.goals && typeof r.goals === 'object' ? this.kmGoalLists(r) : null;
+    box.dataset.km = 'counts';
+    const items = [[n('strengths'), 'done well'], [n('improvements'), 'to improve'], [n('keyMoments'), 'key moments'],
+                   [(Array.isArray(r.patterns) ? r.patterns : []).length, 'repeated patterns'], [n('moreMoments'), 'more moments']];
+    if (goals) { const g = goals.scored.length + goals.conceded.length; items.unshift([g, plural(g, 'goal')]); }   // a report with the goals analysed
+    for (const [v, label] of items) {
+      const chip = el('span', 'cr-metric');
+      chip.append(el('b', null, String(v)), document.createTextNode(` ${label}`));
+      box.append(chip);
+    }
+    return box;
+  }
+  kmBuildRow() {
+    const row = el('div', 'km-build'), b = button('Generate key moments', 'primary', () => this.kmGenerateClick()), status = el('span', 'km-status'), bar = el('progress');
+    b.dataset.km = 'generate'; status.dataset.km = 'status'; status.setAttribute('role', 'status');
+    bar.max = 1; bar.value = 0; bar.hidden = true; bar.setAttribute('aria-label', 'Build progress');
+    const prev = button('Previous report (team-shape checks)', 'quiet km-prev', () => this.showV2(), 'The earlier coaching report of this match: its team-shape checks, unchanged');
+    prev.dataset.km = 'v2';
+    row.append(b, status, bar, el('span', 'cr-spacer'), prev);
+    this.mBuildEl = {row, button: b, status, bar};
+    return row;
+  }
+  kmProgressText(p) {
+    if (!p || typeof p !== 'object') return 'Building the key moments\u2026';
+    const stage = capFirst(typeof p.stage === 'string' && p.stage ? p.stage : 'building');
+    return Number.isInteger(p.done) && Number.isInteger(p.of) && p.of > 0 ? `${stage}: ${p.done} of ${p.of} segments` : `${stage}\u2026`;
+  }
+  kmUpdateBuild() {
+    const e = this.mBuildEl, team = this.teamKey(), a = this.mAnswer(team), r = this.mReport(team);
+    if (this.mProfileEl) { const t = this.kmProfileText(r && r.profile, a && a.profile, team); this.mProfileEl.textContent = t; this.mProfileEl.hidden = !t; }
+    if (!e) return;
+    const st = this.mBuilding ? 'building' : a ? String(a.state || 'missing') : 'loading';
+    let label = 'Generate key moments', primary = true, off = false, text, error = false;
+    if (st === 'loading') { off = true; text = 'Reading the key moments of this match\u2026'; }
+    else if (st === 'building') { label = 'Building\u2026'; off = true; text = this.mBuilding && !(a && a.state === 'building') ? 'Starting the build\u2026' : this.kmProgressText(a && a.progress); }
+    else if (st === 'queued') { label = 'Waiting\u2026'; off = true; text = 'Another key-moments report is being built (one at a time): this one starts as soon as it has finished.'; }
+    else if (st === 'ready') { label = 'Refresh'; primary = false; text = `Up to date for this team and level${r && r.generated ? ` (built ${String(r.generated).replace('T', ' ')})` : ''}.`; }
+    else if (st === 'error' || (a && a.error)) { error = true; text = (a && a.error) || 'The key moments could not be built.'; }
+    else text = 'Not built yet for this team and level. The first build of a match reads the whole match (about a minute); later ones take a few seconds.';
+    e.row.dataset.state = st;
+    if (e.button.textContent !== label) e.button.textContent = label;
+    e.button.disabled = off; e.button.className = primary ? 'primary' : 'quiet';
+    e.button.title = st === 'ready' ? 'Ask again: the report is rebuilt when the roster corrections or the coaching level changed' : 'Build the key moments of this match for this team (no new tracking)';
+    if (e.status.textContent !== text) e.status.textContent = text;
+    e.status.className = 'km-status' + (error ? ' error' : '');
+    const p = a && a.progress, n = st === 'building' && p && Number.isInteger(p.done) && Number.isInteger(p.of) && p.of > 0;
+    e.bar.hidden = !n;
+    if (n) { e.bar.max = p.of; e.bar.value = Math.min(p.done, p.of); }
+  }
+
+  // ---------- goals: how each goal came about (soccer/moments/goals.py), right after the summary ----------
+  // r.goals: undefined in a report made before goals were analysed (no section), null when the match has no match state
+  // (one quiet line), else {scored, conceded, note}: the report team's goals with what it did well before each, and the
+  // goals it conceded with what went wrong and why each was allowed. Every goal plays on the moment player (its build-up,
+  // paused on the goal); a finding's time pauses the video there.
+  kmGoals(r) {
+    if (r.goals === undefined) return null;
+    if (!r.goals || typeof r.goals !== 'object') {
+      const s = this.section('mGoals', 'Goals');
+      s.append(el('p', 'cr-none', 'Goals appear here once the match state is built.'));
+      return s;
+    }
+    const {scored, conceded} = this.kmGoalLists(r), s = this.section('mGoals', `Goals \u00b7 ${scored.length + conceded.length}`);
+    if (typeof r.goals.note === 'string' && r.goals.note) s.append(this.para(null, r.goals.note, 'cr-intro'));
+    if (!scored.length && !conceded.length) { s.append(el('p', 'cr-none', 'No goals were recognised in this match.')); return s; }
+    const scores = this.kmGoalScores(r);
+    for (const [group, title, intro, none, list] of [
+      ['scored', 'Goals scored', 'What went well: how the team made each goal.', 'This team scored no goal in this match.', scored],
+      ['conceded', 'Goals conceded', 'What went wrong: why each goal was allowed.', 'This team conceded no goal in this match.', conceded]]) {
+      const box = el('div', 'km-goals');
+      box.dataset.goals = group;
+      box.append(el('h4', 'cr-sub-h', `${title} \u00b7 ${list.length}`), el('p', list.length ? 'cr-intro' : 'cr-none', list.length ? intro : none));
+      for (const g of list) box.append(this.kmGoalCard(r, g, group, scores));
+      s.append(box);
+    }
+    return s;
+  }
+  kmGoalLists(r) {
+    // The report's goals that have a time, per group in time order (the same goal objects on every call).
+    const g = r && r.goals && typeof r.goals === 'object' ? r.goals : {};
+    const list = k => (Array.isArray(g[k]) ? g[k] : []).filter(x => x && typeof x === 'object' && isNum(x.t)).sort((a, b) => a.t - b.t);
+    return {scored: list('scored'), conceded: list('conceded')};
+  }
+  kmGoalScores(r) {
+    // The score after each goal, the report team's goals first ('2-1'): its goals scored and conceded merged in time order.
+    const {scored, conceded} = this.kmGoalLists(r), all = scored.map(g => [g, 0]).concat(conceded.map(g => [g, 1])).sort((a, b) => a[0].t - b[0].t);
+    const n = [0, 0], out = new Map();
+    for (const [g, side] of all) { n[side]++; out.set(g, {us: n[0], them: n[1], text: `${n[0]}-${n[1]}`}); }
+    return out;
+  }
+  kmGoalId(g) { return typeof g.id === 'string' && g.id ? g.id : `goal-${g.t}`; }
+  kmGoalFindings(g) { return (Array.isArray(g.findings) ? g.findings : []).filter(f => f && typeof f.text === 'string' && f.text); }
+  kmGoalNotes(g) { return (Array.isArray(g.notes) ? g.notes : []).filter(n => typeof n === 'string' && n); }
+  kmGoalCaption(g) { return ['Goal', g.team === 'A' || g.team === 'B' ? this.kmTeamLabel(g.team) : null, mmss(g.t)].filter(Boolean).join(' \u00b7 '); }
+  kmGoalCard(r, g, group, scores) {
+    // One goal: Scored / Conceded, its time, the score after it, the team that scored and how, "time uncertain"; the
+    // findings (each with its source and how sure it is, and the time to watch), the notes, WATCH.
+    const mine = group === 'scored', id = this.kmGoalId(g), s = scores.get(g), kind = kmGoalKind(g), us = r.team === 'B' ? 'B' : 'A', them = us === 'A' ? 'B' : 'A';
+    const card = el('article', `cr-finding km-card km-goal k-${mine ? 'strength' : 'improvement'}`), body = el('div', 'km-main'), head = el('div', 'cr-f-head'), title = el('h4', 'km-title');
+    card.dataset.goal = id; card.dataset.group = group;
+    const badge = el('span', 'cr-badge', mine ? 'Scored' : 'Conceded');
+    badge.title = `${g.status === 'confirmed' ? 'Confirmed by you' : g.status === 'candidate' ? 'A candidate, to review in the match events' : 'Recognised by the match state'}` +
+      `${typeof g.confidence === 'string' && g.confidence && g.confidence !== 'confirmed' ? ` (${g.confidence} confidence)` : ''}`;
+    head.append(badge, el('span', 'km-when', mmss(g.t)));                      // as the timeline's marker says it
+    if (s) {
+      const score = el('span', 'km-score', s.text);
+      score.dataset.km = 'score'; score.title = `After this goal: ${this.kmTeamLabel(us)} ${s.us}, ${this.kmTeamLabel(them)} ${s.them}`;
+      head.append(score);
+    }
+    if (g.timeUncertain) { const tag = el('span', 'km-tag', 'Time uncertain'); tag.dataset.km = 'time-uncertain'; tag.title = 'The match state is not sure exactly when this goal was scored.'; head.append(tag); }
+    if (g.status === 'candidate') { const tag = el('span', 'km-tag', 'To review'); tag.dataset.km = 'candidate'; tag.title = 'The match state is not sure this was a goal: confirm or remove it in the match events.'; head.append(tag); }
+    title.id = `km-g-${group}-${id}`;
+    title.textContent = `${g.team === 'A' || g.team === 'B' ? this.kmTeamLabel(g.team) : 'A team'} scored${kind ? ` from ${kind}` : ''}`;
+    title.dataset.km = 'goal-title';
+    card.setAttribute('aria-labelledby', title.id);
+    body.append(head, title);
+    const findings = this.kmGoalFindings(g), notes = this.kmGoalNotes(g);
+    if (findings.length) {
+      const list = el('ul', 'km-gf');
+      list.dataset.km = 'findings';
+      list.setAttribute('aria-label', mine ? 'What went well' : 'What went wrong');
+      for (const f of findings) list.append(this.kmGoalFinding(r, g, f, group));
+      body.append(list);
+    }
+    for (const n of notes) { const p = this.para(null, n, 'km-goal-note'); p.dataset.km = 'note'; body.append(p); }
+    if (!findings.length && !notes.length) body.append(el('p', 'cr-none', 'PitchIQ could not say anything for sure about how this goal came about.'));
+    const acts = el('div', 'km-acts'), watch = button('', 'primary km-watch', () => this.kmGoalWatch(r, g, group), `Watch the build-up to the goal at ${mmss(g.t)}, paused on the goal`);
+    watch.append(kmIcon('i-play'), document.createTextNode('Watch goal'));
+    watch.dataset.goal = id;
+    acts.append(watch);
+    body.append(acts);
+    card.append(body);
+    this.kmRegister(id, card);
+    return card;
+  }
+  kmGoalFinding(r, g, f, group) {
+    // A finding: the time to watch (it pauses the video there), its text (ids as the result's display labels), a chip
+    // with its source and how sure it is.
+    const row = el('li', 'km-gf-row'), main = el('span', 'km-gf-body'), source = typeof f.source === 'string' && f.source ? f.source : null, sure = typeof f.sure === 'string' && f.sure ? f.sure : null;
+    row.dataset.km = 'finding';
+    if (isNum(f.t)) {
+      const b = button(kmClock(f.t), 'cr-time km-gf-t', () => this.kmGoalSeek(r, g, f, group), `Pause the video at ${kmClock(f.t)}, this finding's moment`);
+      b.dataset.seek = String(f.t);
+      row.append(b);
+    } else row.append(el('span', 'km-gf-t none'));
+    main.append(...labelNodes(f.text, this.labels));
+    if (source || sure) {
+      const chip = el('span', `km-gf-src s-${KM_SURE_TONE[sure] || 'est'}`, [source, sure].filter(Boolean).join(' \u00b7 '));
+      chip.dataset.km = 'source'; chip.title = `Source: ${source || 'not said'}. How sure: ${sure || 'not said'}.`;
+      main.append(chip);
+    }
+    row.append(main);
+    return row;
+  }
+  kmGoalPayload(r, g, group, f) {
+    // The moment player's payload for a goal, which has no episode (no frame, diagram, overlay or follow list): its
+    // build-up from watch.t0 to watch.t1 (2 s after it), paused on the goal; f: a finding, paused at its time instead
+    // (start 'key', the window stretched to hold it). Previous / Next move along the goals of the group.
+    const lab = t => plainLabels(t, this.labels), mine = group === 'scored', list = this.kmGoalLists(r)[group], k = list.indexOf(g), s = this.kmGoalScores(r).get(g);
+    const at = f && isNum(f.t) ? f.t : null, key = at !== null ? at : g.t, w = g.watch && typeof g.watch === 'object' ? g.watch : {};
+    const t0 = Math.max(0, Math.min(isNum(w.t0) ? w.t0 : g.t - 10, key)), t1 = Math.max(isNum(w.t1) ? w.t1 : g.t + 2, key), kind = kmGoalKind(g);
+    const findings = this.kmGoalFindings(g), notes = this.kmGoalNotes(g), sure = x => [x.source, x.sure].filter(y => typeof y === 'string' && y).join(', ');
+    const details = findings.map(x => [isNum(x.t) ? `${kmClock(x.t)}.` : '\u2022', `${lab(x.text)}${sure(x) ? ` (${sure(x)})` : ''}`]).concat(notes.map(n => ['Note.', lab(n)]));
+    const when = at !== null ? [kmClock(at), sure(f)] : [s ? `Score ${s.text}` : '', kind ? capFirst(kind) : '', g.timeUncertain ? 'time uncertain' : ''];
+    return {moment: this.kmGoalId(g), start: at !== null ? 'key' : 'leadup', seek: key, time: key, fps: this.fps(), view: this.momentView === 'board' ? 'board' : 'tracking',
+            focus: [], diagram: null, overlay: null, tier: null, window: {t0, t1, key}, follow: null,
+            chip: {title: this.kmGoalCaption(g), finding: lab(at !== null ? f.text : findings.length ? findings[0].text : notes[0] || ''), badge: mine ? 'Scored' : 'Conceded',
+                   kind: mine ? 'positive' : 'improvement', when: when.filter(Boolean).join(' \u00b7 '),
+                   team: g.team === 'A' || g.team === 'B' ? this.kmTeamLabel(g.team) : '', counter: at === null && list.length > 1 ? `${k + 1} of ${list.length}` : '',
+                   prev: at === null && k > 0, next: at === null && k >= 0 && k < list.length - 1, note: '', details}};
+  }
+  kmGoalWatch(r, g, group) {
+    // WATCH a goal on the moment player; a page without it: the v2 jump, replayed from the window's start (as watch()).
+    const list = this.kmGoalLists(r)[group], payload = this.kmGoalPayload(r, g, group, null), id = this.kmGoalId(g);
+    this.mWatching = {id, list: list.map(x => this.kmGoalId(x)), report: r, from: 'goals', goals: list, group};
+    this.mSelected = id; this.kmMark();
+    if (this.watchTo) return this.watchTo(payload);
+    return this.jumpTo(Object.assign({}, payload, {replay: true, caption: payload.chip.title, explanation: payload.chip.finding}));
+  }
+  kmGoalSeek(r, g, f, group) {
+    // A finding's time: the video paused there on the moment player, the finding in its chip (Continue plays on to the
+    // goal, Replay plays the build-up up to that time); a page without it: the v2 jump to that time.
+    const payload = this.kmGoalPayload(r, g, group, f), id = this.kmGoalId(g);
+    this.mWatching = {id, list: [id], report: r, from: 'goal-finding'};
+    this.mSelected = id; this.kmMark();
+    if (this.watchTo) return this.watchTo(payload);
+    return this.jumpTo(Object.assign({}, payload, {replay: false, caption: payload.chip.title, explanation: payload.chip.finding}));
+  }
+
+  // ---------- 2-3. what the team did well, what needs improvement: the moment cards ----------
+  kmStrengths(r) {
+    const ids = this.kmIds(r, 'strengths'), s = this.section('mStrengths', `What the team did well \u00b7 ${ids.length}`, ids.length ? 'The clearest moments where the team got it right, the most telling first.' : null);
+    if (!ids.length) s.append(el('p', 'cr-none', 'No moment of this team met the bar for a strength in this match.'));
+    else s.append(el('p', 'cr-note', KM_LEGEND));
+    for (const id of ids) s.append(this.kmCard(r, id, ids, 'strengths', false));
+    return s;
+  }
+  kmImprovements(r) {
+    const ids = this.kmIds(r, 'improvements'), s = this.section('mImprovements', `What needs improvement \u00b7 ${ids.length}`,
+      ids.length ? 'Moments worth working on. A suggestion is given only where PitchIQ checked that a teammate could have reached a better position in time.' : null);
+    if (!ids.length) s.append(el('p', 'cr-none', 'No moment of this team met the bar for something to improve in this match (that is not proof that everything went well).'));
+    else s.append(el('p', 'cr-note', KM_LEGEND + KM_LEGEND_ZONE));
+    for (const id of ids) s.append(this.kmCard(r, id, ids, 'improvements', false));
+    return s;
+  }
+  kmCard(r, id, list, from, compact) {
+    // Short by default: badge, time, title, who, the one-sentence finding (and the suggestion of an improvement), the
+    // top-down diagram, Watch; what happened, why it mattered, the assessment, the pointer and the reliability on demand.
+    const m = r.moments[id], [badge, kind] = kmBadge(m), card = el('article', `cr-finding km-card k-${kind}${compact ? ' km-compact' : ''}`);
+    card.dataset.moment = id; card.dataset.from = from; card.dataset.category = String(m.category || '');
+    const body = el('div', 'km-main'), head = el('div', 'cr-f-head'), title = el('h4', 'km-title');
+    head.append(el('span', 'cr-badge', badge), el('span', 'km-when', this.kmWhen(m)));
+    if (m.uncertainContext) { const tag = el('span', 'km-tag', 'Uncertain context'); tag.title = 'The reading of this moment depends on context PitchIQ could not see clearly.'; tag.dataset.km = 'uncertain'; head.append(tag); }
+    title.id = `km-t-${from}-${id}`;
+    title.append(...labelNodes(m.title || 'Moment', this.labels));
+    card.setAttribute('aria-labelledby', title.id);
+    body.append(head, title);
+    const who = this.kmWho(r, m);
+    if (who) body.append(who);
+    if (m.finding) { const f = this.para(null, m.finding, 'km-finding'); f.dataset.km = 'finding'; body.append(f); }
+    if (!compact && m.category === 'improvement') body.append(...this.kmSuggestion(m));
+    card.append(body);
+    if (!compact) card.append(this.kmFigure(m));
+    const acts = el('div', 'km-acts'), key = `${from}|${id}`, open = this.mOpen.has(key), det = el('div', 'km-details');
+    body.append(acts);
+    const watch = button('', 'primary km-watch', () => this.watch(id, list, from), `Watch ${m.clock || 'this moment'}: the lead-up, then the key frame with its annotation`);
+    watch.append(kmIcon('i-play'), document.createTextNode('Watch moment'));
+    watch.dataset.watch = id;
+    const more = button(open ? 'Hide details' : 'Details', 'quiet km-more', null, 'What happened, why it mattered, the assessment, the coaching pointer and the data reliability');
+    det.id = `km-d-${from}-${id}`; det.hidden = !open;
+    more.dataset.details = id; more.setAttribute('aria-controls', det.id); more.setAttribute('aria-expanded', String(open));
+    more.onclick = () => {
+      const on = det.hidden;
+      if (on && !det.children.length) this.kmFillDetails(det, m, compact);
+      det.hidden = !on; more.textContent = on ? 'Hide details' : 'Details'; more.setAttribute('aria-expanded', String(on));
+      if (on) this.mOpen.add(key); else this.mOpen.delete(key);
+    };
+    if (open) this.kmFillDetails(det, m, compact);
+    acts.append(watch, more);
+    card.append(det);
+    this.kmRegister(id, card);
+    return card;
+  }
+  kmWho(r, m) {
+    // The team, the player(s) the moment is about (focus), the teammates involved and the opponents, with their roles.
+    const p = m.players && typeof m.players === 'object' ? m.players : {}, roles = m.roles && typeof m.roles === 'object' ? m.roles : {};
+    const ids = k => (Array.isArray(p[k]) ? p[k] : []).filter(id => typeof id === 'string');
+    const focus = ids('focus'), support = ids('support'), opp = ids('opponents');
+    if (!focus.length && !support.length && !opp.length) return null;
+    const line = el('p', 'km-who');
+    line.dataset.km = 'players';
+    line.append(el('span', 'km-team', this.kmTeamLabel(m.team === 'A' || m.team === 'B' ? m.team : r.team)));
+    // each person by id in the page's label map (a full match's person ids, 'A-P281', are not the track-id shape that
+    // labelNodes rewrites in a text), else by the label the report gives them (r.labels: the match's slots when built)
+    const named = r && r.labels && typeof r.labels === 'object' ? r.labels : {};
+    const person = (id, cls) => {
+      const s = el('span', cls), shown = this.labels.get(id) || (typeof named[id] === 'string' && named[id]) || null;
+      if (shown && shown !== id) { const n = el('span', 'cr-id', shown); n.title = `${shown} (internal id ${id})`; s.append(n); }
+      else s.append(...labelNodes(id, this.labels));
+      if (typeof roles[id] === 'string' && roles[id]) s.append(document.createTextNode(` ${roles[id]}`));
+      return s;
+    };
+    const group = (lead, list, cls) => { if (!list.length) return; line.append(document.createTextNode(lead)); list.forEach((id, k) => { if (k) line.append(document.createTextNode(', ')); line.append(person(id, cls)); }); };
+    group(' \u00b7 ', focus, 'km-focus');
+    group(focus.length ? ' \u00b7 with ' : ' \u00b7 ', support, 'km-support');
+    group(' \u00b7 against ', opp, 'km-opp');
+    return line;
+  }
+  kmSuggestion(m) {
+    // An improvement's suggestion and its alternatives, or why there is none (no validated alternative position).
+    const s = m.suggestion && typeof m.suggestion === 'object' ? m.suggestion : null, out = [];
+    if (s && typeof s.text === 'string' && s.text) {
+      const p = this.para('Suggestion.', s.text, 'km-sugg');
+      p.dataset.km = 'suggestion'; out.push(p);
+      for (const alt of Array.isArray(s.alternatives) ? s.alternatives : []) {
+        if (!alt || typeof alt.text !== 'string' || !alt.text) continue;
+        const q = this.para('Or.', capFirst(alt.text), 'km-sugg km-alt');
+        q.dataset.km = 'alternative'; out.push(q);
+      }
+    } else if (m.noSuggestion) { const p = el('p', 'cr-none km-nosugg', KM_NO_ALT); p.dataset.km = 'no-suggestion'; out.push(p); }
+    return out;
+  }
+  kmDetailRows(m, withSuggestion) {
+    // [lead, text] of a moment's explanation: the card's details and the moment player's chip.
+    const out = [], s = m.suggestion && typeof m.suggestion === 'object' ? m.suggestion : null, rel = m.reliability;
+    if (m.what) out.push(['What happened.', m.what]);
+    if (m.why) out.push(['Why it mattered.', m.why]);
+    if (m.assessment) out.push(['Assessment.', m.assessment]);
+    if (withSuggestion) {
+      if (s && s.text) { out.push(['Suggestion.', s.text]); for (const alt of Array.isArray(s.alternatives) ? s.alternatives : []) if (alt && alt.text) out.push(['Or.', capFirst(alt.text)]); }
+      else if (m.noSuggestion) out.push(['Suggestion.', KM_NO_ALT]);
+    }
+    if (m.pointer) out.push(['Coaching pointer.', m.pointer]);
+    if (rel && typeof rel.text === 'string' && rel.text) out.push(['Data reliability.', rel.text]);
+    if (m.after) out.push(['After.', m.after]);
+    return out.filter(([, t]) => typeof t === 'string' && t);
+  }
+  kmFillDetails(det, m, compact) {
+    det.replaceChildren();
+    if (compact) det.append(this.kmFigure(m));     // a compact card draws its diagram only when opened
+    for (const [lead, text] of this.kmDetailRows(m, compact || m.category !== 'improvement')) det.append(this.para(lead, text));
+  }
+  kmFigure(m) {
+    // The moment's top-down diagram (svgDiagram, the board's drawing rules) without its caption: the title is above it.
+    const fig = el('figure', 'km-fig'), d = m.evidence && m.evidence.diagram;
+    if (!d || !Array.isArray(d.elements)) { fig.append(el('p', 'cr-note', 'No diagram for this moment.')); return fig; }
+    const colours = this.colours(), spec = Object.assign({}, d, {elements: d.elements.filter(x => x && x.type !== 'caption')});
+    fig.append(svgDiagram(spec, colours, this.labels, {palette: annotationPalette(colours.A, colours.B)}));
+    return fig;
+  }
+  kmRegister(id, node) { if (!this.mCards.has(id)) this.mCards.set(id, []); this.mCards.get(id).push(node); }
+  kmMark() { for (const [id, nodes] of this.mCards) for (const n of nodes) n.classList.toggle('selected', id === this.mSelected); }
+
+  // ---------- 4. key match moments: the timeline of the match and the list ----------
+  kmKey(r) {
+    const ids = this.kmIds(r, 'keyMoments').sort((a, b) => (Number(r.moments[a].time) || 0) - (Number(r.moments[b].time) || 0));
+    const s = this.section('mKey', `Key match moments \u00b7 ${ids.length}`, ids.length ? 'In match order. Watch opens the video a few seconds before the moment, pauses on the key frame with its annotation, and plays on when you continue.' : null);
+    if (!ids.length) { s.append(el('p', 'cr-none', 'No key moment for this team in this match.')); return s; }
+    s.append(this.kmTimeline(r, ids));
+    const ol = el('ol', 'cr-km km-list');
+    for (const id of ids) ol.append(this.kmRow(r, id, ids));
+    s.append(ol);
+    return s;
+  }
+  kmPeriods(r) {
+    const ps = ((r.match && r.match.periods) || []).filter(p => p && isNum(p.start) && isNum(p.end) && p.end > p.start).slice().sort((a, b) => a.start - b.start);
+    if (ps.length) return ps.map(p => ({start: p.start, end: p.end, name: typeof p.name === 'string' && p.name ? p.name : 'match'}));
+    const times = Object.values(r.moments).map(m => Number(m && m.time)).filter(isNum), dur = this.info && this.info.video && Number(this.info.video.duration);
+    return [{start: 0, end: isNum(dur) && dur > 0 ? dur : Math.max(60, ...times) + 1, name: 'match'}];
+  }
+  kmTimeline(r, ids) {
+    // The match as a bar per period (widths by length), a marker per key moment at its time, coloured by category.
+    const periods = this.kmPeriods(r), wrap = el('div', 'km-tl'), bar = el('div', 'km-tl-bar'), axis = el('div', 'km-tl-axis'), halves = [];
+    wrap.setAttribute('role', 'group'); wrap.setAttribute('aria-label', `Key moments over the match: ${ids.length}`);
+    for (const p of periods) {
+      const half = el('div', 'km-tl-half'), ax = el('div', 'km-tl-ax'), grow = `${Math.max(1, Math.round(p.end - p.start))} 1 0`;
+      half.style.flex = grow; ax.style.flex = grow;
+      ax.append(el('span', null, mmss(p.start)), el('span', 'km-tl-name', p.name), el('span', null, mmss(p.end)));   // the name under the bar: a marker never hides it
+      bar.append(half); axis.append(ax); halves.push({p, half});
+    }
+    const placed = [];
+    for (const id of ids) {
+      const m = r.moments[id], t = Number(m.time);
+      if (!isNum(t)) continue;
+      // its period, else the nearest one (a moment just outside a period's bounds is still shown)
+      const own = halves.find(h => t >= h.p.start && t <= h.p.end) || halves.slice().sort((a, b) => Math.min(Math.abs(t - a.p.start), Math.abs(t - a.p.end)) - Math.min(Math.abs(t - b.p.start), Math.abs(t - b.p.end)))[0];
+      placed.push({id, m, own, at: Math.max(0, Math.min(100, 100 * (t - own.p.start) / (own.p.end - own.p.start))), lane: 0});
+    }
+    // markers closer than KM_LANE_GAP stand on lanes above each other (the lowest free one), so each stays visible and
+    // clickable; with every lane taken the one whose last marker is farthest back is used
+    let lanes = 1;
+    for (const h of halves) {
+      const last = [];
+      for (const q of placed.filter(x => x.own === h).sort((a, b) => a.at - b.at)) {
+        let lane = last.findIndex(x => q.at - x >= KM_LANE_GAP);
+        if (lane < 0) lane = last.length < KM_LANES ? last.length : last.indexOf(Math.min(...last));
+        last[lane] = q.at; q.lane = lane; lanes = Math.max(lanes, lane + 1);
+      }
+    }
+    for (const h of halves) h.half.style.height = `${24 + (lanes - 1) * KM_LANE_PX}px`;
+    for (const {id, m, own, at, lane} of placed) {
+      const [badge, kind] = kmBadge(m), b = button('', `km-mark k-${kind}`, () => this.watch(id, ids, 'key'));
+      b.style.left = `${at.toFixed(2)}%`; b.style.bottom = `${4 + lane * KM_LANE_PX}px`;
+      b.title = `${this.kmWhen(m)}: ${plainLabels(m.title || '', this.labels)} (${badge})`;
+      b.setAttribute('aria-label', `${b.title}. Watch the moment.`);
+      b.dataset.watch = id; b.dataset.mark = id;
+      own.half.append(b);
+      this.kmRegister(id, b);
+    }
+    const key = el('div', 'km-tl-key');
+    for (const [kind, text] of [['strength', 'Positive'], ['improvement', 'Review']]) { const s = el('span'), i = el('i', `k-${kind}`); s.append(i, document.createTextNode(text)); key.append(s); }
+    wrap.append(bar, axis, key);
+    return wrap;
+  }
+  kmRow(r, id, list) {
+    const m = r.moments[id], [badge, kind] = kmBadge(m), row = el('li', `cr-km-row km-row k-${kind}`);
+    row.dataset.moment = id;
+    const time = button(typeof m.clock === 'string' && m.clock ? m.clock : mmss(m.time), 'cr-time', () => this.watch(id, list, 'key'), `Watch ${this.kmWhen(m)}`);
+    time.dataset.watch = id;
+    const body = el('div', 'cr-km-body'), title = el('div', 'cr-km-title'), meta = el('div', 'cr-km-meta');
+    title.append(...labelNodes(m.title || 'Moment', this.labels), el('span', 'cr-km-badge', badge));
+    body.append(title);
+    if (m.finding) body.append(this.para(null, m.finding, 'cr-km-cap'));
+    if (m.half) meta.append(el('span', null, m.half));
+    if (m.uncertainContext) meta.append(el('span', 'km-tag', 'Uncertain context'));
+    if (meta.children.length) body.append(meta);
+    const acts = el('div', 'cr-km-acts'), w = button('Watch', 'quiet', () => this.watch(id, list, 'key'), 'The lead-up, then the key frame with its annotation');
+    w.dataset.watch = id;
+    acts.append(w);
+    row.append(time, body, acts);
+    row.addEventListener('click', e => { if (e && e.target && e.target.tagName === 'BUTTON') return; this.watch(id, list, 'key'); });
+    this.kmRegister(id, row);
+    return row;
+  }
+
+  // ---------- 5-6. repeated patterns, training priorities ----------
+  kmPatterns(r) {
+    const list = (Array.isArray(r.patterns) ? r.patterns : []).filter(p => p && typeof p.id === 'string');
+    const s = this.section('mPatterns', `Repeated tactical patterns \u00b7 ${list.length}`, list.length ? 'The same kind of moment, several times over the match: each example plays as a moment.' : null);
+    if (!list.length) { s.append(el('p', 'cr-none', 'No kind of moment repeated often enough over the match to be a pattern.')); return s; }
+    for (const p of list) {
+      const [badge, kind] = kmBadge(p), box = el('div', `km-pattern k-${kind}`), head = el('div', 'cr-f-head');
+      box.dataset.pattern = p.id;
+      head.append(el('span', 'cr-badge', badge));
+      if (Number.isInteger(p.count)) head.append(el('span', 'km-when', `${p.count} ${plural(p.count, 'time')}`));
+      const h = el('h4');
+      h.append(...labelNodes(p.title || words(p.kind || 'pattern'), this.labels));
+      box.append(head, h);
+      if (p.text) box.append(this.para(null, p.text));
+      const ex = (Array.isArray(p.examples) ? p.examples : []).filter(id => typeof id === 'string' && r.moments[id]);
+      if (ex.length) {
+        const row = el('div', 'km-clips');
+        row.append(el('span', 'cr-intro', 'Examples:'));
+        for (const id of ex) {
+          const m = r.moments[id], b = button('', 'cr-time km-clip', () => this.watch(id, ex, 'pattern'), `Watch ${this.kmWhen(m)}: ${plainLabels(m.title || '', this.labels)}`);
+          b.append(kmIcon('i-play'), document.createTextNode(typeof m.clock === 'string' && m.clock ? m.clock : mmss(m.time)));
+          b.dataset.watch = id;
+          row.append(b);
+          this.kmRegister(id, b);
+        }
+        box.append(row);
+      }
+      if (p.drill && typeof p.drill === 'object') {
+        const trained = (Array.isArray(r.training) ? r.training : []).some(t => t && t.drill && t.drill.id === p.drill.id);
+        box.append(this.kmDrill(p.drill, trained));
+      }
+      else if (typeof p.drillNote === 'string' && p.drillNote) box.append(el('p', 'cr-none', p.drillNote));
+      s.append(box);
+    }
+    return s;
+  }
+  kmTraining(r) {
+    const list = (Array.isArray(r.training) ? r.training : []).filter(t => t && (t.title || t.objective));
+    const s = this.section('mTraining', `Training priorities \u00b7 ${list.length}`, list.length ? 'What to practise next, from the patterns of this match.' : null);
+    if (!list.length) { s.append(el('p', 'cr-none', 'No training priority: no pattern to work on was repeated often enough in this match.')); return s; }
+    list.forEach((t, k) => {
+      const box = el('div', 'km-train'), h = el('h4');
+      box.dataset.training = t.id || '';
+      h.append(document.createTextNode(`${k + 1}. `), ...labelNodes(t.title || '', this.labels));
+      box.append(h);
+      if (t.objective) box.append(this.para('Objective.', t.objective));
+      if (t.drill && typeof t.drill === 'object') box.append(this.kmDrill(t.drill));
+      else box.append(el('p', 'cr-none', typeof t.drillNote === 'string' && t.drillNote ? t.drillNote : 'No drill in PitchIQ\u2019s library fits this at this level.'));
+      const p = (Array.isArray(r.patterns) ? r.patterns : []).find(x => x && x.id === t.pattern), ex = p ? (p.examples || []).filter(id => r.moments[id]) : [];
+      if (ex.length) { const b = button('Watch an example', 'quiet', () => this.watch(ex[0], ex, 'pattern')); b.dataset.watch = ex[0]; box.append(b); }
+      s.append(box);
+    });
+    return s;
+  }
+  kmDrill(d, short) {
+    // A drill (soccer/moments/report.py _drill): its name, length, levels, set-up, coaching points and source; short:
+    // the name line only (the pattern's drill, shown in full under Training priorities).
+    const box = el('div', 'km-drill' + (short ? ' km-drill-short' : '')), head = el('p', 'km-drill-head'), lv = Array.isArray(d.levels) ? d.levels.filter(Number.isInteger) : [];
+    box.dataset.drill = typeof d.id === 'string' ? d.id : '';
+    if (short) head.append(el('span', 'lead', 'Drill. '));
+    head.append(el('b', null, typeof d.name === 'string' && d.name ? d.name : words(d.id || 'drill')));
+    const meta = [isNum(d.minutes) ? `${d.minutes} min` : null, lv.length ? `level ${lv.length > 1 ? `${lv[0]}\u2013${lv[lv.length - 1]}` : lv[0]}` : null,
+                  d.levelMatch === 'nearest' ? 'the nearest level PitchIQ has a drill for' : null].filter(Boolean);
+    if (meta.length) head.append(document.createTextNode(` \u00b7 ${meta.join(' \u00b7 ')}`));
+    box.append(head);
+    if (short) { head.append(document.createTextNode(' (in full under Training priorities)')); return box; }
+    if (typeof d.setup === 'string' && d.setup) box.append(this.para('Set-up.', d.setup));
+    const points = (Array.isArray(d.coachingPoints) ? d.coachingPoints : []).filter(x => typeof x === 'string' && x);
+    if (points.length) box.append(el('div', 'cr-sub-h', 'Coaching points'), this.list(points));
+    const refs = (Array.isArray(d.source) ? d.source : []).filter(x => x && typeof x.source === 'string');
+    if (refs.length) {
+      const credit = this.para('Source.', refs.map(x => `${DRILL_SOURCE_UI[x.relation] || 'From'} ${this.sourceTitle(x.source)}${x.note ? ` (${x.note})` : ''}`).join('; ') + '.', 'cr-intro cr-credit');
+      credit.dataset.credit = 'source';
+      box.append(credit);
+    }
+    return box;
+  }
+
+  // ---------- 7-8. supporting team metrics, data coverage ----------
+  kmMetrics(r) {
+    const mt = r.metrics && typeof r.metrics === 'object' ? r.metrics : {}, s = this.section('mMetrics', 'Supporting team metrics', 'Team-shape numbers from the tracking, as context for the moments: described, not judged.');
+    const items = (Array.isArray(mt.items) ? mt.items : []).filter(x => x && typeof x.key === 'string' && isNum(x.value));
+    if (items.length) {
+      const rows = new Map();
+      for (const x of items) {
+        if (!rows.has(x.key)) rows.set(x.key, {label: String(x.label || words(x.key)).replace(/\s+(?:with|without) the ball$/i, ''), own: null, opp: null});
+        rows.get(x.key)[x.phase === 'opp' ? 'opp' : 'own'] = x;
+      }
+      const table = el('table', 'km-table'), thead = el('thead'), hr = el('tr'), tbody = el('tbody');
+      table.dataset.km = 'metrics';
+      for (const [text, cls] of [['Measure', null], ['With the ball', 'num'], ['Without the ball', 'num']]) { const th = el('th', cls, text); th.setAttribute('scope', 'col'); hr.append(th); }
+      thead.append(hr);
+      const cell = x => {
+        const td = el('td', 'num', !x ? '\u2013' : x.unit === 'm' ? `${x.value.toFixed(1)} m` : `${x.value}${x.unit ? ` ${x.unit}` : ''}`);
+        if (x && Number.isInteger(x.samples)) td.title = `Median of ${x.samples} samples`;
+        return td;
+      };
+      for (const row of rows.values()) { const tr = el('tr'), th = el('th', null, row.label); th.setAttribute('scope', 'row'); tr.append(th, cell(row.own), cell(row.opp)); tbody.append(tr); }
+      table.append(thead, tbody);
+      s.append(table);
+    } else s.append(el('p', 'cr-none', 'Not enough settled play with 8 or more outfield players in view to measure the team shape.'));
+    const shapes = (Array.isArray(mt.shapes) ? mt.shapes : []).filter(x => x && typeof x.shape === 'string' && isNum(x.share));
+    if (shapes.length) s.append(this.kv('Shapes by lines', shapes.map(x => `${x.shape} ${pct(x.share)}`).join(' \u00b7 ')));
+    const pos = this.kmPossession(mt.possession);
+    if (pos) s.append(pos);
+    if (typeof mt.note === 'string' && mt.note) s.append(el('p', 'cr-note', mt.note));
+    return s;
+  }
+  kmPossession(po) {
+    // Who had the ball, as PitchIQ estimates it: seconds per team, dead ball and not named (shares when they sum to 1).
+    if (!po || typeof po !== 'object') return null;
+    const c = this.colours(), parts = [['A', this.kmTeamLabel('A'), c.A], ['B', this.kmTeamLabel('B'), c.B], ['dead', 'Dead ball', SPAN_DEAD], ['unknown', 'Not named', '#56645b']]
+      .map(([k, name, colour]) => ({k, name, colour, v: isNum(po[k]) && po[k] > 0 ? po[k] : 0}));
+    const total = parts.reduce((a, p) => a + p.v, 0);
+    if (!(total > 0)) return null;
+    const asShares = total <= 1.5, box = el('div', 'km-poss'), bar = el('div', 'km-pos-bar'), key = el('div', 'km-pos-key');
+    box.dataset.km = 'possession';
+    const text = p => `${p.name} ${asShares ? '' : `${mmss(p.v)} `}(${pct(p.v / total)})`;
+    bar.setAttribute('role', 'img'); bar.setAttribute('aria-label', `Who had the ball: ${parts.filter(p => p.v).map(text).join(', ')}`);
+    for (const p of parts) {
+      if (!p.v) continue;
+      const seg = el('i');
+      seg.style.width = `${(100 * p.v / total).toFixed(2)}%`; seg.style.background = p.colour; seg.title = text(p);
+      bar.append(seg);
+      const k = el('span'), sw = el('i');
+      sw.style.background = p.colour;
+      k.append(sw, document.createTextNode(text(p)));
+      key.append(k);
+    }
+    box.append(el('div', 'cr-sub-h', 'Who had the ball (PitchIQ\u2019s estimate from the tracking)'), bar, key);
+    return box;
+  }
+  kmCoverage(r) {
+    const cv = r.coverage && typeof r.coverage === 'object' ? r.coverage : {}, s = this.section('mCoverage', 'Data coverage and limitations');
+    const items = (Array.isArray(cv.items) ? cv.items : []).filter(t => typeof t === 'string' && t);
+    if (items.length) s.append(this.list(items)); else s.append(el('p', 'cr-none', 'This report says nothing about its coverage.'));
+    const c = r.counts && typeof r.counts === 'object' ? r.counts : {};
+    if (Number.isInteger(c.episodesTeam) && Number.isInteger(c.main)) {
+      s.append(el('p', 'cr-intro', `PitchIQ found ${c.episodesTeam} ${plural(c.episodesTeam, 'moment')} of this team${Number.isInteger(c.episodesAllTeams) ? ` (${c.episodesAllTeams} for both teams)` : ''}: ` +
+        `${c.main} observed and read clearly enough for the lists above, of which the clearest are shown${Number.isInteger(c.more) ? `; ${c.more} more are listed under More moments` : ''}.`));
+    }
+    return s;
+  }
+
+  // ---------- more moments (collapsed) ----------
+  kmMore(r) {
+    const ids = this.kmIds(r, 'moreMoments'), s = this.section('mMore', `More moments \u00b7 ${ids.length}`);
+    if (!ids.length) { s.append(el('p', 'cr-none', 'No further moment.')); return s; }
+    s.append(el('p', 'cr-intro', 'Moments that met a lower bar, in the report\u2019s order; a moment whose reading depends on context PitchIQ could not see clearly is marked \u201cuncertain context\u201d.'));
+    const list = el('div', 'km-more-list'), toggle = button('', 'quiet km-more-toggle', null, 'Show or hide the further moments');
+    list.id = 'km-more-list'; list.hidden = !this.mMore;
+    toggle.dataset.km = 'more'; toggle.setAttribute('aria-controls', list.id);
+    const fill = () => { if (!list.children.length) for (const id of ids) list.append(this.kmCard(r, id, ids, 'more', true)); this.kmMark(); };
+    const label = () => { toggle.textContent = this.mMore ? 'Hide more moments' : `Show ${ids.length} more ${plural(ids.length, 'moment')}`; toggle.setAttribute('aria-expanded', String(this.mMore)); };
+    toggle.onclick = () => { this.mMore = !this.mMore; if (this.mMore) fill(); list.hidden = !this.mMore; label(); };
+    if (this.mMore) fill();
+    label();
+    s.append(toggle, list);
+    return s;
+  }
+
+  // ---------- watching a moment (index.html watchMoment: one clock, the page's transport) ----------
+  watch(id, list, from) {
+    // WATCH MOMENT: the moment's lead-up, a pause on its key frame with the whole annotation and its explanation, the
+    // follow-up on request; Previous / Next move along the list it was opened from.
+    const r = this.mReport(), m = r && r.moments ? r.moments[id] : null;
+    if (!m || !m.evidence || typeof m.evidence !== 'object') return false;
+    const ids = (Array.isArray(list) && list.includes(id) ? list : [id]).filter(x => r.moments[x]);
+    this.mWatching = {id, list: ids, report: r, from: from || null};
+    this.mSelected = id; this.kmMark();
+    const payload = this.momentPayload(r, m, ids);
+    if (this.watchTo) return this.watchTo(payload);
+    // a page without the moment player: the v2 jump (window, follow, Replay from the window's start)
+    return this.jumpTo(Object.assign({}, payload, {replay: true, caption: payload.chip.title, explanation: payload.chip.finding, evidence: m.evidence.id || null}));
+  }
+  momentPayload(r, m, ids) {
+    const ev = m.evidence, w = ev.window && isNum(ev.window.t0) && isNum(ev.window.t1) ? ev.window : m.window || {}, k = ids.indexOf(m.id), lab = t => plainLabels(t, this.labels);
+    const fps = isNum(ev.fps) && ev.fps > 0 ? ev.fps : this.fps(), [badge] = kmBadge(m);
+    const view = ev.tier === 'image' ? 'board' : this.momentView === 'board' ? 'board' : 'tracking';
+    const seek = isNum(ev.seek) ? ev.seek : Number.isInteger(ev.frame) ? (ev.frame + .5) / fps : ev.time;
+    const players = (Array.isArray(ev.players) ? ev.players : []).filter(p => typeof p === 'string');
+    const noted = ev.tier !== 'world' && view === 'tracking' && !!this.zoneOf(ev);
+    return {moment: m.id, start: 'leadup', frame: ev.frame, seek, time: isNum(ev.time) ? ev.time : m.time, fps, view, focus: players,
+            diagram: ev.diagram || null, overlay: validOverlay(ev.videoOverlay) ? ev.videoOverlay : null, tier: typeof ev.tier === 'string' ? ev.tier : null,
+            window: {t0: w.t0, t1: w.t1, key: isNum(w.key) ? w.key : isNum(ev.time) ? ev.time : m.time},
+            follow: ev.follow && typeof ev.follow === 'object' ? ev.follow : followOf(ev),
+            chip: {title: lab(m.title || 'Moment'), finding: lab(m.finding || ''), badge, kind: m.category === 'positive' ? 'positive' : 'improvement', when: this.kmWhen(m),
+                   team: this.kmTeamLabel(m.team === 'A' || m.team === 'B' ? m.team : r.team), counter: ids.length > 1 ? `${k + 1} of ${ids.length}` : '',
+                   prev: k > 0, next: k >= 0 && k < ids.length - 1, note: noted ? 'Suggested area shown on the 2D diagram.' : '',
+                   details: this.kmDetailRows(m, true).map(([lead, text]) => [lead, lab(text)])}};
+  }
+  momentNav(d) {
+    // The chip's Previous / Next: the neighbour in the list the moment (or the goal: its group's goals) was opened from.
+    const w = this.mWatching;
+    if (!w || !Array.isArray(w.list)) return false;
+    const k = w.list.indexOf(w.id) + (d < 0 ? -1 : 1), r = w.report;
+    if (w.goals) {
+      if (k < 0 || k >= w.goals.length || !r) return false;
+      this.mWatching = Object.assign({}, w, {id: w.list[k]});
+      this.mSelected = w.list[k]; this.kmMark();
+      return this.watchTo ? this.watchTo(this.kmGoalPayload(r, w.goals[k], w.group, null)) : false;
+    }
+    if (k < 0 || k >= w.list.length || !r || !r.moments[w.list[k]]) return false;
+    const id = w.list[k];
+    this.mWatching = Object.assign({}, w, {id});
+    this.mSelected = id; this.kmMark();
+    return this.watchTo ? this.watchTo(this.momentPayload(r, r.moments[id], w.list)) : false;
+  }
+  setMomentView(v) { this.momentView = v === 'board' ? 'board' : 'tracking'; }
+  revealMoment(id) {
+    // Back to the report from the moment player: the moment is marked and brought into view.
+    if (id) this.mSelected = id;
+    this.kmMark();
+    const nodes = this.mCards.get(this.mSelected) || [], card = nodes.find(n => n.tagName === 'ARTICLE') || nodes.find(n => n.tagName === 'LI') || nodes[0];
+    if (card && typeof card.scrollIntoView === 'function') setTimeout(() => card.scrollIntoView({block: 'center'}), 480);   // after the view's turn
+    return !!card;
+  }
+
   placeSide() {
     // Wide screens: the evidence column beside the report, moved down to the selected finding. Narrow screens (one
     // column): the evidence goes right under the selected finding.
+    if (this.momentsOn()) return;
     const narrow = !!(this.media && this.media.matches), card = this.selected ? this.cards.get(this.selected) : null;
     if (narrow && card && typeof card.after === 'function') {
       card.after(this.side);

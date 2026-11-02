@@ -2457,12 +2457,15 @@ class _ReportV2:
             return None
         source = (f.get('measurements') or {}).get('phaseSource')
         how = ('marked by the coach' if ph.get('estimated') is False or source == 'coach' else
-               'estimated, partly marked by the coach' if source == 'mixed' else 'estimated')
+               'estimated, partly marked by the coach' if source == 'mixed' else
+               'estimated from the image, partly marked by the coach' if source == 'mixed-amateur' else
+               'estimated from the image' if source == 'possession-amateur' else 'estimated')
         return f'{PHASE_UI[ph["state"]]} ({how})'
 
     def coach_marked(self):
         """True when any finding (or the possession estimate) rests on possession marked by the coach."""
-        if any((f.get('measurements') or {}).get('phaseSource') in ('coach', 'mixed') for f in self.findings.values()):
+        if any((f.get('measurements') or {}).get('phaseSource') in ('coach', 'mixed', 'mixed-amateur')
+               for f in self.findings.values()):
             return True
         cav = (self.r['overview'].get('possession') or {}).get('caveat')
         return isinstance(cav, str) and 'coach-marked' in cav
@@ -3090,7 +3093,7 @@ class _ReportV2:
             if text is not None:
                 parts.append(f'{ui[0]} {text}')
         source = m.get('phaseSource')
-        if source in ('coach', 'mixed'):
+        if source in ('coach', 'mixed', 'mixed-amateur'):
             parts.append('who had the ball: '+('marked by the coach' if source == 'coach' else
                                                'partly marked by the coach'))
         return ('At the first key moment: '+'; '.join(parts)+'.') if parts else None

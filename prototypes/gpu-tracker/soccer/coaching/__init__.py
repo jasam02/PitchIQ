@@ -68,7 +68,7 @@ SOCCER = PACKAGE.parent
 STAGES = {
     # measurement tier
     'series': 'soccer.coaching.series:build_series',
-    'possession': 'soccer.possession:compute',
+    'possession': 'soccer.possession_amateur:compute',   # possession-4, or its image-based estimate where it abstains
     'situations': 'soccer.coaching.situations:build_timeline',
     'detect': 'soccer.coaching.contextual:detect',
     'moments': 'soccer.coaching.evidence:moments',
@@ -85,7 +85,7 @@ STAGES = {
     'drills': 'soccer.coaching.drills:select',
     'report': 'soccer.coaching.report:build_report_v2',
 }
-STAGE_OWNERS = {'series': 'CONTEXT', 'possession': '(frozen engine)', 'situations': 'CONTEXT, wave 2',
+STAGE_OWNERS = {'series': 'CONTEXT', 'possession': '(frozen engine, amateur dispatch)', 'situations': 'CONTEXT, wave 2',
                 'detect': 'DETECT, wave 3', 'moments': 'EVIDENCE, wave 4', 'rolebook': 'CONTEXT, wave 2',
                 'detect_roles': 'DETECT, wave 3', 'role_moments': 'EVIDENCE, wave 4', 'profile': 'PROFILE, wave 1',
                 'assess': 'DETECT, wave 3', 'alternatives': 'ZONES, wave 4', 'annotate': 'EVIDENCE, wave 4',
@@ -95,8 +95,8 @@ ALT_VERDICTS = ('work_on', 'try_this', 'review')   # findings that get a suggest
 # ---------- v2 fingerprints: the code and data each tier is computed from ----------
 TIER_ROOTS = {
     'measurement': ('coaching/series.py', 'coaching/situations.py', 'coaching/contextual.py',
-                    'coaching/tactics_geom.py', 'coaching/evidence.py', 'possession.py', 'team_shape.py',
-                    'analytics.py', 'coaching/measuring.py'),
+                    'coaching/tactics_geom.py', 'coaching/evidence.py', 'possession.py', 'possession_amateur.py',
+                    'team_shape.py', 'analytics.py', 'coaching/measuring.py'),
     'role': ('coaching/roles.py', 'coaching/contextual.py', 'coaching/tactics_geom.py', 'coaching/evidence.py',
              'coaching/measuring.py'),
     'interpretation': ('coaching/profiles.py', 'coaching/assess.py', 'coaching/alternatives.py',

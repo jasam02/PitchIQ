@@ -460,14 +460,28 @@ class RoughShares(TypedDict):
     B: Share
 
 
+class ImageEstimatePhase(TypedDict):
+    # The image-based possession estimate (soccer/possession_amateur.py, possession-amateur-1) on footage possession-4
+    # declines (a small scene, or the pitch and the image disagreeing): situations.py uses it outside the coach's spans
+    # only where it agreed with them (image_use: IMAGE_AGREE_MIN over IMAGE_MIN_S), never without marks.
+    version: Annotated[str, Text(40)]
+    used: bool
+    reason: Literal['no_marks', 'too_few_seconds', 'disagrees'] | None   # None: used
+    agreement: Share | None              # inside the coach's spans: share of the checked seconds naming the coach's team
+    checkedSeconds: Duration             # seconds it named a team inside the coach's spans (after the change exclusion)
+    offeredSeconds: Duration             # seconds it names a team outside them (used or not)
+
+
 class PhaseQuality(TypedDict):
-    available: bool                      # possession-4's record (the engine), whatever the coach marked
+    available: bool                      # possession-4's record (the engine), whatever the coach marked (False where
+                                         # the record is the image-based estimate: imageEstimate)
     reason: Annotated[str, Text(300)] | None
     level: Literal['good', 'limited', 'unavailable']
     coverage: Share | None
     roughShares: RoughShares | None      # rounded to 5% (possession rule 7)
     notes: list[Annotated[str, Text(300)]]
     coach: NotRequired[CoachPhase | None]   # coach-marked spans merged into the phase (None: none given)
+    imageEstimate: NotRequired[ImageEstimatePhase]   # only when the record is the image-based estimate
 
 
 class Footage(TypedDict):
@@ -498,7 +512,8 @@ class PhaseSpan(TypedDict):
     t1: Seconds
     frame0: Frame
     frame1: Frame
-    source: NotRequired[Literal['possession-4', 'coach']]   # who named it (situations.py splits spans by source)
+    source: NotRequired[Literal['possession-4', 'possession-amateur', 'coach']]   # who named it (situations.py splits
+                                                                                    # spans by source)
 
 
 class PeriodSummary(TypedDict):
@@ -551,7 +566,8 @@ class TimelineSummary(TypedDict):
 # ================= opportunities (DESIGN 4.0) =================
 class OppPhase(TypedDict):
     state: Phase
-    source: Literal['possession-4', 'coach', 'none']
+    source: Literal['possession-4', 'possession-amateur', 'coach', 'none']   # possession-amateur: image-based, used
+                                                                            # once the coach's marks agreed
     estimated: bool
     spanSeconds: Duration | None
     nearChange: bool
@@ -1800,7 +1816,14 @@ def _timeline(v, path, out):
             if abs(x*20-round(x*20)) > 1e-6:
                 out.append(f'{path}.phaseQuality.roughShares.{team}: {x} is not rounded to 5% (possession rule 7)')
     coach = v['phaseQuality'].get('coach')
-    if not v['phaseQuality']['available']:
+    image = v['phaseQuality'].get('imageEstimate')
+    if image is not None and v['phaseQuality']['available']:
+        out.append(f'{path}.phaseQuality: possession-4 available and an image-based estimate at once')
+    if image is not None and image['used'] != (image['reason'] is None):
+        out.append(f'{path}.phaseQuality.imageEstimate: used exactly when no reason is given')
+    if any(s.get('source') == 'possession-amateur' for s in v['phaseSpans']) and not (image and image['used']):
+        out.append(f'{path}.phaseSpans: image-based spans without a used phaseQuality.imageEstimate')
+    if not v['phaseQuality']['available'] and not (image and image['used']):
         # Without the engine only coach-marked spans may name own/opp time (user decision 1).
         named = v['phaseSeconds']['own']+v['phaseSeconds']['opp']
         by_coach = (coach['own']+coach['opp']) if coach else 0.0

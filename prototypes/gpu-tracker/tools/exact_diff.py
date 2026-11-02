@@ -1,13 +1,15 @@
 """Exact comparison of two results of the same segment: which frames differ in people (track, identity,
 label, team, role, state, box), in pitch positions, in the ball, in the per-frame pitch mapping, and how
-far the numbers drift. python exact_diff.py A/result.json B/result.json"""
+far the numbers drift. python exact_diff.py A/result.json B/result.json (either may be a Full Match segment's
+result.json.gz)"""
+import gzip
 import json
 import math
 import sys
 
 
 def load(path):
-    with open(path, encoding='utf-8') as handle:
+    with (gzip.open if str(path).endswith('.gz') else open)(path, 'rt', encoding='utf-8') as handle:
         return json.load(handle)
 
 

@@ -23,8 +23,11 @@ locked on something that stood still with nobody near it and that nothing was se
 moving competitor was seen at the same time, the decoder stops deferring to that lock; things nobody is near count as
 standing still within the drift of the camera compensation (SMALL_DRIFT); and the review rules out a stretch that stood
 still for seconds, unattended, that the causal pass never took for the ball and that nothing the causal pass took for
-the ball left (a ball placed for a set piece is kicked away: it stays).
+the ball left (a ball placed for a set piece is kicked away: it stays). A fifth rule, the fixed places (_fixed_places), runs
+on every frame of a small-scene run, whether the frame carries the flag or not: a place is a property of the scene, seen
+across frames (amateur 3's penalty-arc tip stood 118.2-132.5 s, before the run's first small-scene frame at 143.7 s).
 """
+import bisect
 import itertools
 import math
 from collections import Counter
@@ -99,6 +102,16 @@ AUDIT_SPEED = 2.0    # ... and the speed (m/s, camera-compensated, first to last
 DEPART_S = 1.0       # an unattended still stretch the path leaves, within this many seconds, into a sighting the causal pass took for
                      # the ball was a ball kicked from rest (a goal kick, a free kick with the taker stepped back): the causal pass
                      # acquires a moving ball after a few consistent frames, a second covers a frame or two behind the kicker's leg
+# Fixed places (small-scene runs): a place the scene kept while the ball was somewhere else.
+FIXED_AWAY = 3.0     # metres (twice a player's reach): a causal acceptance this far from a place is the ball somewhere else
+PLACE_GAP_S = 6.0    # seconds a place may go unseen (the camera panned away, a player stood on it) and still be the same place
+# Spot locks (every run): a causal lock that is a painted spot.
+SPOT_SHARE = .9      # share of a tracklet's causal acceptances on one painted spot (registered pitch) that makes it a spot lock
+SPOT_LOCK_S = 2.0    # a stay on the spot this long or longer is judged
+DEPART_MIN_M = 2.0   # a departure ends at least this far from the spot (the spot itself, re-detected, never left) ...
+SPOT_STAY_M = 2.5    # during a stay judged to be the spot, any sighting this close to it is the same paint
+DEPART_MAX_M = 15.0  # ... and no farther than this: a ball kicked off a spot (a penalty's goal is 11 m away, a kickoff pass
+                     # is short) is not first seen 25 m away within a second (CAN-ISL: the real ball elsewhere, 29 m/s)
 
 
 @dataclass
@@ -324,6 +337,267 @@ def _audit_locks(layers, frames, times, T, fps):
         audits.append({'start': round(times[i0], 3), 'end': round(times[i1], 3), 'tracklet': k, 'sightings': len(lock), 'moved': round(moved, 2),
                        'x': first.x, 'y': first.y, 'entered': entered, 'competitors': rivals})
     return audits
+
+
+def _spot_of(p):
+    """The index of the painted spot (PAINTED_SPOTS) within SPOT_RADIUS of a pitch position, or None."""
+    if p is None:
+        return None
+    for k, (x, y) in enumerate(PAINTED_SPOTS):
+        if math.hypot((p[0]-x)*DEFAULT_LENGTH, (p[1]-y)*DEFAULT_WIDTH) <= SPOT_RADIUS:
+            return k
+    return None
+
+
+def _spot_locks(layers, times, T, Tinv):
+    """Causal locks that are a painted spot. The causal pass may lock onto a penalty or centre spot (the detector scores
+    a spot like a ball) and the painted-spot discount spares what the causal pass tracked (a ball placed for a penalty),
+    so such a lock wins the path: CAN-ISL tactical wide 562-578 s, one tracklet on the right penalty spot for 15 s at
+    detector .5-.9 while the real ball was hidden in the midfield crowd; it ended with the causal pass jumping 20 m to the
+    real ball within a tenth of a second (the possession then read a dead ball for half a minute of play).
+    A tracklet whose causal acceptances lie on one painted spot (SPOT_SHARE of them, on the registered pitch) is a stay on
+    that spot; stays on the same spot less than PLACE_GAP_S apart are one stay (the spot re-detected as a new tracklet
+    after a pan). A stay of SPOT_LOCK_S or longer that nothing was seen arriving at (no causal acceptance of another
+    tracklet within ENTRY_GAP_S before it, at least DEPART_MIN_M from the spot, from where a ball could have come at
+    JUMP_SPEED: the spot re-detected just before is no arrival) and nothing was seen leaving (no
+    causal acceptance of another tracklet within DEPART_S after it, at least DEPART_MIN_M from the spot, reachable at
+    JUMP_SPEED) is the spot: its sightings count as a field marking without the acceptance exemption. A real ball on the
+    spot is kicked off it (a departure; or the same tracklet follows it off the spot, and then it is no spot lock), so it
+    keeps the exemption. Changes the nodes in place; returns the stays judged to be the spot."""
+    by_tracklet = {}
+    for i, nodes in enumerate(layers):
+        for m in nodes:
+            if m.tracklet is not None and m.source.get('status') == 'ball':
+                by_tracklet.setdefault(m.tracklet, []).append((i, m))
+    spot_tracklets = []
+    for k, lock in by_tracklet.items():
+        spots = Counter(_spot_of(m.pitch) for _, m in lock)
+        spot, n = spots.most_common(1)[0]
+        if spot is None or n < SPOT_SHARE*len(lock):
+            continue
+        # Short tracklets join too: the spot re-detected for a frame or three (CAN-ISL: tracklets 359, 370, 396 around the
+        # 15 s tracklet 360) belongs to the stay, and its last sighting is where the stay ends.
+        spot_tracklets.append({'spot': spot, 'tracklets': [k], 'lock': lock})
+    stays = []
+    for s in sorted(spot_tracklets, key=lambda s: s['lock'][0][0]):
+        last = stays[-1] if stays else None
+        if last is not None and last['spot'] == s['spot'] and times[s['lock'][0][0]]-times[last['end']] <= PLACE_GAP_S:
+            last['tracklets'] = last['tracklets']+s['tracklets']
+            last['lock'] = last['lock']+s['lock']
+            last['end'] = max(last['end'], s['lock'][-1][0])
+        else:
+            stays.append(dict(s) | {'end': s['lock'][-1][0]})
+    if not stays:
+        return []
+    accepted = sorted(((i, m) for entries in by_tracklet.values() for i, m in entries), key=lambda e: e[0])
+    out = []
+    for stay in stays:
+        lock = sorted(stay['lock'], key=lambda e: e[0])
+        (i0, first), (i1, final) = lock[0], lock[-1]
+        if times[i1]-times[i0] < SPOT_LOCK_S or len(lock) < MIN_RUN:
+            continue
+        sx, sy = PAINTED_SPOTS[stay['spot']]
+        off = lambda m: m.pitch is not None and math.hypot((m.pitch[0]-sx)*DEFAULT_LENGTH, (m.pitch[1]-sy)*DEFAULT_WIDTH) >= DEPART_MIN_M
+        if any(off(m) for _, m in lock):
+            continue   # the stay's own tracklet left the spot: a ball rolled or kicked away (a kickoff tap), not the paint
+        members = set(stay['tracklets'])
+        # An arrival comes from somewhere else (DEPART_MIN_M or more away, at a ball's speed): a sighting of the spot
+        # itself just before the stay (CAN-ISL: a one-frame tracklet on it) is the spot re-detected, not the ball arriving.
+        # Only the nearest sighting off the spot on each side decides: reachable at a ball's speed, the ball came or went;
+        # out of reach, the causal pass was elsewhere (CAN-ISL: the real ball 25 m away the moment the stay ended, and still
+        # 28 m away a second later, which a later sighting alone would have made look like a kick).
+        before, entered = None, False
+        for j, m in reversed(accepted):
+            if j > i0 or m.tracklet in members:
+                continue
+            seconds = times[i0]-times[j]
+            if seconds >= ENTRY_GAP_S:
+                break
+            metres = _apart(first, i0, m, j, T, Tinv)
+            if metres < DEPART_MIN_M:
+                continue      # the spot again
+            before, entered = (j, m), metres <= DEPART_MAX_M and metres/max(seconds, 1e-3) < JUMP_SPEED
+            break
+        departed = False
+        for j, m in accepted:
+            if j < i1 or m.tracklet in members:
+                continue
+            seconds = times[j]-times[i1]
+            if seconds >= DEPART_S:
+                break
+            metres = _apart(final, i1, m, j, T, Tinv)
+            if metres < DEPART_MIN_M:
+                continue      # the spot again
+            departed = metres <= DEPART_MAX_M and metres/max(seconds, 1e-3) < JUMP_SPEED
+            break
+        if entered or departed:
+            continue
+        # The spot, not the ball: no candidate at all (q 0: finalize drops it, as if the detector had not reported it).
+        # Discounted (MARKING_FACTOR, even the 1e-3 floor) the paint still anchored the path: the decoder chained its
+        # stationary bridges (MAX_STILL_S each) through a paint sighting every few seconds rather than call the ball
+        # unknown, so the path stayed on the spot as a hidden ball (CAN-ISL 562-578 s). Every sighting of that paint goes:
+        # the stay's own and the further candidates the causal pass's search crop and the whole-frame pass report of it
+        # (their slightly different boxes place it up to ~2 m off the spot on a distant view: CAN-ISL, 3 px of box bottom
+        # = 0.9 m), from PLACE_GAP_S before the stay to PLACE_GAP_S after it (a whole-frame sighting of the paint just
+        # before the causal pass took it anchored the first bridge).
+        gap = int(round(PLACE_GAP_S*len(times)/max(times[-1]-times[0], 1e-6))) if len(times) > 1 else 0
+        for i in range(max(0, i0-gap), min(len(layers), i1+gap+1)):
+            if abs(times[i]-times[i0]) > PLACE_GAP_S and i < i0 or abs(times[i]-times[i1]) > PLACE_GAP_S and i > i1:
+                continue
+            for m in layers[i]:
+                if m.pitch is not None and math.hypot((m.pitch[0]-sx)*DEFAULT_LENGTH, (m.pitch[1]-sy)*DEFAULT_WIDTH) <= SPOT_STAY_M:
+                    m.q, m.marking = 0.0, True
+        out.append({'start': round(times[i0], 3), 'end': round(times[i1], 3), 'spot': stay['spot'], 'tracklets': sorted(members),
+                    'sightings': len(lock), 'x': first.x, 'y': first.y,
+                    'before': None if before is None else round(times[i0]-times[before[0]], 2)})
+    return out
+
+
+def _apart(a, i, b, j, T, Tinv):
+    """_metres_apart with the inverse camera transforms computed once."""
+    if a.pitch is not None and b.pitch is not None:
+        return math.hypot((a.pitch[0]-b.pitch[0])*DEFAULT_LENGTH, (a.pitch[1]-b.pitch[1])*DEFAULT_WIDTH)
+    p = T[i] @ (Tinv[j] @ np.array([b.x, b.y, 1.0]))
+    return math.hypot(p[0]/p[2]-a.x, p[1]/p[2]-a.y)/max((a.pxm+b.pxm)/2, 1e-3)
+
+
+def _places(layers, times, T, Tinv):
+    """Every sighting, whatever its tracklet or status, assigned to a place: the scene point of the first sighting of the
+    place within STATIC_RADIUS of it (on the pitch when both are registered, else camera-compensated in the image), the
+    place unseen for no longer than PLACE_GAP_S. A thing that moves leaves a place of its own at every sighting; a thing
+    that stands still keeps one place across the tracklets the causal linker cut it into. Returns the places with two
+    sightings or more, each [(frame, node), ...] in time order."""
+    places, anchors, open_ = [], [], []   # anchors: per place, (point in frame 0's coordinates, pxm, pitch or None)
+    for i, nodes in enumerate(layers):
+        if not nodes:
+            continue
+        open_ = [k for k in open_ if times[i]-times[places[k][-1][0]] <= PLACE_GAP_S]
+        if open_:
+            here = np.array([anchors[k][0] for k in open_]) @ T[i].T
+            here = here[:, :2]/here[:, 2:3]
+            pxm = np.array([anchors[k][1] for k in open_])
+            pitch = np.array([anchors[k][2] if anchors[k][2] is not None else (np.nan, np.nan) for k in open_], np.float64)
+        added = []
+        for m in nodes:
+            if open_:
+                d = np.hypot(here[:, 0]-m.x, here[:, 1]-m.y)/np.maximum((pxm+m.pxm)/2, 1e-3)
+                if m.pitch is not None:
+                    on = np.hypot((pitch[:, 0]-m.pitch[0])*DEFAULT_LENGTH, (pitch[:, 1]-m.pitch[1])*DEFAULT_WIDTH)
+                    d = np.where(np.isnan(on), d, on)
+                r = int(np.argmin(d))
+                if d[r] <= STATIC_RADIUS:
+                    places[open_[r]].append((i, m))
+                    continue
+            places.append([(i, m)])
+            anchors.append((Tinv[i] @ np.array([m.x, m.y, 1.0]), m.pxm, m.pitch))
+            added.append(len(places)-1)
+        open_ += added
+    return [p for p in places if len(p) >= 2]
+
+
+def _fixed_places(layers, times, T):
+    """There is one ball, and it does not come back to the exact spot it left by itself. A place where a still thing
+    stood for STATIC_SECONDS (MIN_RUN sightings or more), then the causal pass took the ball somewhere else (MIN_RUN
+    causal acceptances at least FIXED_AWAY from it), and then a still thing stood again for STATIC_SECONDS, holds a fixed
+    object: a painted mark, debris, a spare ball. Nobody may stand at it (at most AUDIT_FREE of its sightings within a
+    player's reach): a ball at a still player's feet is passed away and played back. The registration need not be
+    trusted and the mark need not be a known spot (amateur 3, 118.2-132.8 s: the tip of the penalty arc, locked by the
+    causal pass from the first frame of the run while the ball was being thrown in, then seen for seven more seconds
+    after the causal pass followed the ball at the far goal). Small-scene runs only: on the broadcast 42-222 s window the
+    rule also took the path off a spare ball and a painted dash beside the touchline (93.7-96.2 s, 100.9-103.7 s) but,
+    with those stepping stones gone, bridged two other spells through different wrong places.
+    The place's sightings are split into stays at those acceptances. A stay the ball was seen coming into or going out
+    of was the ball on that spot (a kick-off, a corner, a ball stopping on a mark) and is left alone: the nearest causal
+    acceptance elsewhere before (after) it within DEPART_S, at a speed a ball can have (JUMP_SPEED), its tracklet seen
+    in between only nearer to the place and not turning back beyond it. Every sighting of the other stays counts as a
+    field marking (MARKING_FACTOR), the causal acceptances among them included, which lose the acceptance bonus, except
+    the ball rolling over the place: a sighting whose own tracklet is seen across it (2 STATIC_RADIUS from where the
+    place was first seen) within NEIGHBOUR_S. Changes the nodes in place; returns the fixed places (for the events and
+    the report)."""
+    Tinv = [np.linalg.inv(t) for t in T]
+    taken = [(i, m) for i, nodes in enumerate(layers) for m in nodes if _taken(m)]
+    taken_times = np.array([times[i] for i, _ in taken])
+    by_tracklet = {}
+    for i, nodes in enumerate(layers):
+        for m in nodes:
+            if m.tracklet is not None:
+                by_tracklet.setdefault(m.tracklet, []).append((i, m))
+    found = []
+    for sightings in _places(layers, times, T, Tinv):
+        if len(sightings) < 2*MIN_RUN or sum(1 for _, m in sightings if m.near is not None) > AUDIT_FREE*len(sightings):
+            continue
+        (i0, a), (i1, _) = sightings[0], sightings[-1]
+        # Stood still for STATIC_SECONDS before the acceptances elsewhere and STATIC_SECONDS after them.
+        stood = [times[i] for i, _ in sightings]
+        k_lo = max(MIN_RUN-1, bisect.bisect_left(stood, stood[0]+STATIC_SECONDS))
+        k_hi = min(len(stood)-MIN_RUN, bisect.bisect_right(stood, stood[-1]-STATIC_SECONDS)-1)
+        if k_lo >= len(stood) or k_hi < 0 or stood[k_lo] >= stood[k_hi]:
+            continue
+        members = {id(m) for _, m in sightings}
+        lo, hi = int(np.searchsorted(taken_times, stood[k_lo], 'right')), int(np.searchsorted(taken_times, stood[k_hi], 'left'))
+        away = [(j, e) for j, e in taken[lo:hi] if id(e) not in members and _apart(a, i0, e, j, T, Tinv) >= FIXED_AWAY]
+        if len(away) < MIN_RUN:
+            continue
+        away_times = [times[j] for j, _ in away]
+        stays = [[sightings[0]]]
+        for (h, _), (i, m) in zip(sightings, sightings[1:]):
+            if bisect.bisect_right(away_times, times[h]) < bisect.bisect_left(away_times, times[i]):
+                stays.append([])   # the causal pass took the ball elsewhere in between
+            stays[-1].append((i, m))
+
+        def seen_moving(stay, step):
+            """The ball seen coming into the stay (step -1) or going out of it (+1): the nearest causal acceptance
+            elsewhere on that side within DEPART_S, reachable at JUMP_SPEED, its tracklet's sightings between it and the
+            stay no further from the place, and its next one beyond it (within NEIGHBOUR_S) no nearer (by more than a
+            ball's diameter: a ball pausing at a foot)."""
+            i, m = stay[0] if step < 0 else stay[-1]
+            k = int(np.searchsorted(taken_times, times[i], 'left'))-1 if step < 0 else int(np.searchsorted(taken_times, times[i], 'right'))
+            while 0 <= k < len(taken) and id(taken[k][1]) in members:
+                k += step
+            if not 0 <= k < len(taken):
+                return False
+            j, e = taken[k]
+            seconds = abs(times[j]-times[i])
+            metres = _apart(m, i, e, j, T, Tinv)
+            if seconds > DEPART_S or metres/max(seconds, 1e-3) > JUMP_SPEED:
+                return False
+            own = [(f, n) for f, n in by_tracklet.get(e.tracklet, []) if id(n) not in members]
+            between = [(f, n) for f, n in own if min(i, j) < f < max(i, j)]
+            beyond = [(f, n) for f, n in own if (f-j)*step > 0 and abs(times[f]-times[j]) <= NEIGHBOUR_S]
+            beyond = beyond[:1] if step > 0 else beyond[-1:]
+            return all(_apart(m, i, n, f, T, Tinv) <= metres+BALL_DIAMETER for f, n in between) and \
+                all(_apart(m, i, n, f, T, Tinv) >= metres-BALL_DIAMETER for f, n in beyond)
+
+        def passing(i, m):
+            """The ball rolling over the place: its own tracklet seen across it, 2 STATIC_RADIUS or more from where the
+            place was first seen, within NEIGHBOUR_S of this sighting (a still thing's sightings only jitter about it)."""
+            entries = by_tracklet.get(m.tracklet, [])
+            k = bisect.bisect_left(entries, i, key=lambda e: e[0])
+            near = itertools.chain(itertools.takewhile(lambda e: times[i]-times[e[0]] <= NEIGHBOUR_S, reversed(entries[:k])),
+                                   itertools.takewhile(lambda e: times[e[0]]-times[i] <= NEIGHBOUR_S, entries[k:]))
+            return any(id(n) not in members and _apart(a, i0, n, f, T, Tinv) >= 2*STATIC_RADIUS for f, n in near)
+        demoted = withdrawn = kept = 0
+        for stay in stays:
+            if seen_moving(stay, -1) or seen_moving(stay, 1):
+                kept += 1
+                continue
+            for i, m in stay:
+                if m.marking or passing(i, m):
+                    continue
+                if m.source.get('status') == 'ball':
+                    m.q = max(1e-3, quality(m.source, bonus=False)*MARKING_FACTOR)
+                    withdrawn += 1
+                else:
+                    m.q = max(1e-3, m.q*MARKING_FACTOR)
+                m.marking = True
+                demoted += 1
+        if demoted:
+            j, e = away[0]
+            found.append({'start': round(times[i0], 3), 'end': round(times[i1], 3), 'sightings': len(sightings), 'x': a.x, 'y': a.y,
+                          'tracklets': sorted({m.tracklet for _, m in sightings if m.tracklet is not None}, key=str),
+                          'stays': len(stays), 'keptStays': kept, 'demoted': demoted, 'withdrawn': withdrawn, 'away': len(away),
+                          'awayFirst': {'time': round(times[j], 3), 'x': e.x, 'y': e.y, 'metres': round(_apart(a, i0, e, j, T, Tinv), 1)}})
+    return found
 
 
 def _attachment(layers, fps):
@@ -713,10 +987,31 @@ def finalize(frames, motions, W, H, fps, to_pitch=None):
     flags = [small_scene(f) for f in frames]
     small = n > 0 and sum(flags) >= SMALL_RUN*n   # a small-scene run (frame['profile']['smallScene']); the rules are off on every other run
     audits = _audit_locks(layers, frames, times, T, fps) if small else []
+    fixed = _fixed_places(layers, times, T) if small else []
+    spots = _spot_locks(layers, times, T, [np.linalg.inv(t) for t in T]) if any(m.pitch is not None for l in layers for m in l) else []
+    if spots:
+        layers = [[m for m in l if m.q > 0.0] for l in layers]   # the painted spots of the spot locks are no candidates
     _attachment(layers, fps)
     _velocities(layers, times, T)
     marking_nodes = sum(1 for l in layers for m in l if m.marking)+_standing_markings(layers, times, T, frames if small else None)
     reviews, events = [], []
+    for p in fixed:
+        if not p['withdrawn']:
+            continue   # only a decision against the causal pass is logged; the other places are counted in the report
+        away = p['awayFirst']
+        events.append({'time': p['start'], 'kind': 'ball', 'track': None, 'playerId': None, 'message': '\n'.join([
+            'BALL FIXED OBJECT', f"Frames: {p['start']:.2f}-{p['end']:.2f} s ({p['sightings']} sightings of a still thing at x = {p['x']:.0f}, y = {p['y']:.0f} px, "
+                                 f"tracklets {', '.join(str(t) for t in p['tracklets'])})",
+            f"Seen there again after the causal pass took the ball elsewhere: {p['away']} causal sightings at least {FIXED_AWAY:.0f} m away in between "
+            f"(the first at {away['time']:.2f} s, x = {away['x']:.0f}, y = {away['y']:.0f} px, {away['metres']:.1f} m away; camera motion compensated: YES)",
+            f"Stays: {p['stays']}, {p['keptStays']} seen arriving or leaving (the ball on that spot: kept)",
+            f"Decision: {p['demoted']} sightings count as a field marking; {p['withdrawn']} causal acceptances among them lose the acceptance bonus"])})
+    for s in spots:
+        events.append({'time': s['start'], 'kind': 'ball', 'track': None, 'playerId': None, 'message': '\n'.join([
+            'BALL SPOT LOCK', f"Frames: {s['start']:.2f}-{s['end']:.2f} s ({s['sightings']} causal sightings of tracklets "
+                              f"{', '.join(str(t) for t in s['tracklets'])} on a painted spot of the registered pitch, at x = {s['x']:.0f}, y = {s['y']:.0f} px)",
+            'Nothing was seen arriving at it (rolling or carried) and nothing was seen leaving it (kicked away): the spot itself',
+            'Decision: these sightings are the painted spot, never the ball'])})
     for a in audits:
         rivals = '; '.join(f"tracklet {r['tracklet']} ({r['sightings']} sightings, detector {r['det']:.2f}, {r['speed']:.1f} m/s)" for r in a['competitors'])
         events.append({'time': a['start'], 'kind': 'ball', 'track': None, 'playerId': None, 'message': '\n'.join([
@@ -854,5 +1149,6 @@ def finalize(frames, motions, W, H, fps, to_pitch=None):
     return {'firstPass': {'states': states(first), **before}, 'final': {'states': states([f['ball'] for f in frames]), **after, 'runs': len(runs),
                                                                         'longestUnknownSeconds': round(longest_unknown/fps, 2),
                                                                         'staticRunsDropped': len(reviews), 'longUnseenLinks': long_unseen, 'stationaryLinks': still_links,
-                                                                        'markingNodes': marking_nodes, 'lockAudits': len(audits)},
-            'dropped': dropped, 'review': reviews, 'audits': audits, 'events': events}
+                                                                        'markingNodes': marking_nodes, 'lockAudits': len(audits), 'fixedPlaces': len(fixed),
+                                                                        'spotLocks': len(spots)},
+            'dropped': dropped, 'review': reviews, 'audits': audits, 'fixed': fixed, 'events': events}

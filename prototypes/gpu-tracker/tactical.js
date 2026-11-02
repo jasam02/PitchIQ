@@ -48,6 +48,7 @@ const NEUTRAL = '#8d99a6';   // a goalkeeper whose team is not known yet
 const POSITION_MODES = ['raw', 'stabilized', 'both'];   // the developer comparison of the drawn positions (Debug positions)
 const POSITIONS_KEY = 'pitchiq.tactical.positions';      // ... remembered per viewer, not per video
 const SOURCE = {O: 'OBSERVED', I: 'INTERPOLATED', P: 'PREDICTED'};
+const TENTATIVE = /[^-?]\?$/;   // a provisional slot label of a full match ('A-04?', 'GK-A?'), not 'A-?' (no slot)
 
 // ---------- timeline ----------
 class Track {
@@ -325,6 +326,8 @@ class TacticalView {
     this.status = options.status || null;
     this.timeline = null;
     this.overlays = [];        // (ctx, geometry, state) => void, drawn between the pitch and the players
+    this.goalEndsAt = null;    // (t) => {left, right} | null: the goal ends by time (setGoalEnds), else the result's own
+    this.pitchEnds = null;     // the goal ends the cached pitch layer names
     this.pitchLayer = null;
     this.lastKey = null;
     this.last = {time: 0, players: [], ball: null};
@@ -433,8 +436,18 @@ class TacticalView {
             playerRadius: Math.max(5, Math.min(13, PITCH.length * scale * .011))};
   }
 
-  // Layer 1 + 2: the board, drawn once per size and cached.
-  drawPitch(g) {
+  // Which team defends which goal at time t: by the page's function when it set one (a full match: the attacking
+  // directions change at halftime), else the result's own (tactical.goalEnds). Only the labels follow it: no
+  // coordinate is ever flipped.
+  setGoalEnds(fn) { this.goalEndsAt = typeof fn === 'function' ? fn : null; this.pitchLayer = null; this.lastKey = null; }
+  goalEnds(t) {
+    let ends = null;
+    if (this.goalEndsAt) { try { ends = this.goalEndsAt(t); } catch (e) { ends = null; } }
+    return ends && typeof ends === 'object' ? ends : (this.timeline ? this.timeline.goalEnds : {});
+  }
+
+  // Layer 1 + 2: the board, drawn once per size (and per goal ends) and cached.
+  drawPitch(g, goalEnds) {
     const layer = document.createElement('canvas');
     layer.width = this.canvas.width; layer.height = this.canvas.height;
     const c = layer.getContext('2d'), m = g.metres, L = PITCH.length, W = PITCH.width;
@@ -466,8 +479,8 @@ class TacticalView {
       c.strokeRect(gx, gy, PITCH.goalNet * g.scale, PITCH.goalWidth * g.scale);
     }
     for (const [x, y, from] of [[0, 0, 0], [L, 0, Math.PI / 2], [L, W, Math.PI], [0, W, -Math.PI / 2]]) arc(x, y, PITCH.cornerArc, from, from + Math.PI / 2);
-    // Which team defends which end, when the tracking settled it.
-    const ends = this.timeline ? this.timeline.goalEnds : {};
+    // Which team defends which end, when the tracking settled it (or the page says so for this time).
+    const ends = goalEnds || (this.timeline ? this.timeline.goalEnds : {});
     c.font = `${Math.max(10, g.scale * 1.9)}px system-ui, sans-serif`; c.fillStyle = '#d9e3dc'; c.textAlign = 'center';
     if (ends.left) { const [a, b] = m(0, W + PITCH.margin * .55); c.fillText(`Team ${ends.left} goal`, a + 10 * g.scale, b); }
     if (ends.right) { const [a, b] = m(L, W + PITCH.margin * .55); c.fillText(`Team ${ends.right} goal`, a - 10 * g.scale, b); }
@@ -493,11 +506,12 @@ class TacticalView {
 
   render(t, options = {}) {
     const selected = options.selected || null;
-    const key = `${t.toFixed(4)}|${this.colours.A}|${this.colours.B}|${this.showLabels()}|${this.showDebug()}|${this.showLineup()}|${this.showFootprint()}|${selected}|${this.timeline ? 1 : 0}|${this.canvas.width}|${this.positionSource()}`;
+    const ends = this.goalEnds(t), endsKey = `${ends.left || ''}|${ends.right || ''}`;
+    const key = `${t.toFixed(4)}|${this.colours.A}|${this.colours.B}|${this.showLabels()}|${this.showDebug()}|${this.showLineup()}|${this.showFootprint()}|${selected}|${this.timeline ? 1 : 0}|${this.canvas.width}|${this.positionSource()}|${endsKey}`;
     if (key === this.lastKey) return this.last;
     this.lastKey = key;
     const g = this.geometry(), ctx = this.ctx;
-    if (!this.pitchLayer || this.pitchLayer.width !== this.canvas.width) this.pitchLayer = this.drawPitch(g);
+    if (!this.pitchLayer || this.pitchLayer.width !== this.canvas.width || this.pitchEnds !== endsKey) { this.pitchLayer = this.drawPitch(g, ends); this.pitchEnds = endsKey; }
     ctx.clearRect(0, 0, g.width, g.height);
     ctx.drawImage(this.pitchLayer, 0, 0);
     const state = this.positions(t);
@@ -567,13 +581,19 @@ class TacticalView {
     }
     ctx.globalAlpha = 1;
     if (!labels) return;
-    ctx.font = `${Math.max(9, Math.round(r * .95))}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const font = `${Math.max(9, Math.round(r * .95))}px system-ui, sans-serif`;
+    ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     for (const p of state.players) {
       if (p.anonymous || !this.visible(p)) continue;
       const [x, y] = g.toPx(p.x, p.y);
-      ctx.globalAlpha = p.alpha * (selected && selected !== p.id ? .35 : 1) * (p.kind === 'P' ? .75 : 1);
+      // A provisional slot ('A-04?', 'GK-A?': the best estimate of who continues that place) is drawn tentative,
+      // italic and lighter; 'A-?' (no slot) and the sure slots as before.
+      const tentative = TENTATIVE.test(String(p.display));
+      ctx.globalAlpha = p.alpha * (selected && selected !== p.id ? .35 : 1) * (p.kind === 'P' ? .75 : 1) * (tentative ? .8 : 1);
+      if (tentative) ctx.font = `italic ${font}`;
       ctx.lineWidth = 3; ctx.strokeStyle = '#07131bcc'; ctx.strokeText(p.display, x, y - r - 3);
-      ctx.fillStyle = '#f4f7f4'; ctx.fillText(p.display, x, y - r - 3);
+      ctx.fillStyle = tentative ? '#c8d3cc' : '#f4f7f4'; ctx.fillText(p.display, x, y - r - 3);
+      if (tentative) ctx.font = font;
     }
     ctx.globalAlpha = 1;
   }

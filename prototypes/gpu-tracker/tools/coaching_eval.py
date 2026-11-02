@@ -866,7 +866,8 @@ def _clear_failing_runs(o, params, scale, step, unsettled=None, players=11):
 
 def _clear_opportunity(o, det, phase_want, players=11):
     """The opportunity-level gates of a clear failure (LEAD (b)): identity high and position medium / high, in view
-    (the whole team for a team-level check), the relevant phase named by possession-4 or the coach and away from a
+    (the whole team for a team-level check), the relevant phase named by possession-4, the coach or the image-based
+    estimate (used only once the coach's marks agreed with it) and away from a
     change, no recovering run, interchange or formation change, and a role reading the role guardrail accepts for D3
     and for D5 below 11v11 (coach, stable or carried; a relative reading of medium or high confidence)."""
     q, ph, sg = o['quality'], o['phase'], o['intentSignals']
@@ -874,7 +875,7 @@ def _clear_opportunity(o, det, phase_want, players=11):
         return False
     if (q['visibility'] != 'complete') if det in TEAM_LEVEL else (q['visibility'] == 'none'):
         return False
-    if ph['state'] != phase_want or ph['nearChange'] or ph['source'] not in ('possession-4', 'coach'):
+    if ph['state'] != phase_want or ph['nearChange'] or ph['source'] not in ('possession-4', 'possession-amateur', 'coach'):
         return False
     if sg['recovering'] or sg['interchange'] or sg['formationChangeNear']:
         return False

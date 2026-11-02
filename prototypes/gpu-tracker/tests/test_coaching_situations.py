@@ -453,6 +453,99 @@ class CoachSpans(unittest.TestCase):
         self.assertEqual(S.validate('timeline', tl.summary()), [])
 
 
+class ImageEstimate(unittest.TestCase):
+    """The image-based record (soccer/possession_amateur.py, the dispatch's answer where possession-4 abstains on a
+    small scene): it fills the time outside the coach's spans only once it agreed with them (situations.image_use:
+    IMAGE_AGREE_MIN over IMAGE_MIN_S), and nothing at all without marks."""
+
+    @classmethod
+    def setUpClass(cls):
+        from soccer import possession_amateur
+        cls.b, _, _, cls.poss4 = prepared('amateur_coach_spans', 'spans')
+        cls.rec = possession_amateur.compute(cls.b.result)
+        cls.t = timeline('amateur_coach_spans', 'spans').t
+
+    def marks(self, flip=False, upto=None):
+        """The coach's spans up to the middle of the segment (or upto), with A and B swapped when flip."""
+        upto = float(self.t[len(self.t)//2]) if upto is None else upto
+        swap = {'A': 'B', 'B': 'A', 'dead': 'dead'}
+        spans = [dict(s, state=swap[s['state']] if flip else s['state']) for s in self.b.coach_spans['spans'] if s['t1'] <= upto]
+        return {'version': 1, 'kind': 'coach-possession-spans', 'source': 'coach', 'spans': spans}
+
+    def test_the_record_is_the_image_estimate(self):
+        self.assertFalse(self.poss4['available'])
+        self.assertEqual((self.rec['version'], self.rec['available']), ('possession-amateur-1', True))
+        self.assertTrue(SI.is_image_estimate(self.rec) and not SI.is_image_estimate(self.poss4))
+
+    def test_without_marks_it_names_nothing(self):
+        tl = timeline('amateur_coach_spans', 'spans', poss=self.rec)
+        self.assertTrue((tl.phase == 'unknown').all() and (tl.phaseSource == 'none').all())
+        self.assertTrue((tl.carrier == '').all() and np.isnan(tl.contestS).all())
+        sm = tl.summary()
+        self.assertEqual(S.validate('timeline', sm), [])
+        pq = sm['phaseQuality']
+        self.assertFalse(pq['available'])
+        self.assertIsNone(pq['roughShares'])
+        img = pq['imageEstimate']
+        self.assertEqual((img['used'], img['reason'], img['checkedSeconds']), (False, 'no_marks', 0.0))
+        self.assertGreater(img['offeredSeconds'], 100.0)
+        self.assertTrue(any('image-based estimate' in n for n in pq['notes']))
+        self.assertFalse(SI.engine_named(pq))
+
+    def test_agreeing_marks_unlock_it_outside_them(self):
+        from soccer.coaching import assess
+        tl = timeline('amateur_coach_spans', 'spans', poss=self.rec, coach=self.marks())
+        sm = tl.summary()
+        self.assertEqual(S.validate('timeline', sm), [])
+        img = sm['phaseQuality']['imageEstimate']
+        self.assertTrue(img['used'], img)
+        self.assertIsNone(img['reason'])
+        self.assertGreaterEqual(img['agreement'], SI.IMAGE_AGREE_MIN)
+        self.assertGreaterEqual(img['checkedSeconds'], SI.IMAGE_MIN_S)
+        outside = ~tl.coachMarked & np.isin(tl.phase, ('own', 'opp'))
+        self.assertGreater(outside.sum()*tl.step, 60.0)
+        self.assertTrue((tl.phaseSource[outside] == 'possession-amateur').all())
+        named = np.isin(tl.phase, ('own', 'opp'))
+        truth = script_phase(self.b.truth, tl.t, 'A')
+        self.assertTrue((tl.phase[named] == truth[named]).all(), 'the scene is clean: every named sample is the script')
+        self.assertTrue(tl.nearChange[~tl.coachMarked].any(), "the estimate's changes are excluded +-2 s outside the marks")
+        self.assertFalse(tl.nearChange[tl.coachMarked].any())
+        self.assertEqual({s['source'] for s in sm['phaseSpans']} - {'coach'}, {'possession-amateur'})
+        self.assertTrue((tl.carrier == '').all() and (tl.estimatedCarrier == '').all(), 'its carrier is never used')
+        self.assertFalse(sm['phaseQuality']['available'])
+        self.assertEqual(sm['phaseQuality']['level'], 'limited')
+        self.assertIsNotNone(sm['phaseQuality']['roughShares'])
+        self.assertTrue(SI.engine_named(sm['phaseQuality']) and assess.phase_available({'timeline': sm}))
+
+    def test_disagreeing_or_too_few_marks_leave_it_unused(self):
+        tl = timeline('amateur_coach_spans', 'spans', poss=self.rec, coach=self.marks(flip=True))
+        sm = tl.summary()
+        self.assertEqual(S.validate('timeline', sm), [])
+        self.assertEqual(sm['phaseQuality']['imageEstimate']['reason'], 'disagrees')
+        self.assertTrue((tl.phase[~tl.coachMarked] == 'unknown').all())
+        self.assertTrue((tl.phaseSource[tl.coachMarked] == 'coach').all())
+        first = self.b.coach_spans['spans'][0]
+        ten = {'version': 1, 'kind': 'coach-possession-spans', 'source': 'coach',
+               'spans': [dict(first, t1=min(first['t1'], first['t0']+10.0))]}
+        short = timeline('amateur_coach_spans', 'spans', poss=self.rec, coach=ten)
+        self.assertEqual(short.summary()['phaseQuality']['imageEstimate']['reason'], 'too_few_seconds')
+        self.assertTrue((short.phase[~short.coachMarked] == 'unknown').all())
+
+    def test_the_schema_refuses_image_spans_it_did_not_use(self):
+        sm = copy.deepcopy(timeline('amateur_coach_spans', 'spans', poss=self.rec, coach=self.marks()).summary())
+        sm['phaseQuality']['imageEstimate'].update(used=False, reason='no_marks')
+        problems = S.validate('timeline', sm)
+        self.assertTrue(any('image-based spans' in p for p in problems), problems)
+
+    def test_the_words_say_image_based(self):
+        from soccer.coaching import explain as EX
+        self.assertEqual(EX.QUALIFIER['possession-amateur'], '(estimated, image-based)')
+        finding = {'context': {'phase': {'state': 'opp', 'estimated': True}}, 'opportunities': ['o1', 'o2'], 'measurements': {}}
+        opps = {'o1': {'phase': {'source': 'coach'}}, 'o2': {'phase': {'source': 'possession-amateur'}}}
+        self.assertEqual(EX.phase_source_of(finding, opps), 'mixed-amateur')
+        self.assertEqual(EX.phase_source_of(finding, {'o1': opps['o2'], 'o2': opps['o2']}), 'possession-amateur')
+
+
 class FormatAndScale(unittest.TestCase):
     def test_completeness_follows_the_coaching_format(self):
         b, st, cd, poss = prepared('kids_swarm', 'measured_size')

@@ -1318,5 +1318,57 @@ class CheckFootTruthTests(unittest.TestCase):
         self.assertAlmostEqual(check_foot_truth.error(records[1], records[1]['stored'][0])[0], .25, places=6)
 
 
+# ---------- tools/team_shape_bench.py: the simulated camera's noise ----------
+team_shape_bench = load_tool('team_shape_bench')
+
+
+class TeamShapeBenchNoiseTests(unittest.TestCase):
+    """The bench's camera noise is correlated in time (AR(1) with the stated time constant, sigma per sighting), each
+    sample's error distributed as the independent noise the bench used before, which tau 0 still reproduces random
+    number for random number."""
+
+    def series(self, tau, n=20000, dt=.2, seed=4):
+        rng, state = np.random.default_rng(seed), {}
+        e = np.array([team_shape_bench.camera_error(state, 'A-01', k*dt, rng, tau) for k in range(n)])
+        return e, state['A-01'][2] if tau else None
+
+    def test_the_error_is_an_ar1_process_with_the_time_constant(self):
+        e, sigma = self.series(1.5)
+        for axis in (0, 1):
+            z = e[:, axis]/sigma
+            self.assertAlmostEqual(float(z.std()), 1.0, delta=.08)
+            for lag in (1, 5, 10):                                    # 0.2, 1 and 2 s
+                r = np.corrcoef(z[:-lag], z[lag:])[0, 1]
+                self.assertAlmostEqual(float(r), math.exp(-lag*.2/1.5), delta=.04, msg=lag)
+        self.assertLess(float(np.diff(e[:, 0]).std())/sigma, .6)      # a 0.2 s step: half a sigma, not 1.4
+
+    def test_tau_zero_is_the_old_independent_noise(self):
+        rng = np.random.default_rng(7)
+        old = []
+        for _ in range(50):
+            s = rng.uniform(.5, 2.0)
+            old.append((rng.normal(0, s), rng.normal(0, s)))
+        rng = np.random.default_rng(7)
+        new = [team_shape_bench.camera_error({}, 'A-01', k*.2, rng, 0) for k in range(50)]
+        self.assertEqual(new, old)
+
+    def test_every_sample_is_distributed_as_before_and_a_new_sighting_draws_a_new_sigma(self):
+        mean_sq = {}
+        for tau in (0, 1.5):
+            rng, state = np.random.default_rng(11), {}
+            e = np.array([team_shape_bench.camera_error(state, f'P{k}', 0.0, rng, tau) for k in range(6000)])
+            mean_sq[tau] = float((e**2).mean())
+        expected = (2.0**3-.5**3)/(3*1.5)                             # E[sigma^2], sigma ~ U(0.5, 2)
+        for tau, v in mean_sq.items():
+            self.assertAlmostEqual(v, expected, delta=.12, msg=tau)
+        rng, state = np.random.default_rng(3), {}
+        team_shape_bench.camera_error(state, 'A-01', 0.0, rng, 1.5)
+        first = state['A-01'][2]
+        team_shape_bench.camera_error(state, 'A-01', team_shape_bench.SIGHTING_GAP, rng, 1.5)
+        self.assertEqual(state['A-01'][2], first)                     # back within the gap: the same sighting
+        team_shape_bench.camera_error(state, 'A-01', 3*team_shape_bench.SIGHTING_GAP, rng, 1.5)
+        self.assertNotEqual(state['A-01'][2], first)
+
+
 if __name__ == '__main__':
     unittest.main()

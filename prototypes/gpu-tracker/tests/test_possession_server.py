@@ -160,6 +160,13 @@ class PossessionRoute(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True)[:400])
         return r.get_json()
 
+    def test_the_route_serves_the_dispatch(self):
+        """The real engine behind the route is soccer/possession_amateur.py's dispatch: possession-4's own record on
+        footage possession-4 judges (byte for byte), its image-based estimate where possession-4 declines a small scene."""
+        from soccer import possession, possession_amateur
+        self.assertIs(self.s.server.possession_engine(), possession_amateur)
+        self.assertEqual(self.record(), json.loads(json.dumps(possession.compute(self.s.result), allow_nan=False)))
+
     def test_the_script_is_served(self):
         with self.s.get('/possession.js') as r:
             self.assertEqual((r.status_code, r.mimetype), (200, 'application/javascript'))

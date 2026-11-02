@@ -243,10 +243,13 @@ def _ok(text, profile, facts=None, **kw):
 
 
 def _phase_qualifier(obs):
-    """'(estimated)', '(coach-marked)' or '(estimated, partly coach-marked)' for the run's phase source."""
+    """'(estimated)', '(coach-marked)' or '(estimated, partly coach-marked)' for the run's phase source; with the
+    image-based estimate (used once the coach's marks agreed) '(estimated, image-based, partly coach-marked)'."""
     pq = (obs.get('timeline') or {}).get('phaseQuality') or {}
     coach = pq.get('coach') or {}
     coach_named = float(coach.get('own') or 0.0)+float(coach.get('opp') or 0.0) > 0.0
+    if (pq.get('imageEstimate') or {}).get('used'):
+        return EX.QUALIFIER['mixed-amateur' if coach_named else 'possession-amateur']
     if pq.get('available') and coach_named:
         return EX.QUALIFIER['mixed']
     return EX.QUALIFIER['coach'] if coach_named else EX.QUALIFIER['possession-4']
@@ -255,7 +258,7 @@ def _phase_qualifier(obs):
 def _phase_available(obs):
     pq = (obs.get('timeline') or {}).get('phaseQuality') or {}
     coach = pq.get('coach') or {}
-    return bool(pq.get('available')) or float(coach.get('own') or 0.0)+float(coach.get('opp') or 0.0) > 0.0
+    return SI.engine_named(pq) or float(coach.get('own') or 0.0)+float(coach.get('opp') or 0.0) > 0.0
 
 
 def _record_id(*parts):
@@ -293,7 +296,7 @@ def one_sided(obs):
     """The team whose possession alone the coach marked while PitchIQ could not follow the ball (situations.one_sided:
     engine unavailable, the coach's spans name one team only), else None."""
     pq = ((obs.get('timeline') or {}).get('phaseQuality')) or {}
-    return SI.one_sided(pq.get('coach'), bool(pq.get('available')), obs['team'])
+    return SI.one_sided(pq.get('coach'), SI.engine_named(pq), obs['team'])
 
 
 def _possession(obs):
@@ -308,7 +311,8 @@ def _possession(obs):
     coach = pq.get('coach') or {}
     own, opp = float(coach.get('own') or 0.0), float(coach.get('opp') or 0.0)
     coach_named = own+opp > 0.0
-    engine = bool(pq.get('available'))
+    engine = SI.engine_named(pq)
+    image = bool((pq.get('imageEstimate') or {}).get('used'))
     team = obs['team']
     other = 'B' if team == 'A' else 'A'
     marked = one_sided(obs)
@@ -323,7 +327,11 @@ def _possession(obs):
         cov = round(min(1.0, float(coach.get('seconds') or 0.0)/seg), 3)
     caveat = None
     broadcast = (tl.get('footage') or {}).get('kind') == 'broadcast'
-    if engine:
+    if engine and image:
+        caveat = ('Your marks where you made them; elsewhere estimated by PitchIQ from the image (the players nearest the '
+                  'ball), used because it agreed with your marks, so the shares are rough. The few seconds around each '
+                  'change of who had the ball are left out')
+    elif engine:
         caveat = ('Estimated by PitchIQ from the tracking, so the shares are rough. The few seconds around each change '
                   'of who had the ball are left out')
         caveat += ('; stoppages are mostly missed on broadcast footage, so some dead-ball time may count as play.'
@@ -460,6 +468,9 @@ def _overview_text(profile, assessment, sections, obs, rng):
     if _phase_available(obs):
         q = _phase_qualifier(obs)
         sents.append({EX.QUALIFIER['possession-4']: 'Who had the ball is an estimate from the tracking.',
+                      EX.QUALIFIER['possession-amateur']: 'Who had the ball is an estimate from the image.',
+                      EX.QUALIFIER['mixed-amateur']: 'Who had the ball comes from the spans you marked, and elsewhere '
+                                                     'from an estimate from the image that agreed with them.',
                       EX.QUALIFIER['coach']: 'Who had the ball comes from the spans you marked.',
                       EX.QUALIFIER['mixed']: 'Who had the ball is an estimate from the tracking, with your marked '
                                              'spans where you gave them.'}[q])

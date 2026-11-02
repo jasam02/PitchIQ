@@ -616,7 +616,10 @@ def run(video_path, output, config, progress, cancelled, previous=None, resource
                     tracker.offset = len(tracker.frame_log)
                 elapsed = time.perf_counter()-started
                 if elapsed-last_notice >= 1:
-                    which = f'before the start, from the keyframe at {roll_from:.1f} s' if stamp < start else f'after the end, to the keyframe at {roll_until:.1f} s'
+                    # No keyframe before the start: the seek landed a frame short of it (a frame rate not exactly the
+                    # nominal one, e.g. 25.00008, puts the frame times off the start's grid).
+                    which = (f'after the end, to the keyframe at {roll_until:.1f} s' if stamp >= start else
+                             f'before the start, from the keyframe at {roll_from:.1f} s' if roll_from is not None else 'just before the start')
                     progress({'stage': f'Carrying the calibration through the frames {which} (camera motion only)', 'progress': 1.0 if stamp >= finish else 0.0,
                               'videoTime': stamp, 'elapsed': round(elapsed, 1), 'frames': len(frames), 'gpu': gpu})
                     last_notice = elapsed
@@ -940,7 +943,8 @@ def build_report(frames, tracker, meta, gpu, config, elapsed, cancelled, previou
             'teleports': jumps['teleports'], 'footSwitches': jumps['footSwitches'],
             'longestUnknownSeconds': ball_report['final']['longestUnknownSeconds'] if ball_report else None,
             'droppedFirstPassRuns': len(ball_report['dropped']) if ball_report else 0, 'firstPass': first_pass,
-            **({k: ball_report['final'].get(k, 0) for k in ('staticRunsDropped', 'longUnseenLinks', 'stationaryLinks', 'markingNodes', 'lockAudits')} if ball_report else {}),
+            **({k: ball_report['final'].get(k, 0) for k in ('staticRunsDropped', 'longUnseenLinks', 'stationaryLinks', 'markingNodes', 'lockAudits', 'fixedPlaces',
+                                                              'spotLocks')} if ball_report else {}),
             'reacquisitions': first_pass['reacquisitions'], 'lost': first_pass['lost'],
             'phases': {k: share(v) for k, v in phases.items()}, 'rejectedCandidates': dict(tracker.ball.rejections.most_common())}
     nontarget = [p for f in frames for p in f['people'] if p.get('state') == 'nontarget']

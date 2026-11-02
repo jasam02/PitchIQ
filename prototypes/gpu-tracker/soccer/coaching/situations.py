@@ -51,6 +51,27 @@ the engine) and the ball (vetoed on small scenes) stay unknown, so the pressure,
 still have no eligible time; the wide-defender, spacing and shape checks get some (team A on the amateur clip: 19.6 s
 of own possession in spans of 3 s or more, 5.8 s of it with the whole team in view).
 
+The image-based estimate (2026-10-26; soccer/possession_amateur.py, version possession-amateur-1: the possession
+dispatch's record where possession-4 declines a small scene or a failed pitch-vs-image agreement). Coach-marked spans
+stay authoritative; the estimate fills only the time outside them, under the same rules 1-4 as possession-4 (the +-2 s
+change exclusion included), with phaseSource 'possession-amateur' ('estimated, image-based' in every text), and only
+when it agreed with the coach inside the coach's spans: it named a team on IMAGE_MIN_S = 20 s or more of them (after
+the exclusion) and the coach's team on IMAGE_AGREE_MIN = .9 of those (image_use; phaseQuality.imageEstimate says
+used or not and why: no_marks, too_few_seconds, disagrees). Without marks it is not used at all (decided on DEV
+data: it was right on 32 of 32 / 10 of 10 labelled team points of the amateur and Veo clips but named only .356 /
+.196 of them, 141 points on two clips, and the blind labels of the held-out amateur minutes were not made yet; a
+coach's marks are what checks it on the run itself), so DESIGN 3.2 holds: without marks every phase-dependent check of
+an amateur or Veo clip is phase_unknown. Used, it lifts no gate: a check resting on it is judged as on possession-4's
+phase and says so (assess phaseSource 'possession-amateur' / 'mixed-amateur'). Its carrier is never used, inside the
+marks or outside (the marks check the team, not who is on the ball, and D1 reads the carrier's position in metres,
+which a small-scene registration does not support), so D1 stays 'no_carrier' on such footage as before. phaseQuality.available stays
+possession-4's (False on such a record); engine_named() is what says that an estimate named the phase. On the
+amateur and Veo run copies with the blind labels turned into coach spans (coaching_eval.spans_from_possession_labels,
+DEV) it named a team on 9.2 s (spans to the middle of the amateur clip: agreement .913) and 13.0 s (spans throughout:
+.938) inside them, 5.2 s on the Veo clip (1.0): under IMAGE_MIN_S each time, so it was not used; on the synthetic
+amateur scene with marks to the middle of the segment it was (agreement 1.0 over 147.2 s; 146.6 s named outside the
+marks) and every sample it named was the script.
+
 Ball and carrier (DESIGN 3.3). The ball is the series' ball (final path TRACKED or bridged MISSING, ball pitch
 confidence MEDIUM or better, sigma at most 3 m, on the pitch, registration gates passed, vetoed on small-scene runs:
 18-20% of the amateur clip's shown ball is the end of a painted arc). Its third and channel are recomputed here on the
@@ -167,8 +188,13 @@ ZONE_NAMES = ('own_third', 'middle_third', 'final_third')
 ZONE_OF = {'own': 'own_third', 'middle': 'middle_third', 'final': 'final_third'}
 CHANNEL_NAMES = ('left', 'centre', 'right')
 PHASE_DTYPE = '<U7'
-SOURCE_DTYPE = '<U12'
+SOURCE_DTYPE = '<U20'            # 'possession-amateur' is 18 characters
 ENGINE = 'possession-4'         # Opportunity.phase.source of an engine-named sample
+ENGINE_IMAGE = 'possession-amateur'   # ... of a sample the image-based estimate named (possession_amateur.py)
+IMAGE_AGREE_MIN = .9            # the image-based estimate is used outside the coach's spans only where it named the
+                                # coach's team on this share of the seconds it named inside them (possession-4 named
+                                # it on 1.0 / .972 / .801 of them on broadcast 0-60 / 42-222 / 222-303 s) ...
+IMAGE_MIN_S = 20.0              # ... over at least this many seconds (PITCHIQ-PROPOSAL; below either: not used)
 COACH = 'coach'
 NONE = 'none'
 CONTEXT_VERSION = 1             # roleInputs['context'] layout version
@@ -191,6 +217,39 @@ def _ascii(text, n=300):
 
 def _r(x, d=3):
     return None if x is None or not _number(float(x)) else round(float(x), d)
+
+
+def is_image_estimate(poss):
+    """Is a possession record the image-based estimate (soccer/possession_amateur.py, version possession-amateur-*)
+    rather than possession-4's?"""
+    return isinstance(poss, dict) and str(poss.get('version') or '').startswith('possession-amateur')
+
+
+def image_use(poss, kept, named_in, agree_in, step, offered_s):
+    """Whether the image-based estimate is used for the phase outside the coach's spans (schema ImageEstimatePhase):
+    only when the coach marked spans and, inside them, the estimate named a team on at least IMAGE_MIN_S seconds (after
+    the +-2 s change exclusion) and the coach's team on at least IMAGE_AGREE_MIN of those. reason: None (used),
+    'no_marks', 'too_few_seconds' or 'disagrees'. offered_s: the seconds it names outside the spans."""
+    named_s = named_in*step
+    agree = agree_in/named_in if named_in else None
+    if not kept:
+        reason = 'no_marks'
+    elif named_s < IMAGE_MIN_S-1e-9:
+        reason = 'too_few_seconds'
+    elif agree < IMAGE_AGREE_MIN-1e-9:
+        reason = 'disagrees'
+    else:
+        reason = None
+    return {'version': _ascii(poss.get('version'), 40) or 'possession-amateur', 'used': reason is None,
+            'reason': reason, 'agreement': round(agree, 3) if agree is not None else None,
+            'checkedSeconds': round(named_s, 2), 'offeredSeconds': round(float(offered_s), 2)}
+
+
+def engine_named(pq):
+    """Did a possession estimate name who had the ball on this timeline (phaseQuality: possession-4 available, or the
+    image-based estimate used)?"""
+    pq = pq if isinstance(pq, dict) else {}
+    return bool(pq.get('available')) or bool((pq.get('imageEstimate') or {}).get('used'))
 
 
 def team_of(pid, gk_teams=None):
@@ -846,9 +905,11 @@ def build_timeline(cd, possession, team, measurement, coach_spans=None):
             ballAX=np.where(zone_ok, bX, np.nan), ballAY=np.where(zone_ok, bY, np.nan), ballReliable=ball_ok,
             ballThird=np.asarray(third, dtype='<U12'), ballChannel=np.asarray(channel, dtype='<U6'))
 
-    # Phase: possession-4 under the binding rules, coach spans over it.
+    # Phase: possession-4 under the binding rules (or the image-based estimate, under the same rules, where it is
+    # used: IMAGE_* below), coach spans over it.
     phase, raw, carrier, est_carrier, near, cconf, available = _engine_phase(possession, frame, t, team)
-    source = np.where(phase == 'unknown', NONE, ENGINE).astype(SOURCE_DTYPE)
+    image_record = bool(available) and is_image_estimate(possession)
+    source = np.where(phase == 'unknown', NONE, ENGINE_IMAGE if image_record else ENGINE).astype(SOURCE_DTYPE)
     seg_t0 = float(t[0]) if S_ else 0.0
     seg_t1 = float(t[-1]) if S_ else 0.0
     kept, dropped = clean_coach_spans(coach_spans, seg_t0, seg_t1)
@@ -884,6 +945,24 @@ def build_timeline(cd, possession, team, measurement, coach_spans=None):
                  'agreement': round(agree_in/engine_named_in, 3) if engine_named_in else None}
     else:
         coach = None
+    # The image-based estimate (soccer/possession_amateur.py, where possession-4 declines the footage) fills only the
+    # time outside the coach's spans, and only once it agreed with them (image_use); otherwise none of it is used.
+    image = None
+    if image_record:
+        outside = ~coach_mask
+        image = image_use(possession, kept, engine_named_in, agree_in, step,
+                          float((outside & ((raw == 'A') | (raw == 'B')) & ~near).sum())*step)
+        if not image['used']:
+            phase[outside] = 'unknown'
+            source[outside] = NONE
+            near[outside] = False
+            cconf[outside] = ''
+        # never its carrier, used or not: the coach's marks check the team, not who is on the ball, and D1 reads the
+        # carrier's position in metres, which a small-scene registration does not support (the ball is vetoed there
+        # for the same reason)
+        carrier = np.full(S_, '', dtype=carrier.dtype)
+        est_carrier = np.full(S_, '', dtype=est_carrier.dtype)
+    engine_used = bool(available) and (not image_record or image['used'])
     # The carrier only where the phase names his team.
     def agrees(ids):
         tm = np.array([team_of(c, gk_teams) or '' for c in ids], dtype='<U1') if S_ else np.zeros(0, '<U1')
@@ -906,14 +985,16 @@ def build_timeline(cd, possession, team, measurement, coach_spans=None):
     tl._put(phase=phase, phaseSource=source, phaseSpan=_span_lengths(t, phase, step), nearChange=near,
             changeConfidence=cconf, carrier=carrier.astype('<U8'), carrierTeam=cteam, carrierX=cX, carrierY=cY,
             estimatedCarrier=est_carrier.astype('<U8'),
-            coachMarked=coach_mask, coachNear=coach_near, contestS=_contest_seconds(possession, t))
+            coachMarked=coach_mask, coachNear=coach_near,
+            contestS=_contest_seconds(possession if engine_used else None, t))
     tl._raw_engine = raw
 
     # Formation periods (11v11 only).
     fidx, flabel, fconf, fnear, fsummaries, fwindows, fperiods = _formation(cd.shape, team, t, fmt)
     tl._put(formationPeriod=fidx, formationLabel=flabel, formationConfidence=fconf, formationChangeNear=fnear)
 
-    tl._summary = _summarize(tl, possession, available, coach, kept, dropped, frames, fsummaries)
+    tl._summary = _summarize(tl, possession, bool(available) and not image_record, coach, kept, dropped, frames,
+                             fsummaries, image)
     tl._role_inputs = _role_inputs(tl, fwindows, fperiods)
     return tl
 
@@ -922,7 +1003,7 @@ def _phase_spans(tl):
     out = []
     t, frame, phase, source = tl.t, tl.frame, tl.phase, tl.phaseSource
     for state in ('own', 'opp', 'dead'):
-        for src in (ENGINE, COACH):
+        for src in (ENGINE, ENGINE_IMAGE, COACH):
             for i0, i1 in _runs((phase == state) & (source == src)):
                 out.append({'state': state, 't0': round(float(t[i0]), 3), 't1': round(float(t[i1]), 3),
                             'frame0': int(frame[i0]), 'frame1': int(frame[i1]), 'source': src})
@@ -942,19 +1023,23 @@ def one_sided(coach, available, team):
     return team if own > 0.0 else ('B' if team == 'A' else 'A')
 
 
-def _summarize(tl, poss, available, coach, kept, dropped, frames, fsummaries):
+def _summarize(tl, poss, available, coach, kept, dropped, frames, fsummaries, image=None):
+    """The timeline summary (schema 'timeline'). available: possession-4's record is available; image: the
+    image-based estimate's use (image_use; None when the record is possession-4's)."""
     S_ = len(tl.t)
     step = tl.step
     phase = tl.phase
     sec = {k: round(float((phase == k).sum())*step, 2) for k in ('own', 'opp', 'dead', 'unknown')}
     sec['nearChange'] = round(float(tl.nearChange.sum())*step, 2)
     poss = poss if isinstance(poss, dict) else {}
+    used = bool(image and image['used'])
+    engine = bool(available) or used         # an estimate names the phase somewhere
     q = poss.get('quality') if isinstance(poss.get('quality'), dict) else {}
     level = q.get('level') if q.get('level') in ('good', 'limited', 'unavailable') else 'unavailable'
-    cover = q.get('coverage') if _number(q.get('coverage')) else None
+    cover = q.get('coverage') if _number(q.get('coverage')) and engine else None
     shares = poss.get('shares') or {}
     rough = None
-    if available and coach is not None and coach['spans'] and sec['own']+sec['opp'] > 0:
+    if engine and coach is not None and coach['spans'] and sec['own']+sec['opp'] > 0:
         # The coach marked spans: the shares are those of the merged per-sample phase (the coach's spans where
         # marked, the engine elsewhere), so the overview never contradicts the marks (fix round 1, critic B-11 / CODE
         # H2: Team A 5-25 s and Team B 25-33.5 s marked on BC60 read "A about 0%, B about 100%" from the engine).
@@ -978,27 +1063,47 @@ def _summarize(tl, poss, available, coach, kept, dropped, frames, fsummaries):
             notes.append(f'Possession quality is limited on this run (coverage {cover*100:.0f}%).')
         if footage['kind'] == 'broadcast':
             notes.append(STOPPAGE_NOTE)
+    elif used:
+        notes.append(f'Who had the ball is estimated from the image (an image-based estimate) outside the spans you '
+                     f'marked: inside them it named your team on {image["agreement"]*100:.0f}% of '
+                     f'{image["checkedSeconds"]:.0f} s; the {CHANGE_EXCLUDE_S:.0f} s either side of each of its '
+                     f'changes are left out.')
+    elif image is not None:
+        why = {'no_marks': 'it is used only once spans you mark confirm it',
+               'too_few_seconds': f'it named a team on only {image["checkedSeconds"]:.0f} s inside your marked spans '
+                                  f'({IMAGE_MIN_S:.0f} s are needed to check it)',
+               'disagrees': f'inside your marked spans it named your team on only '
+                            f'{(image["agreement"] or 0.0)*100:.0f}% of the time ({IMAGE_AGREE_MIN*100:.0f}% needed)'}
+        notes.append('The possession engine does not judge this footage; an image-based estimate exists but is not '
+                     f'used: {why[image["reason"]]}. Checks that need the phase are assessed only where the coach '
+                     'marks who had the ball.')
     else:
         notes.append('The possession engine did not name who had the ball on this footage, so checks that need the '
                      'phase are not assessed unless the coach marks who had the ball.')
     if coach is not None:
         if coach['spans']:
             notes.append(f'{coach["spans"]} coach-marked spans decide the phase for {coach["seconds"]:.0f} s'
-                         + ('; elsewhere the estimate is used.' if available else '.'))
+                         + ('; elsewhere the estimate is used.' if engine else '.'))
         if dropped:
             notes.append(f'{dropped} coach-marked spans were not used (outside the analysed video, overlapping or '
                          'incomplete).')
-        side = one_sided(coach, available, tl.team)
+        side = one_sided(coach, engine, tl.team)
         if side is not None:
             missing = 'B' if side == 'A' else 'A'
             notes.append(f'You marked only Team {side}\'s possession; mark Team {missing}\'s spells (or dead balls) '
                          f'too to run the checks that need Team {missing} on the ball.')
-    reason = _ascii(poss.get('reason'), 300) if not available else None
-    if not available and reason is None:
-        reason = 'No possession record for this run.'
-    quality = {'available': bool(available), 'reason': reason, 'level': level if available else 'unavailable',
+    if available:
+        reason = None
+    elif image is not None:
+        reason = _ascii((poss.get('fallbackFrom') or {}).get('reason'), 300) or 'possession-4 does not judge this footage.'
+    else:
+        reason = _ascii(poss.get('reason'), 300) or 'No possession record for this run.'
+    quality = {'available': bool(available), 'reason': reason,
+               'level': level if available else ('limited' if used else 'unavailable'),
                'coverage': round(float(cover), 3) if cover is not None else None,
                'roughShares': rough, 'notes': [n[:300] for n in notes], 'coach': coach}
+    if image is not None:
+        quality['imageEstimate'] = image
     lineup = int(np.bincount(tl.outfield).argmax()) if S_ and len(tl.outfield) else None
     in_kit = float(np.mean(tl.inKit)) if S_ else None
     conf = float(np.mean(tl.confirmedInKit)) if S_ else None

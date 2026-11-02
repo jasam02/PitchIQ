@@ -17,6 +17,7 @@ from flask import Flask, abort, jsonify, request, send_file
 from waitress import serve
 import corrections
 from download_model import get_model
+from fullmatch import routes as match_routes
 from pipeline import RESOURCES, ROOT, gpu_info, metadata, run
 from soccer import analytics, calibration, team_shape
 
@@ -30,10 +31,14 @@ def coaching_store():
 
 
 def possession_engine():
-    """soccer/possession.py, imported by the first possession request instead of at start (as coaching_store): a missing
-    or broken possession module then answers 503 on /api/possession only, never stops the server's start or the other
-    views. importlib looks in sys.modules first, so once loaded this is a lookup."""
-    return importlib.import_module('soccer.possession')
+    """The possession dispatch (soccer/possession_amateur.py: possession-4's own record wherever it judges the footage,
+    byte for byte, else its image-based estimate on small-scene footage), imported by the first possession request
+    instead of at start (as coaching_store): a missing or broken possession module then answers 503 on /api/possession
+    only, never stops the server's start or the other views. soccer/possession.py is imported first, so a broken
+    possession-4 fails here even once the dispatch is loaded. importlib looks in sys.modules first, so once loaded this
+    is a lookup."""
+    importlib.import_module('soccer.possession')
+    return importlib.import_module('soccer.possession_amateur')
 
 
 class Refused(Exception):
@@ -198,6 +203,17 @@ def preload_models():
     threading.Thread(target=load, name='preload', daemon=True).start()
 
 
+def release_models():
+    """While a full match runs its workers load their own models: free this process's pair (GPU and host memory);
+    preload_models() brings them back when the match ends."""
+    RESOURCES.release()
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:   # noqa: BLE001 - freeing is best effort
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--video', help='Optional: open this video at start. Videos can also be uploaded in the page.')
@@ -280,6 +296,10 @@ def main():
     @app.get('/possession.js')
     def possession_script():
         return send_file(ROOT/'possession.js', mimetype='application/javascript')
+
+    @app.get('/possession_stats.js')
+    def possession_stats_script():
+        return send_file(ROOT/'possession_stats.js', mimetype='application/javascript')
 
     # The observed samples of the shown result, extracted once per result file (a correction rewrites the file, so its
     # modification time changes and the samples are rebuilt with the corrected roster).
@@ -414,6 +434,12 @@ def main():
             a = shape_args()
         except (TypeError, ValueError) as error:
             return jsonify(error=str(error)), 400
+        if request.args.get('match'):
+            # Full Match Mode: the whole match's team shape (fullmatch/routes.py match_shape), observed positions.
+            try:
+                return jsonify(match['match_shape'](request.args['match'], a['mode']).report(a['team'], a.get('t0'), a.get('t1')))
+            except LookupError as error:
+                return jsonify(error=str(error)), 404
         return jsonify(shape_of(v, a['mode']).report(a['team'], a.get('t0'), a.get('t1')))
 
     @app.get('/api/team-shape/snapshot')
@@ -426,6 +452,11 @@ def main():
                 raise ValueError('t is required')
         except (TypeError, ValueError) as error:
             return jsonify(error=str(error)), 400
+        if request.args.get('match'):
+            try:
+                return jsonify(match['match_shape'](request.args['match'], a['mode']).snapshot(a['team'], a['t']))
+            except LookupError as error:
+                return jsonify(error=str(error)), 404
         return jsonify(shape_of(v, a['mode']).snapshot(a['team'], a['t']))
 
     @app.post('/api/team-shape/settings')
@@ -535,7 +566,14 @@ def main():
                 raise ValueError
         except (TypeError, ValueError):
             return jsonify(error='t0 and t1 must be seconds'), 400
-        samples = samples_of(v)
+        if request.args.get('match'):
+            # Full Match Mode: the whole match's samples (fullmatch/analytics.py), every owned frame once.
+            try:
+                samples = match['match_samples'](request.args['match'], request.args.get('orient'))
+            except LookupError as error:
+                return jsonify(error=str(error)), 404
+        else:
+            samples = samples_of(v)
         a, b = analytics.clamp_range(samples, t0, t1)
         return jsonify(analytics.report(samples, player, a, b, scope))
 
@@ -607,14 +645,89 @@ def main():
     @app.get('/api/possession')
     def possession_report():
         """Who had the ball when, and where it changed hands, for the shown run: soccer/possession.py's record of the
-        saved result as it is now (keyed by internal ids; the page shows display labels), cached per run until the
-        result changes."""
+        saved result as it is now, or on small-scene footage it declines the image-based estimate of
+        soccer/possession_amateur.py (same record shape, version possession-amateur-1; keyed by internal ids; the page
+        shows display labels), cached per run until the result changes."""
+        if request.args.get('match'):
+            # Full Match Mode: the assembled match's record (fullmatch/analytics.py), every owned frame once.
+            try:
+                return app.response_class(match['match_possession'](request.args['match']), mimetype='application/json')
+            except LookupError as error:
+                return jsonify(error=str(error)), 404
         try:
             v = possession_video(request.args.get('run'))
             text = possession_text(v.result_dir/'result.json')
         except Refused as error:
             return jsonify(error=str(error)), error.status
         return app.response_class(text, mimetype='application/json')
+
+    # ---------- possession v2 (soccer/possession_v2.py: controlled in-play possession through hidden-ball gaps) ----------
+    # A Segment run's record is computed from its saved result once per version of the file (its stoppages are the
+    # run's possession record's dead-ball spells, from possession_text above); a full match's is built on a thread by
+    # fullmatch/routes.py (POST /api/possession2/build) and read from its cache here.
+    possession2_cache = {}
+    possession2_lock = threading.Lock()
+
+    def possession2_number(name):
+        v = request.args.get(name)
+        if v in (None, ''):
+            return None
+        try:
+            x = float(v)
+        except ValueError:
+            raise Refused(f'{name} must be a number of seconds.', 400) from None
+        if not math.isfinite(x):
+            raise Refused(f'{name} must be a number of seconds.', 400)
+        return x
+
+    def possession2_segment(path):
+        st = path.stat()
+        stamp = (str(path), st.st_mtime_ns, st.st_size)
+        with possession2_lock:
+            hit = possession2_cache.get(str(path.parent))
+        if hit is not None and hit[0] == stamp:
+            return hit[1]
+        old = json.loads(possession_text(path))
+        try:
+            from soccer import possession_v2
+            result = json.loads(path.read_bytes())
+            restarts = {d['t1']: d.get('restartTeam') for d in old.get('deadSpells') or []
+                        if d.get('restartTeam') in ('A', 'B') and isinstance(d.get('t1'), (int, float))}
+            record = possession_v2.compute(result, stoppages=old.get('deadSpells') or [], restarts=restarts)
+            json.dumps(record, allow_nan=False)
+        except Exception as error:   # noqa: BLE001 - whatever broke stays in this route
+            traceback.print_exc()
+            raise Refused(f'Possession could not be worked out: {error}', 503) from None
+        with possession2_lock:
+            possession2_cache.clear()
+            possession2_cache[str(path.parent)] = (stamp, record)
+        return record
+
+    @app.get('/api/possession2')
+    def possession2_report():
+        """Controlled in-play possession for the shown run (?run=) or a full match (?match=): {state, record, range,
+        teams, definition}; t0 / t1 (seconds) add the stats of that range. A match answers building / needs-state /
+        missing until POST /api/possession2/build has made it."""
+        try:
+            t0, t1 = possession2_number('t0'), possession2_number('t1')
+        except Refused as error:
+            return jsonify(error=str(error)), error.status
+        if request.args.get('match'):
+            try:
+                return jsonify(match['match_possession2'](request.args['match'], t0, t1))
+            except LookupError as error:
+                return jsonify(error=str(error)), 404
+        try:
+            v = possession_video(request.args.get('run'))
+            record = possession2_segment(v.result_dir/'result.json')
+        except Refused as error:
+            return jsonify(error=str(error)), error.status
+        from soccer import possession_v2
+        out = {'state': 'ready', 'record': record, 'definition': possession_v2.DEFINITION,
+               'teams': {t: {'kit': None, 'label': f'Team {t}'} for t in ('A', 'B')}}
+        if t0 is not None or t1 is not None:
+            out['range'] = possession_v2.range_stats(record, t0, t1) | {'t0': t0, 't1': t1}
+        return jsonify(out)
 
     # ---------- the coaching report (soccer/coaching; storage, fingerprint and feedback in soccer/coaching/store.py) ----------
     # One build at a time, on a worker thread like a tracking run; the report is cached under the fingerprint of what it
@@ -1577,6 +1690,8 @@ def main():
         with gate:
             if state['state'] == 'running':
                 raise ValueError('A run is already processing.')
+            if match['match_busy']():
+                raise ValueError('A full match analysis is running; pause or stop it before a segment run.')
             cancel.clear()
             run_name = datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6]
             destination = v.directory/run_name
@@ -1658,6 +1773,14 @@ def main():
     def stop():
         cancel.set()
         return jsonify(ok=True)
+
+    # Full Match Mode (fullmatch/routes.py): its own routes, the shared GPU guard, and a stop when the server exits.
+    match = match_routes.register(app, {'video': lambda: active['video'], 'single_busy': lambda: state.get('state') == 'running',
+                                        'validate': validate, 'release_models': release_models, 'preload_models': preload_models,
+                                        'runs': ROOT/'runs', 'root': ROOT,
+                                        'seeds': lambda v: corrections.seed_state(None, corrections.load(v.directory))})
+    import atexit
+    atexit.register(match['match_close'])
 
     print(f"PitchIQ GPU prototype | {gpu['name']} | CUDA {gpu['cuda']}", flush=True)
     print(f"Review: http://127.0.0.1:{args.port}", flush=True)

@@ -125,7 +125,7 @@ def write_video(path, frames):
 
 @unittest.skipUnless(AVAILABLE, 'torch / ultralytics not installed')
 class PipelineRunSmokeTests(unittest.TestCase):
-    def run_clip(self, width, height):
+    def run_clip(self, width, height, start=0.0):
         with tempfile.TemporaryDirectory() as folder:
             video = os.path.join(folder, 'clip.mp4')
             if not write_video(video, clip(width, height)):
@@ -133,7 +133,7 @@ class PipelineRunSmokeTests(unittest.TestCase):
             shared = pipeline.Resources()
             shared.detector, shared.worker_detector, shared.appearance = ColourDetector(), ColourDetector(), StubAppearance()
             shared.model_path = Path('stub.pt')
-            config = {'start': 0.0, 'seconds': FRAMES/FPS, 'imageSize': 1280, 'ballTiles': True, 'debug': True}
+            config = {'start': start, 'seconds': FRAMES/FPS-start, 'imageSize': 1280, 'ballTiles': True, 'debug': True}
             output = Path(folder)/'run'
             gpu = {'name': 'stub', 'torch': torch.__version__, 'cuda': None, 'memoryGB': 0.0}
             with mock.patch.object(pipeline, 'gpu_info', lambda: gpu), mock.patch.object(pipeline, 'get_model', lambda: 'stub.pt'), \
@@ -168,6 +168,7 @@ class PipelineRunSmokeTests(unittest.TestCase):
         self.assertIn('nearPassFrames', summary['detection'])
         self.assertIn('fieldSize', summary['pitch']['registration'])   # registration.summarize got the run's pitch size
         self.assertIn('lockAudits', summary['ball'])
+        self.assertIn('fixedPlaces', summary['ball'])
         self.assertGreater(summary['meanVisiblePeople'], 0)
         self.assertEqual(report['summary']['profile'], profile)
         self.assertEqual(files['registration.json']['emitted'], len(frames))
@@ -193,6 +194,18 @@ class PipelineRunSmokeTests(unittest.TestCase):
         near = result['summary']['detection']['nearPassFrames']
         self.assertGreater(near, 0)
         self.assertEqual(near, sum(1 for n, size, classes in calls if size == pipeline.NEAR_PASS and classes == [1, 2, 3]))
+
+    def test_a_start_between_two_frames_without_a_keyframe_runs(self):
+        # The seek lands on the frame just before the start (a frame rate a little off the nominal one does this on
+        # real files: 25.00008 put frame 10896 of a match at 435.828 s for a start of 435.84 s): that frame is pre-roll
+        # with no keyframe to roll from, which the progress notice once formatted as one and crashed on.
+        start = 2.4/FPS
+        self.assertLess(round(start*FPS)/FPS, start)
+        report, files, calls = self.run_clip(1280, 720, start=start)
+        result = files['result.json']
+        self.assertEqual(result['status'], 'complete')
+        self.assertGreater(len(result['frames']), 0)
+        self.assertGreaterEqual(min(f['time'] for f in result['frames']), start-1e-6)
 
 
 # ---------- the 2D replay's stabilized block (soccer/stabilized.py, attached by pipeline.run) ----------
